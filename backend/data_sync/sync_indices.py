@@ -1,74 +1,76 @@
 """
-NSE all-indices daily OHLCV.
-Source: nsearchives.nseindia.com/content/indices/ind_close_all_{DDMMYYYY}.csv
+NSE index OHLCV via yfinance — fast, reliable, no per-day CSV fetching.
 Table: index_ohlcv
 """
 
-import io
 from datetime import date, timedelta
 import pandas as pd
-from backend.data_sync.base import (
-    NSEARCHIVES_BASE, get_client, upsert_df, log_sync,
-    last_synced_date, business_days_between, last_business_day
-)
+import yfinance as yf
+from backend.data_sync.base import upsert_df, log_sync, last_synced_date
 
 SOURCE_ID = "nse_index_close_all"
-URL_TPL = NSEARCHIVES_BASE + "/content/indices/ind_close_all_{ddmmyyyy}.csv"
-DEFAULT_START = date(2015, 1, 1)
+DEFAULT_START = date(2020, 1, 1)
+
+# Map NSE display name → Yahoo Finance ticker
+INDICES = {
+    "NIFTY 50":    "^NSEI",
+    "NIFTY BANK":  "^NSEBANK",
+    "SENSEX":      "^BSESN",
+    "NIFTY IT":    "^CNXIT",
+    "NIFTY AUTO":  "^CNXAUTO",
+    "NIFTY FMCG":  "^CNXFMCG",
+    "NIFTY PHARMA": "^CNXPHARMA",
+    "NIFTY METAL": "^CNXMETAL",
+    "NIFTY ENERGY": "^CNXENERGY",
+    "NIFTY REALTY": "^CNXREALTY",
+    "NIFTY MIDCAP 100": "^NSEMDCP50",
+}
 
 
 def run():
     last = last_synced_date(SOURCE_ID) or DEFAULT_START
-    today = last_business_day(date.today())
-    days = business_days_between(last + timedelta(days=1), today)
-
-    if not days:
+    today = date.today()
+    if last >= today:
         print(f"[{SOURCE_ID}] already up to date")
         return
 
-    print(f"[{SOURCE_ID}] fetching {len(days)} days: {days[0]} → {days[-1]}")
+    start_str = (last + timedelta(days=1)).isoformat()
+    end_str = (today + timedelta(days=1)).isoformat()
+    print(f"[{SOURCE_ID}] fetching {len(INDICES)} indices from {start_str}")
 
     all_rows, failed = [], []
-
-    with get_client() as client:
-        for d in days:
-            url = URL_TPL.format(ddmmyyyy=d.strftime("%d%m%Y"))
-            try:
-                resp = client.get(url)
-                if resp.status_code == 404:
-                    continue
-                resp.raise_for_status()
-
-                df = pd.read_csv(io.BytesIO(resp.content))
-                df.columns = [c.strip() for c in df.columns]
-
-                df = df.rename(columns={
-                    "Index Name":          "index_name",
-                    "Opening Index Value": "open",
-                    "High Index Value":    "high",
-                    "Low Index Value":     "low",
-                    "Closing Index Value": "close",
-                })
-                df = df[["index_name", "open", "high", "low", "close"]].copy()
-                df["date"] = d
-                df["index_name"] = df["index_name"].str.strip()
-                df = df[["date", "index_name", "open", "high", "low", "close"]].dropna(subset=["close"])
-                all_rows.append(df)
-
-            except Exception as e:
-                failed.append(d)
-                print(f"[{SOURCE_ID}] WARN {d}: {e}")
+    for name, ticker in INDICES.items():
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(start=start_str, end=end_str)
+            if hist.empty:
+                print(f"[{SOURCE_ID}] {name}: no data")
+                continue
+            hist = hist.reset_index()
+            df = pd.DataFrame({
+                "date":       pd.to_datetime(hist["Date"]).dt.date,
+                "index_name": name,
+                "open":       hist["Open"],
+                "high":       hist["High"],
+                "low":        hist["Low"],
+                "close":      hist["Close"],
+            })
+            df = df.dropna(subset=["close"])
+            all_rows.append(df)
+            print(f"[{SOURCE_ID}] {name}: {len(df)} rows")
+        except Exception as e:
+            failed.append(name)
+            print(f"[{SOURCE_ID}] {name}: FAILED — {e}")
 
     if not all_rows:
-        log_sync(SOURCE_ID, "failed", 0, last, f"{len(failed)} failures")
-        print(f"[{SOURCE_ID}] FAILED — no data fetched")
+        log_sync(SOURCE_ID, "failed", 0, last, f"all {len(failed)} failed")
         return
 
     combined = pd.concat(all_rows, ignore_index=True)
     count = upsert_df(combined, "index_ohlcv")
     status = "success" if not failed else "partial"
-    log_sync(SOURCE_ID, status, count, days[-1])
-    print(f"[{SOURCE_ID}] inserted {count} rows up to {days[-1]}")
+    log_sync(SOURCE_ID, status, count, today)
+    print(f"[{SOURCE_ID}] inserted {count} rows")
 
 
 if __name__ == "__main__":

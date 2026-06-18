@@ -83,7 +83,7 @@ export default function MarketDashboard() {
       ...SECTOR_INDICES.map((idx) => api.getIndices(idx, from5).then((rows) => ({ idx, rows }))),
       api.getIndices("NIFTY 50", from30),
       api.getFiiDii(from30),
-      api.getCurrency(undefined, from30),
+      api.getCurrency("USDINR", from30),
     ]).then((results) => {
       const headlines: IndexSummary[] = [];
       const sectors: { name: string; pct: number }[] = [];
@@ -115,7 +115,7 @@ export default function MarketDashboard() {
 
       const curR = results[HEADLINE_INDICES.length + SECTOR_INDICES.length + 2];
       if (curR.status === "fulfilled")
-        setCurrency([...(curR.value as CurrencyRow[])].filter(c => c.pair === "USDINR=X").sort((a, b) => a.date < b.date ? -1 : 1));
+        setCurrency([...(curR.value as CurrencyRow[])].filter(c => c.pair === "USDINR" || c.pair === "USDINR=X").sort((a, b) => a.date < b.date ? -1 : 1));
 
       setHeadlineIndices(headlines);
       setSectorPerf(sectors.sort((a, b) => b.pct - a.pct));
