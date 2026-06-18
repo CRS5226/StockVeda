@@ -80,6 +80,13 @@ export interface FiiDiiRow {
 }
 export interface CurrencyRow { date: string; pair: string; open: number; high: number; low: number; close: number }
 export interface MacroRow { date: string; metric: string; value: number; unit: string }
+export interface DashboardData {
+  headline: { name: string; close: number; prev: number; change: number; change_pct: number }[];
+  sector_perf: { name: string; pct: number }[];
+  nifty_hist: { date: string; close: number }[];
+  fii_latest: { date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number } | null;
+  usdinr: { close: number; change_pct?: number } | null;
+}
 
 // ── API functions ──────────────────────────────────────────────────────────
 
@@ -180,4 +187,6 @@ export const api = {
     apiFetch<{ monthly: string[]; quarterly: string[] }>("/macro/macro-data/metrics"),
 
   syncStatus: () => apiFetch<Record<string, unknown>[]>("/sync/status"),
+
+  getDashboard: () => apiFetch<DashboardData>("/macro/dashboard"),
 };
