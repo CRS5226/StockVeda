@@ -11,15 +11,16 @@ app.add_middleware(
         f"http://localhost:{settings.frontend_port}",
         "http://localhost:5173",
         "http://localhost:4173",
+        "https://harshitkotak.duckdns.org",
     ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(stock.router)
-app.include_router(screener.router)
-app.include_router(macro.router)
-app.include_router(backtest.router)
+app.include_router(stock.router, prefix="/api")
+app.include_router(screener.router, prefix="/api")
+app.include_router(macro.router, prefix="/api")
+app.include_router(backtest.router, prefix="/api")
 
 
 @app.get("/health")
