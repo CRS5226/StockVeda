@@ -24,10 +24,18 @@ def _yfinance_ohlcv(symbol: str, from_date: Optional[date], to_date: Optional[da
         return pd.DataFrame()
     hist = hist.reset_index()
     hist["date"]   = pd.to_datetime(hist["Date"]).dt.date
-    hist["symbol"] = symbol
+    hist["symbol"] = symbol.upper()
     hist = hist.rename(columns={"Open": "open", "High": "high", "Low": "low",
                                  "Close": "close", "Volume": "volume"})
-    return hist[["date", "open", "high", "low", "close", "volume"]].dropna(subset=["close"])
+    return hist[["date", "symbol", "open", "high", "low", "close", "volume"]].dropna(subset=["close"])
+
+
+def _cache_ohlcv(symbol: str, df: pd.DataFrame):
+    """Persist yfinance data to stock_ohlcv so subsequent requests hit the DB."""
+    from backend.data_sync.base import upsert_df
+    to_store = df[["date", "symbol", "open", "high", "low", "close", "volume"]].copy()
+    to_store["symbol"] = symbol.upper()
+    upsert_df(to_store, "stock_ohlcv")
 
 
 @router.get("/candles/{symbol}")
@@ -37,10 +45,13 @@ def get_candles(
     to_date:   Optional[date] = Query(None),
     indicators: bool = Query(False),
 ):
-    """OHLCV for charting — DB first, yfinance fallback."""
+    """OHLCV for charting — DB first, yfinance fallback (cached to DB on first fetch)."""
     df = _fetch_ohlcv(symbol, from_date, to_date)
     if df.empty:
         df = _yfinance_ohlcv(symbol, from_date, to_date)
+        if not df.empty:
+            _cache_ohlcv(symbol, df)
+            df = _fetch_ohlcv(symbol, from_date, to_date)
     if df.empty:
         raise HTTPException(404, f"No candle data for {symbol}")
     if indicators:
