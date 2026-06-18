@@ -214,3 +214,12 @@ CREATE TABLE IF NOT EXISTS market_breadth (
     nifty_pb DOUBLE,
     nifty_div_yield DOUBLE
 );
+
+CREATE TABLE IF NOT EXISTS mf_nav (
+    date DATE,
+    scheme_code VARCHAR,
+    scheme_name VARCHAR,
+    isin VARCHAR,
+    nav DOUBLE,
+    PRIMARY KEY (date, scheme_code)
+);
