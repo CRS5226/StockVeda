@@ -1,0 +1,384 @@
+{
+  "sources": [
+    {
+      "id": "nse_bhavcopy_equity",
+      "category": "micro",
+      "subcategory": "price",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/content/historical/EQUITIES/{YYYY}/{MMM}/cm{DD}{MMM}{YYYY}bhav.csv.zip",
+      "description": "NSE daily equity OHLCV for all listed stocks",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_delivery_mto",
+      "category": "micro",
+      "subcategory": "price",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/archives/equities/mto/MTO_{DDMMYYYY}.DAT",
+      "description": "NSE delivery data — delivery qty and delivery % per stock",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_quote_equity_api",
+      "category": "micro",
+      "subcategory": "price",
+      "frequency": "live",
+      "url_template": "https://www.nseindia.com/api/quote-equity?symbol={SYMBOL}",
+      "description": "NSE live quote — price, PE, PB, 52wk high/low, circuit limits",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "bse_bhavcopy",
+      "category": "micro",
+      "subcategory": "price",
+      "frequency": "daily",
+      "url_template": "https://www.bseindia.com/download/BhavCopy/Equity/EQ{DDMMYYYY}_CSV.ZIP",
+      "description": "BSE daily equity bhavcopy CSV",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_bhavcopy_fno",
+      "category": "micro",
+      "subcategory": "fno",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/content/historical/DERIVATIVES/{YYYY}/{MMM}/fo{DD}{MMM}{YYYY}bhav.csv.zip",
+      "description": "NSE F&O daily bhavcopy — futures and options OHLCV + OI",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_fno_participant_oi",
+      "category": "micro",
+      "subcategory": "fno",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/content/nsccl/fao_participant_oi_{DDMMYYYY}.csv",
+      "description": "NSE F&O participant-wise OI — FII/DII/retail OI in index futures",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_quote_derivative_api",
+      "category": "micro",
+      "subcategory": "fno",
+      "frequency": "live",
+      "url_template": "https://www.nseindia.com/api/quote-derivative?symbol={SYMBOL}",
+      "description": "NSE live F&O quote — lot size, OI, PCR, basis",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_shareholding_api",
+      "category": "micro",
+      "subcategory": "shareholding",
+      "frequency": "quarterly",
+      "url_template": "https://www.nseindia.com/api/corporate-shareHolding-with-equity?index=equities&symbol={SYMBOL}",
+      "description": "NSE quarterly shareholding — promoter/FII/MF/retail %",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "bse_shareholding",
+      "category": "micro",
+      "subcategory": "shareholding",
+      "frequency": "quarterly",
+      "url_template": "https://www.bseindia.com/corporates/shpSecurity.aspx",
+      "description": "BSE shareholding pattern page",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_financial_results",
+      "category": "micro",
+      "subcategory": "fundamental",
+      "frequency": "quarterly",
+      "url_template": "https://www.nseindia.com/companies-listing/corporate-filings-financial-results",
+      "description": "NSE corporate financial results filings page",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "bse_xbrl_listing_centre",
+      "category": "micro",
+      "subcategory": "fundamental",
+      "frequency": "quarterly",
+      "url_template": "https://listing.bseindia.com/",
+      "description": "BSE Listing Centre — XBRL structured quarterly P&L, Balance Sheet, Cash Flow",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "bse_xbrl_attach",
+      "category": "micro",
+      "subcategory": "fundamental",
+      "frequency": "quarterly",
+      "url_template": "https://www.bseindia.com/xml-data/corpfiling/AttachHis/",
+      "description": "BSE XBRL XML attachment store — raw quarterly result files",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_corporate_actions_api",
+      "category": "micro",
+      "subcategory": "corporate_action",
+      "frequency": "event",
+      "url_template": "https://www.nseindia.com/api/corporates-corporateActions?index=equities&symbol={SYMBOL}",
+      "description": "NSE corporate actions — dividends, splits, bonuses, buybacks",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "bse_corporate_actions",
+      "category": "micro",
+      "subcategory": "corporate_action",
+      "frequency": "event",
+      "url_template": "https://www.bseindia.com/corporates/corporate_act.aspx",
+      "description": "BSE corporate actions page",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_bulk_deals_csv",
+      "category": "micro",
+      "subcategory": "bulk_deals",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/archives/equities/bulk/bulk{DDMMYYYY}.csv",
+      "description": "NSE bulk deals daily CSV",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_insider_trading",
+      "category": "micro",
+      "subcategory": "corporate_action",
+      "frequency": "event",
+      "url_template": "https://www.nseindia.com/companies-listing/corporate-filings-insider-trading",
+      "description": "NSE insider trading disclosures",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "india_vix_csv",
+      "category": "macro",
+      "subcategory": "sentiment",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/content/indices/ind_vix_hist.csv",
+      "description": "India VIX full history in one CSV",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nifty_indices_historical",
+      "category": "macro",
+      "subcategory": "price",
+      "frequency": "daily",
+      "url_template": "https://www.niftyindices.com/reports/historical-data",
+      "description": "Nifty 50, BankNifty, all sector indices historical OHLCV",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_index_close_all",
+      "category": "macro",
+      "subcategory": "price",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/content/indices/ind_close_all_{DDMMYYYY}.csv",
+      "description": "NSE all indices closing prices — daily CSV",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_fii_dii_api",
+      "category": "macro",
+      "subcategory": "fii_dii",
+      "frequency": "daily",
+      "url_template": "https://www.nseindia.com/api/fiidiiTradeReact",
+      "description": "NSE FII/DII daily trade data",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "nsdl_fpi_tracker",
+      "category": "macro",
+      "subcategory": "fii_dii",
+      "frequency": "daily",
+      "url_template": "https://www.fpi.nsdl.co.in/web/Reports/Latest.aspx",
+      "description": "NSDL FPI tracker — FPI cumulative equity and debt flows",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "rbi_reference_rates",
+      "category": "macro",
+      "subcategory": "monetary",
+      "frequency": "daily",
+      "url_template": "https://www.rbi.org.in/Scripts/ReferenceRateArchive.aspx",
+      "description": "RBI daily reference rates — USD/INR and major crosses",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "rbi_dbie",
+      "category": "macro",
+      "subcategory": "monetary",
+      "frequency": "monthly",
+      "url_template": "https://dbie.rbi.org.in/DBIE/dbie.rbi?site=home",
+      "description": "RBI data warehouse — repo rate, CRR, SLR, G-Sec yields",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "mospi_cpi",
+      "category": "macro",
+      "subcategory": "inflation",
+      "frequency": "monthly",
+      "url_template": "https://mospi.gov.in/consumer-price-index",
+      "description": "MOSPI CPI — headline, food, core inflation",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "data_gov_cpi",
+      "category": "macro",
+      "subcategory": "inflation",
+      "frequency": "monthly",
+      "url_template": "https://www.data.gov.in/catalog/consumer-price-index-cpi",
+      "description": "data.gov.in CPI dataset — structured CSV download",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "mospi_iip",
+      "category": "macro",
+      "subcategory": "gdp",
+      "frequency": "monthly",
+      "url_template": "https://mospi.gov.in/index-industrial-production-iip",
+      "description": "MOSPI Index of Industrial Production",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "mospi_gdp",
+      "category": "macro",
+      "subcategory": "gdp",
+      "frequency": "quarterly",
+      "url_template": "https://mospi.gov.in/national-account-statistics",
+      "description": "MOSPI GDP and GVA quarterly data",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "gst_collections",
+      "category": "macro",
+      "subcategory": "fiscal",
+      "frequency": "monthly",
+      "url_template": "https://www.gst.gov.in/newsandupdates/",
+      "description": "GST monthly collection press releases",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "cga_fiscal_monthly",
+      "category": "macro",
+      "subcategory": "fiscal",
+      "frequency": "monthly",
+      "url_template": "https://www.cga.nic.in/MonthlyAccounts.aspx",
+      "description": "CGA monthly accounts — revenue, expenditure, fiscal deficit",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "amfi_mf_data",
+      "category": "macro",
+      "subcategory": "mutual_fund",
+      "frequency": "monthly",
+      "url_template": "https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?frmdt={DD}-{MMM}-{YYYY}&todt={DD}-{MMM}-{YYYY}",
+      "description": "AMFI NAV history — daily MF NAV data (portal URL, old site URL is 404)",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_currency_bhavcopy",
+      "category": "macro",
+      "subcategory": "currency",
+      "frequency": "daily",
+      "url_template": "https://archives.nseindia.com/content/historical/CURRENCY/{YYYY}/{MMM}/cd{DD}{MMM}{YYYY}bhav.csv.zip",
+      "description": "NSE currency segment daily bhavcopy — USD/INR, EUR/INR, GBP/INR futures",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "ppac_crude_basket",
+      "category": "macro",
+      "subcategory": "commodity",
+      "frequency": "daily",
+      "url_template": "https://ppac.gov.in/price-monitor",
+      "description": "PPAC India crude oil basket price",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "fred_us_fedfunds",
+      "category": "macro",
+      "subcategory": "global",
+      "frequency": "monthly",
+      "url_template": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=FEDFUNDS",
+      "description": "FRED US Federal Funds Rate — free CSV download",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "fred_us_10yr_yield",
+      "category": "macro",
+      "subcategory": "global",
+      "frequency": "daily",
+      "url_template": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10",
+      "description": "FRED US 10-Year Treasury yield — free CSV download",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "fred_us_cpi",
+      "category": "macro",
+      "subcategory": "global",
+      "frequency": "monthly",
+      "url_template": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL",
+      "description": "FRED US CPI inflation — free CSV download",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "fred_yield_curve",
+      "category": "macro",
+      "subcategory": "global",
+      "frequency": "daily",
+      "url_template": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10Y2Y",
+      "description": "FRED US yield curve spread (10yr minus 2yr) — free CSV",
+      "needs_session": false,
+      "status": "unchecked"
+    },
+    {
+      "id": "nse_ipo_upcoming",
+      "category": "macro",
+      "subcategory": "ipo",
+      "frequency": "event",
+      "url_template": "https://www.nseindia.com/market-data/all-upcoming-issues-ipo",
+      "description": "NSE upcoming IPOs list",
+      "needs_session": true,
+      "status": "unchecked"
+    },
+    {
+      "id": "bse_ipo_calendar",
+      "category": "macro",
+      "subcategory": "ipo",
+      "frequency": "event",
+      "url_template": "https://www.bseindia.com/markets/PublicIssues/IssueCalender.aspx",
+      "description": "BSE IPO issue calendar",
+      "needs_session": false,
+      "status": "unchecked"
+    }
+  ]
+}
