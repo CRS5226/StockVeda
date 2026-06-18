@@ -42,9 +42,9 @@ export default function CandleChart({ candles, loading }: Props) {
   );
   const [oscillator, setOscillator] = useState<Oscillator>("rsi");
 
-  const CHART_BG  = "#0a0a0f";
-  const GRID      = "#1f2937";
-  const TEXT      = "#9ca3af";
+  const CHART_BG  = "#ffffff";
+  const GRID      = "#f1f5f9";
+  const TEXT      = "#64748b";
 
   // Init main chart
   useEffect(() => {

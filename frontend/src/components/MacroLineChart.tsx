@@ -25,10 +25,10 @@ export default function MacroLineChart({ series, height = 220, title }: Props) {
     if (chart.current) { chart.current.remove(); chart.current = null; }
 
     const c = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#0a0a0f" }, textColor: "#9ca3af" },
-      grid: { vertLines: { color: "#1f2937" }, horzLines: { color: "#1f2937" } },
-      rightPriceScale: { borderColor: "#1f2937" },
-      timeScale: { borderColor: "#1f2937", timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#64748b" },
+      grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
+      rightPriceScale: { borderColor: "#f1f5f9" },
+      timeScale: { borderColor: "#f1f5f9", timeVisible: true },
       width: ref.current.clientWidth,
       height,
     });

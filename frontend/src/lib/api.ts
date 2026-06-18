@@ -85,7 +85,13 @@ export interface MacroRow { date: string; metric: string; value: number; unit: s
 
 export const api = {
   searchSymbols: (q: string) =>
-    apiFetch<string[]>(`/stock/search?q=${encodeURIComponent(q)}`),
+    apiFetch<{ symbol: string; name: string }[]>(`/stock/search?q=${encodeURIComponent(q)}`),
+
+  getStockInfo: (symbol: string) =>
+    apiFetch<{ symbol: string; company_name: string | null; series: string | null; isin: string | null }>(`/stock/info/${symbol}`),
+
+  triggerSync: (source: string) =>
+    apiFetch<{ status: string; source: string }>(`/sync/trigger/${source}`, { method: "POST" }),
 
   getCandles: (symbol: string, fromDate?: string, withIndicators = false) => {
     const p = new URLSearchParams();

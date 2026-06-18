@@ -43,6 +43,7 @@ def sync_status():
 
 
 _SYNC_MODULES = {
+    "symbols":           "backend.data_sync.seed_symbols",
     "bhavcopy":          "backend.data_sync.sync_bhavcopy",
     "indices":           "backend.data_sync.sync_indices",
     "fno_oi":            "backend.data_sync.sync_fno",

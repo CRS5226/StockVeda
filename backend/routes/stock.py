@@ -82,11 +82,31 @@ def get_ohlcv(
 @router.get("/search")
 def search_symbols(q: str = Query(..., min_length=1)):
     db = get_db()
+    # Primary: nse_symbols table (always populated via seed_symbols)
+    rows = db.execute(
+        "SELECT symbol, company_name FROM nse_symbols WHERE symbol ILIKE ? ORDER BY symbol LIMIT 20",
+        [f"{q.upper()}%"]
+    ).fetchall()
+    if rows:
+        return [{"symbol": r[0], "name": r[1]} for r in rows]
+    # Fallback: stock_ohlcv if symbols table not yet seeded
     rows = db.execute(
         "SELECT DISTINCT symbol FROM stock_ohlcv WHERE symbol ILIKE ? ORDER BY symbol LIMIT 20",
         [f"{q.upper()}%"]
     ).fetchall()
-    return [r[0] for r in rows]
+    return [{"symbol": r[0], "name": ""} for r in rows]
+
+
+@router.get("/info/{symbol}")
+def get_stock_info(symbol: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT symbol, company_name, series, isin FROM nse_symbols WHERE symbol = ?",
+        [symbol.upper()]
+    ).fetchone()
+    if not row:
+        return {"symbol": symbol.upper(), "company_name": None, "series": None, "isin": None}
+    return {"symbol": row[0], "company_name": row[1], "series": row[2], "isin": row[3]}
 
 
 @router.get("/fundamentals/{symbol}")

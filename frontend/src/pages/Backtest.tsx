@@ -23,7 +23,7 @@ export default function Backtest() {
 
   const search = (q: string, set: (r: SearchResult[]) => void) => {
     if (!q.trim()) { set([]); return; }
-    api.searchSymbols(q).then((syms) => set(syms.map((s) => ({ symbol: s })))).catch(() => set([]));
+    api.searchSymbols(q).then((syms) => set(syms.map((s) => ({ symbol: s.symbol, name: s.name })))).catch(() => set([]));
   };
 
   const handleQ1 = (v: string) => {

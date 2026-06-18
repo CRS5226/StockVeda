@@ -215,6 +215,13 @@ CREATE TABLE IF NOT EXISTS market_breadth (
     nifty_div_yield DOUBLE
 );
 
+CREATE TABLE IF NOT EXISTS nse_symbols (
+    symbol VARCHAR PRIMARY KEY,
+    company_name VARCHAR,
+    series VARCHAR,
+    isin VARCHAR
+);
+
 CREATE TABLE IF NOT EXISTS mf_nav (
     date DATE,
     scheme_code VARCHAR,

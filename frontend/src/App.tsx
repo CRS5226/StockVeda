@@ -7,7 +7,7 @@ import Backtest from "./pages/Backtest";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Navbar />
       <main className="flex-1 max-w-[1400px] w-full mx-auto px-4 pt-[72px] pb-6">
         <Routes>
