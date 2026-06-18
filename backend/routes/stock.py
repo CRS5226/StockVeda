@@ -12,6 +12,43 @@ import pandas as pd
 router = APIRouter(prefix="/stock", tags=["stock"])
 
 
+def _yfinance_ohlcv(symbol: str, from_date: Optional[date], to_date: Optional[date]) -> pd.DataFrame:
+    """Fetch OHLCV from Yahoo Finance as fallback when DB is empty."""
+    import yfinance as yf
+    from datetime import timedelta
+    start = (from_date or date(2020, 1, 1)).isoformat()
+    end   = ((to_date or date.today()) + timedelta(days=1)).isoformat()
+    t = yf.Ticker(f"{symbol}.NS")
+    hist = t.history(start=start, end=end)
+    if hist.empty:
+        return pd.DataFrame()
+    hist = hist.reset_index()
+    hist["date"]   = pd.to_datetime(hist["Date"]).dt.date
+    hist["symbol"] = symbol
+    hist = hist.rename(columns={"Open": "open", "High": "high", "Low": "low",
+                                 "Close": "close", "Volume": "volume"})
+    return hist[["date", "open", "high", "low", "close", "volume"]].dropna(subset=["close"])
+
+
+@router.get("/candles/{symbol}")
+def get_candles(
+    symbol: str,
+    from_date: Optional[date] = Query(None),
+    to_date:   Optional[date] = Query(None),
+    indicators: bool = Query(False),
+):
+    """OHLCV for charting — DB first, yfinance fallback."""
+    df = _fetch_ohlcv(symbol, from_date, to_date)
+    if df.empty:
+        df = _yfinance_ohlcv(symbol, from_date, to_date)
+    if df.empty:
+        raise HTTPException(404, f"No candle data for {symbol}")
+    if indicators:
+        df = add_indicators(df)
+    df["date"] = df["date"].astype(str)
+    return df.where(pd.notna(df), None).to_dict(orient="records")
+
+
 def _fetch_ohlcv(symbol: str, from_date: Optional[date], to_date: Optional[date]) -> pd.DataFrame:
     db = get_db()
     sql = "SELECT date, open, high, low, close, volume FROM stock_ohlcv WHERE symbol = ?"
