@@ -1,15 +1,35 @@
 import math
 import datetime
+import threading
 import duckdb
 import pandas as pd
 from pathlib import Path
 from backend.config import settings
 
-_conn: duckdb.DuckDBPyConnection | None = None
+# Thread-local storage so every FastAPI worker thread gets its own DuckDB connection.
+# DuckDB supports multiple concurrent connections to the same file (WAL mode).
+_tls = threading.local()
+_db_path: str | None = None
+_schema_sql: str | None = None
+
+
+def get_db() -> duckdb.DuckDBPyConnection:
+    global _db_path, _schema_sql
+    if not hasattr(_tls, "conn") or _tls.conn is None:
+        if _db_path is None:
+            _db_path = settings.db_path
+            Path(_db_path).parent.mkdir(parents=True, exist_ok=True)
+            _schema_sql = (Path(__file__).parent / "schema.sql").read_text()
+        conn = duckdb.connect(_db_path)
+        conn.execute(_schema_sql)
+        _tls.conn = conn
+    return _tls.conn
 
 
 def df_to_records(df: pd.DataFrame) -> list:
     """Convert DataFrame to JSON-safe records (NaN → null, dates → YYYY-MM-DD)."""
+    if df is None or (hasattr(df, "empty") and df.empty):
+        return []
     df = df.copy()
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -27,13 +47,3 @@ def df_to_records(df: pd.DataFrame) -> list:
                 new_row[k] = v
         cleaned.append(new_row)
     return cleaned
-
-
-def get_db() -> duckdb.DuckDBPyConnection:
-    global _conn
-    if _conn is None:
-        Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
-        _conn = duckdb.connect(settings.db_path)
-        schema = Path(__file__).parent / "schema.sql"
-        _conn.execute(schema.read_text())
-    return _conn

@@ -23,7 +23,7 @@ app.include_router(macro.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
     from backend.db.connection import get_db
     db = get_db()
@@ -31,7 +31,7 @@ def health():
     return {"status": "ok", "tables": len(tables)}
 
 
-@app.get("/sync/status")
+@app.get("/api/sync/status")
 def sync_status():
     from backend.db.connection import get_db, df_to_records
     db = get_db()
@@ -42,6 +42,7 @@ def sync_status():
 _SYNC_MODULES = {
     "symbols":           "backend.data_sync.seed_symbols",
     "bhavcopy":          "backend.data_sync.sync_bhavcopy",
+    "delivery":          "backend.data_sync.sync_bhavcopy",
     "indices":           "backend.data_sync.sync_indices",
     "fno_oi":            "backend.data_sync.sync_fno",
     "fno_bhavcopy":      "backend.data_sync.sync_fno_bhavcopy",
@@ -70,7 +71,7 @@ def _run_sync(source: str):
         traceback.print_exc()
 
 
-@app.post("/sync/trigger/{source}")
+@app.post("/api/sync/trigger/{source}")
 def trigger_sync(source: str, background_tasks: BackgroundTasks):
     if source not in _SYNC_MODULES:
         raise HTTPException(400, f"Unknown source. Valid: {sorted(_SYNC_MODULES)}")
