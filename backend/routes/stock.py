@@ -5,7 +5,7 @@ Stock routes: OHLCV, fundamentals, delivery, shareholding, corporate actions, in
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
-from backend.db.connection import get_db
+from backend.db.connection import get_db, df_to_records
 from backend.core.indicators import add_indicators
 import pandas as pd
 
@@ -45,8 +45,7 @@ def get_candles(
         raise HTTPException(404, f"No candle data for {symbol}")
     if indicators:
         df = add_indicators(df)
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 def _fetch_ohlcv(symbol: str, from_date: Optional[date], to_date: Optional[date]) -> pd.DataFrame:
@@ -75,8 +74,7 @@ def get_ohlcv(
         raise HTTPException(404, f"No OHLCV data for {symbol}")
     if indicators:
         df = add_indicators(df)
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/search")
@@ -128,8 +126,7 @@ def get_fundamentals(
     ).df()
     if rows.empty:
         raise HTTPException(404, f"No fundamentals for {symbol}")
-    rows["period"] = rows["period"].astype(str)
-    return rows.where(pd.notna(rows), None).to_dict(orient="records")
+    return df_to_records(rows)
 
 
 @router.get("/delivery/{symbol}")
@@ -149,8 +146,7 @@ def get_delivery(
     df = db.execute(sql, params).df()
     if df.empty:
         raise HTTPException(404, f"No delivery data for {symbol}")
-    df["date"] = df["date"].astype(str)
-    return df.to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/shareholding/{symbol}")
@@ -163,8 +159,7 @@ def get_shareholding(symbol: str):
     ).df()
     if df.empty:
         raise HTTPException(404, f"No shareholding data for {symbol}")
-    df["period"] = df["period"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/corporate-actions/{symbol}")
@@ -175,9 +170,7 @@ def get_corporate_actions(symbol: str):
            FROM corporate_actions WHERE symbol = ? ORDER BY ex_date DESC LIMIT 50""",
         [symbol.upper()]
     ).df()
-    df["ex_date"]     = df["ex_date"].astype(str)
-    df["record_date"] = df["record_date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/insider-trades/{symbol}")
@@ -196,9 +189,7 @@ def get_insider_trades(
         sql += " AND trade_date <= ?"; params.append(to_date)
     sql += " ORDER BY trade_date DESC LIMIT 100"
     df = db.execute(sql, params).df()
-    for col in ["trade_date", "filing_date"]:
-        df[col] = df[col].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/fno/{symbol}")
@@ -220,7 +211,4 @@ def get_fno_ohlcv(
         sql += " AND date <= ?"; params.append(to_date)
     sql += f" ORDER BY date DESC, expiry LIMIT {limit}"
     df = db.execute(sql, params).df()
-    for col in ["date", "expiry"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)

@@ -33,13 +33,10 @@ def health():
 
 @app.get("/sync/status")
 def sync_status():
-    from backend.db.connection import get_db
-    import pandas as pd
+    from backend.db.connection import get_db, df_to_records
     db = get_db()
     df = db.execute("SELECT * FROM sync_log ORDER BY last_synced_at DESC").df()
-    df["last_synced_at"]    = df["last_synced_at"].astype(str)
-    df["last_date_fetched"] = df["last_date_fetched"].astype(str)
-    return df.to_dict(orient="records")
+    return df_to_records(df)
 
 
 _SYNC_MODULES = {

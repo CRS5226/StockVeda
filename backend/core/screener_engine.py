@@ -123,7 +123,8 @@ def run_screen(conditions: list[Condition], limit: int = 200) -> list[dict]:
     """
 
     try:
+        from backend.db.connection import df_to_records
         result = db.execute(sql).df()
-        return result.to_dict(orient="records")
+        return df_to_records(result)
     except Exception as e:
         raise RuntimeError(f"Screen query failed: {e}")

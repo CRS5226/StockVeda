@@ -5,7 +5,7 @@ Macro routes: indices, FII/DII flows, FnO OI, currency, macro monthly/quarterly,
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
-from backend.db.connection import get_db
+from backend.db.connection import get_db, df_to_records
 import pandas as pd
 
 router = APIRouter(prefix="/macro", tags=["macro"])
@@ -29,8 +29,7 @@ def get_indices(
         sql += " AND date <= ?"; params.append(to_date)
     sql += f" ORDER BY date DESC, index_name LIMIT {limit}"
     df = db.execute(sql, params).df()
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/indices/list")
@@ -57,8 +56,7 @@ def get_fii_dii(
     df = db.execute(sql, params).df()
     if df.empty:
         raise HTTPException(404, "No FII/DII data")
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/fno-oi")
@@ -79,8 +77,7 @@ def get_fno_oi(
         sql += " AND date <= ?"; params.append(to_date)
     sql += f" ORDER BY date DESC LIMIT {limit}"
     df = db.execute(sql, params).df()
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/currency")
@@ -101,8 +98,7 @@ def get_currency(
         sql += " AND date <= ?"; params.append(to_date)
     sql += f" ORDER BY date DESC LIMIT {limit}"
     df = db.execute(sql, params).df()
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/macro-data")
@@ -124,8 +120,7 @@ def get_macro_data(
         sql += " AND date <= ?"; params.append(to_date)
     sql += " ORDER BY metric, date DESC LIMIT 1000"
     df = db.execute(sql, params).df()
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/macro-data/metrics")
@@ -151,8 +146,7 @@ def get_market_breadth(
         sql += " AND date <= ?"; params.append(to_date)
     sql += f" ORDER BY date DESC LIMIT {limit}"
     df = db.execute(sql, params).df()
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
 
 
 @router.get("/mf-nav")
@@ -176,5 +170,4 @@ def get_mf_nav(
         sql += " AND date <= ?"; params.append(to_date)
     sql += f" ORDER BY date DESC, scheme_name LIMIT {limit}"
     df = db.execute(sql, params).df()
-    df["date"] = df["date"].astype(str)
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    return df_to_records(df)
