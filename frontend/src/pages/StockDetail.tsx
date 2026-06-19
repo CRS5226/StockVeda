@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   TrendingUp, BarChart2, Users, Building2,
   ArrowUpRight, ArrowDownRight, FlaskConical,
-  ChevronRight, Calendar, Layers, RefreshCw, Info, CheckCircle, AlertCircle, Loader2,
+  ChevronRight, Calendar, Layers, RefreshCw, Info, Loader2,
 } from "lucide-react";
 import { useStockStore } from "../store/useStockStore";
 import { useBacktestStore } from "../store/useBacktestStore";
@@ -16,7 +16,6 @@ type Range = "1M" | "3M" | "6M" | "1Y" | "3Y" | "MAX";
 type Tab = "fundamentals" | "delivery" | "shareholding" | "corp" | "fno" | "backtest";
 
 const RANGES: Range[] = ["1M", "3M", "6M", "1Y", "3Y", "MAX"];
-const SYNC_SOURCES = ["bhavcopy", "fundamentals", "delivery", "shareholding", "corporate_actions", "fno_bhavcopy"];
 
 function fromDate(r: Range) {
   if (r === "MAX") return undefined;
@@ -72,8 +71,7 @@ export default function StockDetail() {
   const [tab, setTab] = useState<Tab>("fundamentals");
   const [fundPeriod, setFundPeriod] = useState<"Q" | "A">("Q");
   const [stockInfo, setStockInfo] = useState<{ company_name: string | null; isin: string | null } | null>(null);
-  const [syncing, setSyncing] = useState<string | null>(null);
-  const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [syncingTab, setSyncingTab] = useState<Tab | null>(null);
   const [prefetching, setPrefetching] = useState(false);
 
   useEffect(() => { fetchCandles(sym, fromDate(range), true); }, [sym, range]);
@@ -102,23 +100,37 @@ export default function StockDetail() {
       .finally(() => setPrefetching(false));
   }, [sym]);
 
-  const triggerSync = async (source: string) => {
-    setSyncing(source); setSyncMsg(null);
-    try {
-      await api.triggerSync(source);
-      setSyncMsg({ text: `${source} sync queued — data will refresh in ~30s`, ok: true });
-      setTimeout(() => {
-        fetchCandles(sym, fromDate(range), true);
-        fetchFundamentals(sym, fundPeriod);
-        if (source === "bhavcopy" || source === "delivery") fetchDelivery(sym, fromDate("1Y"));
-        if (source === "shareholding") fetchShareholding(sym);
-        if (source === "corporate_actions") fetchCorporateActions(sym);
-        if (source === "fno_bhavcopy") fetchFno(sym);
-      }, 15000);
-    } catch {
-      setSyncMsg({ text: `Failed to trigger ${source} sync`, ok: false });
+  // Poll an API fn every `interval` ms until it returns data (or `maxWait` ms elapses)
+  const pollData = async (apiFn: () => Promise<unknown[]>, maxWait = 90_000, interval = 3_000) => {
+    const deadline = Date.now() + maxWait;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, interval));
+      try { if ((await apiFn()).length > 0) return true; } catch { /* not ready yet */ }
     }
-    setSyncing(null);
+    return false;
+  };
+
+  const syncTabData = async (source: string, forTab: Tab) => {
+    setSyncingTab(forTab);
+    try {
+      if (["fundamentals", "shareholding", "corporate_actions"].includes(source)) {
+        // yfinance-backed: prefetch runs synchronously (~5-10 s)
+        await api.prefetchSymbol(sym);
+      } else if (source === "bhavcopy" || source === "delivery") {
+        await api.triggerSync(source);
+        await pollData(() => api.getDelivery(sym, fromDate("1Y")));
+      } else if (source === "fno_bhavcopy") {
+        await api.triggerSync(source);
+        await pollData(() => api.getFno(sym));
+      }
+      // Refresh the relevant store slice so data appears immediately
+      if (forTab === "fundamentals") await fetchFundamentals(sym, fundPeriod);
+      if (forTab === "delivery")     await fetchDelivery(sym, fromDate("1Y"));
+      if (forTab === "shareholding") await fetchShareholding(sym);
+      if (forTab === "corp")         await fetchCorporateActions(sym);
+      if (forTab === "fno")          await fetchFno(sym);
+    } catch { /* silent */ }
+    setSyncingTab(null);
   };
 
   const last = candles[candles.length - 1];
@@ -194,40 +206,6 @@ export default function StockDetail() {
                   <span className="text-xs text-slate-400">NSE EOD · data as of {last.date}</span>
                 </div>
               </>
-            )}
-          </div>
-
-          {/* Sync panel */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <RefreshCw size={14} className="text-blue-500" />
-                <span className="text-sm font-semibold text-slate-700">Sync Data for {sym}</span>
-              </div>
-              {prefetching && (
-                <div className="flex items-center gap-1.5 text-xs text-blue-500">
-                  <Loader2 size={12} className="animate-spin" />
-                  Fetching fresh data…
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {SYNC_SOURCES.map((src) => (
-                <button key={src} onClick={() => triggerSync(src)}
-                  disabled={syncing === src || prefetching}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
-                  {syncing === src
-                    ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" />
-                    : <RefreshCw size={11} />}
-                  {src.replace("_", " ")}
-                </button>
-              ))}
-            </div>
-            {syncMsg && (
-              <div className={`flex items-center gap-2 mt-2 text-xs ${syncMsg.ok ? "text-emerald-600" : "text-red-500"}`}>
-                {syncMsg.ok ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
-                {syncMsg.text}
-              </div>
             )}
           </div>
 
@@ -318,13 +296,19 @@ export default function StockDetail() {
               )}
 
               {tab === "delivery" && (
-                delivery.length === 0 ? (
+                syncingTab === "delivery" ? (
+                  <div className="flex flex-col items-center gap-2 py-10">
+                    <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+                    <div className="text-xs text-slate-400">Syncing bhavcopy from NSE — may take a minute…</div>
+                  </div>
+                ) : delivery.length === 0 ? (
                   <div className="flex flex-col items-center gap-3 py-8">
-                    <div className="text-xs text-slate-400">Delivery data comes from NSE bhavcopy — not available via yfinance.</div>
-                    <button onClick={() => triggerSync("bhavcopy")} disabled={syncing !== null}
+                    <div className="text-xs text-slate-400 text-center">
+                      Delivery data comes from NSE bhavcopy — not available via yfinance.
+                    </div>
+                    <button onClick={() => syncTabData("bhavcopy", "delivery")} disabled={syncingTab !== null}
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
-                      {syncing === "bhavcopy" ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" /> : <RefreshCw size={11} />}
-                      Sync bhavcopy now
+                      <RefreshCw size={11} /> Sync bhavcopy
                     </button>
                   </div>
                 ) : (
@@ -334,13 +318,17 @@ export default function StockDetail() {
               )}
 
               {tab === "shareholding" && (
-                shareholding.length === 0 ? (
+                syncingTab === "shareholding" ? (
+                  <div className="flex flex-col items-center gap-2 py-10">
+                    <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+                    <div className="text-xs text-slate-400">Fetching shareholding from yfinance…</div>
+                  </div>
+                ) : shareholding.length === 0 ? (
                   <div className="flex flex-col items-center gap-3 py-8">
                     <div className="text-xs text-slate-400 text-center">Quarterly shareholding pattern requires NSE sync.<br/>Current snapshot is in Key Metrics above.</div>
-                    <button onClick={() => triggerSync("shareholding")} disabled={syncing !== null}
+                    <button onClick={() => syncTabData("shareholding", "shareholding")} disabled={syncingTab !== null}
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
-                      {syncing === "shareholding" ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" /> : <RefreshCw size={11} />}
-                      Sync shareholding
+                      <RefreshCw size={11} /> Sync shareholding
                     </button>
                   </div>
                 ) : shareholding.length <= 2 ? (
@@ -426,16 +414,21 @@ export default function StockDetail() {
               )}
 
               {tab === "fno" && (() => {
+                if (syncingTab === "fno") return (
+                  <div className="flex flex-col items-center gap-2 py-10">
+                    <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+                    <div className="text-xs text-slate-400">Syncing F&amp;O bhavcopy from NSE…</div>
+                  </div>
+                );
                 if (fno.length === 0) return (
                   <div className="flex flex-col items-center gap-3 py-8">
                     <div className="text-xs text-slate-400 text-center">
                       F&O data shows EOD futures &amp; options: open interest, price, and volume by strike &amp; expiry.<br/>
                       Sourced from NSE bhavcopy — sync below to populate.
                     </div>
-                    <button onClick={() => triggerSync("fno_bhavcopy")} disabled={syncing !== null}
+                    <button onClick={() => syncTabData("fno_bhavcopy", "fno")} disabled={syncingTab !== null}
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
-                      {syncing === "fno_bhavcopy" ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" /> : <RefreshCw size={11} />}
-                      Sync F&amp;O bhavcopy
+                      <RefreshCw size={11} /> Sync F&amp;O bhavcopy
                     </button>
                   </div>
                 );
