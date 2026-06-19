@@ -1,5 +1,8 @@
 .env
 *.duckdb
+*.duckdb.wal
+*.duckdb.tmp/
+*.tsbuildinfo
 __pycache__/
 *.pyc
 .venv/

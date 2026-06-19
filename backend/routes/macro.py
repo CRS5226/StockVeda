@@ -98,6 +98,65 @@ def get_dashboard():
     }
 
 
+@router.get("/dashboard/status")
+def dashboard_status():
+    """Cheap check used by the frontend to decide whether a first-time bootstrap is needed."""
+    db = get_db()
+    n_idx = db.execute("SELECT COUNT(*) FROM index_ohlcv").fetchone()[0]
+    n_sym = db.execute("SELECT COUNT(*) FROM nse_symbols").fetchone()[0]
+    # "populated" = everything the front page needs is present (dashboard tiles + search dropdown)
+    return {"populated": n_idx > 0 and n_sym > 0, "index_rows": n_idx, "symbol_rows": n_sym}
+
+
+@router.post("/bootstrap")
+def bootstrap():
+    """
+    First-run seeding for an empty database.
+
+    Synchronously fetches the data that powers the front page:
+      - NSE symbol master  -> the search-bar dropdown        (nsearchives CSV, any IP)
+      - market indices     -> Nifty/Bank Nifty/Sensex tiles  (yfinance, any IP)
+      - currency pairs     -> USD/INR card                   (yfinance, any IP)
+      - FII/DII flows      -> flows card                     (NSE, needs Indian IP)
+
+    Each source is seeded only if its table is still empty, so this is fully
+    idempotent and safe to call on every page load. Per-stock OHLCV /
+    fundamentals are NOT bulk-downloaded here — they are fetched on demand
+    (yfinance) when a stock is opened.
+    """
+    db = get_db()
+    results: dict[str, str] = {}
+
+    def _seed(name: str, table: str, run):
+        """Run a sync only if its table is empty; record the outcome."""
+        try:
+            n = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            if n > 0:
+                results[name] = "already_present"
+                return
+            run()
+            results[name] = "ok"
+        except Exception as e:  # noqa: BLE001 — one source failing must not abort the rest
+            results[name] = f"failed: {e}"
+
+    # Symbol master powers the search dropdown — seed it first so search works immediately.
+    from backend.data_sync import seed_symbols, sync_indices, sync_currency
+    _seed("symbols",  "nse_symbols",    seed_symbols.run)
+    _seed("indices",  "index_ohlcv",    sync_indices.run)
+    _seed("currency", "currency_ohlcv", sync_currency.run)
+
+    # FII/DII is NSE-only (Indian IP); isolate its import too so it can never break setup.
+    try:
+        from backend.data_sync import sync_fii_dii
+        _seed("fii_dii", "fii_dii_flows", sync_fii_dii.run)
+    except Exception as e:  # noqa: BLE001
+        results["fii_dii"] = f"failed: {e}"
+
+    n_idx = db.execute("SELECT COUNT(*) FROM index_ohlcv").fetchone()[0]
+    n_sym = db.execute("SELECT COUNT(*) FROM nse_symbols").fetchone()[0]
+    return {"status": "ok", "index_rows": n_idx, "symbol_rows": n_sym, "sources": results}
+
+
 @router.get("/indices")
 def get_indices(
     index_name: Optional[str] = Query(None, description="Partial match, e.g. NIFTY 50"),

@@ -238,4 +238,14 @@ export const api = {
   syncStatus: () => apiFetch<Record<string, unknown>[]>("/sync/status"),
 
   getDashboard: () => apiFetch<DashboardData>("/macro/dashboard"),
+
+  dashboardStatus: () =>
+    apiFetch<{ populated: boolean; index_rows: number }>("/macro/dashboard/status"),
+
+  // First-run seeding for an empty DB (indices + currency via yfinance, FII/DII best-effort).
+  // No-op once indices exist, so it's safe to call on page load.
+  bootstrap: () =>
+    apiFetch<{ status: string; index_rows: number; sources?: Record<string, string> }>(
+      "/macro/bootstrap", { method: "POST" }
+    ),
 };

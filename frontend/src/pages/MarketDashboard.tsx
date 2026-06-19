@@ -61,20 +61,58 @@ export default function MarketDashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getDashboard()
-      .then((d) => { setData(d); setLoading(false); })
-      .catch((e) => { setError(e.message); setLoading(false); });
+    let cancelled = false;
+
+    async function load() {
+      try {
+        // Fresh DB: seed indices/currency + the search-bar symbol list before loading.
+        const status = await api.dashboardStatus();
+        if (cancelled) return;
+        if (!status.populated) {
+          setSeeding(true);
+          await api.bootstrap();
+          if (cancelled) return;
+        }
+        const d = await api.getDashboard();
+        if (cancelled) return;
+        setData(d);
+        setSeeding(false);
+        setLoading(false);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setSeeding(false);
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
         <div className="w-10 h-10 border-3 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
-        <div className="text-slate-500 text-sm">Loading market data…</div>
-        <div className="text-xs text-slate-400">Fetching indices, FII/DII flows, currency…</div>
+        {seeding ? (
+          <>
+            <div className="text-slate-500 text-sm">Setting up for the first time…</div>
+            <div className="text-xs text-slate-400 text-center max-w-xs">
+              Downloading market data (Nifty, Sensex, Bank Nifty, sectors &amp; currency)
+              from Yahoo Finance and saving it locally. This runs only once and may take
+              up to a minute.
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-slate-500 text-sm">Loading market data…</div>
+            <div className="text-xs text-slate-400">Fetching indices, FII/DII flows, currency…</div>
+          </>
+        )}
       </div>
     );
   }

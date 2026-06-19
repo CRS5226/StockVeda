@@ -15,6 +15,7 @@ import MacroLineChart from "../components/MacroLineChart";
 type Range = "1M" | "3M" | "6M" | "1Y" | "3Y" | "MAX";
 type Tab = "fundamentals" | "delivery" | "shareholding" | "corp" | "backtest" | "news";
 type SectorRange = "1M" | "3M" | "6M" | "1Y";
+type FundView = "pl" | "bs" | "cf";
 
 const RANGES: Range[] = ["1M", "3M", "6M", "1Y", "3Y", "MAX"];
 const SECTOR_RANGES: SectorRange[] = ["1M", "3M", "6M", "1Y"];
@@ -33,6 +34,18 @@ function fmt(n?: number | null, dec = 2) {
 function fmtCr(n?: number | null) {
   if (n == null) return "—";
   return `₹${(n / 1e7).toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`;
+}
+// Google News RSS pubDate is RFC-822 (e.g. "Wed, 18 Jun 2026 10:30:00 GMT").
+function newsTime(pub?: string) {
+  const t = pub ? new Date(pub).getTime() : NaN;
+  return Number.isNaN(t) ? 0 : t;
+}
+function fmtNewsDate(pub: string) {
+  const t = newsTime(pub);
+  if (!t) return pub.slice(0, 16); // fallback if unparseable
+  return new Date(t).toLocaleString("en-IN", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 function MetricCard({ label, value, icon: Icon, up }: {
@@ -72,6 +85,7 @@ export default function StockDetail() {
   const [range, setRange] = useState<Range>("1Y");
   const [tab, setTab] = useState<Tab>("fundamentals");
   const [fundPeriod, setFundPeriod] = useState<"Q" | "A">("Q");
+  const [fundView, setFundView] = useState<FundView>("pl");
   const [stockInfo, setStockInfo] = useState<{ company_name: string | null; isin: string | null } | null>(null);
   const [syncingTab, setSyncingTab] = useState<Tab | null>(null);
   const [prefetching, setPrefetching] = useState(false);
@@ -137,7 +151,9 @@ export default function StockDetail() {
         await api.prefetchSymbol(sym);
       } else if (source === "bhavcopy" || source === "delivery") {
         await api.triggerSync(source);
-        await pollData(() => api.getDelivery(sym, fromDate("1Y")));
+        // First bhavcopy sync downloads ~3 months of NSE data (~130 files) and runs in the
+        // background — poll for up to 6 min so the chart appears automatically when it lands.
+        await pollData(() => api.getDelivery(sym, fromDate("1Y")), 360_000, 5_000);
       }
       // Refresh the relevant store slice so data appears immediately
       if (forTab === "fundamentals") await fetchFundamentals(sym, fundPeriod);
@@ -176,6 +192,15 @@ export default function StockDetail() {
         <span className="text-slate-600 font-medium">{sym}</span>
         {stockInfo?.company_name && <span className="text-slate-400">— {stockInfo.company_name}</span>}
       </div>
+
+      {/* First-load data fetch banner — shown while yfinance data is being downloaded */}
+      {(prefetching || loading.candles) && (
+        <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-xs">
+          <div className="w-3.5 h-3.5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin shrink-0" />
+          Fetching the latest data for {sym} from Yahoo Finance — price history, fundamentals,
+          shareholding &amp; corporate actions. This may take a few seconds…
+        </div>
+      )}
 
       {/* 50/50 grid */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -320,37 +345,88 @@ export default function StockDetail() {
                       : "bg-slate-100 text-slate-600"
                     }`}>{ratios.recommendation.replace(/_/g, " ")}</span>
                   )}
-                  <span className="text-xs text-slate-500">Target: <span className="font-medium text-slate-700">₹{fmt(ratios.target_mean)}</span></span>
-                  <span className="text-xs text-slate-400">({ratios.target_low != null ? `₹${fmt(ratios.target_low)}` : "—"} – {ratios.target_high != null ? `₹${fmt(ratios.target_high)}` : "—"})</span>
-                  {last && ratios.target_mean && (
-                    <span className={`text-xs font-medium ${ratios.target_mean > last.close ? "text-emerald-600" : "text-red-500"}`}>
-                      {ratios.target_mean > last.close ? "▲" : "▼"} {Math.abs(((ratios.target_mean - last.close) / last.close) * 100).toFixed(1)}% upside
-                    </span>
-                  )}
                 </div>
 
-                {/* Recommendation history bars */}
-                {ratios.recommendations_summary && ratios.recommendations_summary.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-1">
-                    {ratios.recommendations_summary.map((r, i) => {
-                      const total = r.strongBuy + r.buy + r.hold + r.sell + r.strongSell || 1;
-                      const buyPct = ((r.strongBuy + r.buy) / total) * 100;
-                      const holdPct = (r.hold / total) * 100;
-                      const sellPct = ((r.sell + r.strongSell) / total) * 100;
-                      return (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400 w-8 text-right">{r.period}</span>
-                          <div className="flex-1 flex h-3 rounded overflow-hidden gap-px">
-                            <div className="bg-emerald-400" style={{ width: `${buyPct}%` }} title={`Buy: ${r.strongBuy + r.buy}`} />
-                            <div className="bg-slate-300" style={{ width: `${holdPct}%` }} title={`Hold: ${r.hold}`} />
-                            <div className="bg-red-400" style={{ width: `${sellPct}%` }} title={`Sell: ${r.sell + r.strongSell}`} />
+                {/* Rating breakdown (current) + trend vs oldest period */}
+                {ratios.recommendations_summary && ratios.recommendations_summary.length > 0 && (() => {
+                  const cur = ratios.recommendations_summary![0];
+                  const old = ratios.recommendations_summary![ratios.recommendations_summary!.length - 1];
+                  const total = cur.strongBuy + cur.buy + cur.hold + cur.sell + cur.strongSell || 1;
+                  // Consensus score in [-1, 1]: strongBuy=+1 … strongSell=-1, weighted by count.
+                  const score = (s: typeof cur) => {
+                    const n = s.strongBuy + s.buy + s.hold + s.sell + s.strongSell || 1;
+                    return (s.strongBuy * 1 + s.buy * 0.5 + s.hold * 0 + s.sell * -0.5 + s.strongSell * -1) / n;
+                  };
+                  const delta = score(cur) - score(old);
+                  const trend = delta > 0.02 ? { t: "▲ improving vs 3m ago", c: "text-emerald-600" }
+                              : delta < -0.02 ? { t: "▼ weakening vs 3m ago", c: "text-red-500" }
+                              : { t: "→ stable vs 3m ago", c: "text-slate-400" };
+                  const ROWS: [string, number, string][] = [
+                    ["Strong Buy",  cur.strongBuy,  "bg-emerald-600"],
+                    ["Buy",         cur.buy,        "bg-emerald-400"],
+                    ["Hold",        cur.hold,       "bg-slate-300"],
+                    ["Sell",        cur.sell,       "bg-red-400"],
+                    ["Strong Sell", cur.strongSell, "bg-red-600"],
+                  ];
+                  return (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-slate-400">{total} analysts</span>
+                        <span className={`text-xs font-medium ${trend.c}`}>{trend.t}</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {ROWS.map(([label, count, color]) => (
+                          <div key={label} className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500 w-20 shrink-0">{label}</span>
+                            <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${color}`} style={{ width: `${(count / total) * 100}%` }} />
+                            </div>
+                            <span className="text-xs text-slate-600 w-5 text-right tabular-nums">{count}</span>
                           </div>
-                          <span className="text-xs text-slate-400 w-12">{r.strongBuy + r.buy}B {r.hold}H {r.sell + r.strongSell}S</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Price-target gauge — current price within the low–mean–high range */}
+                {last && ratios.target_low != null && ratios.target_high != null && (() => {
+                  const lo = ratios.target_low!, hi = ratios.target_high!, mean = ratios.target_mean!;
+                  const now = last.close;
+                  // Extend the scale so the current price is always visible (it can sit below "low").
+                  const sMin = Math.min(lo, now), sMax = Math.max(hi, now);
+                  const span = sMax - sMin || 1;
+                  const pos = (v: number) => Math.min(100, Math.max(0, ((v - sMin) / span) * 100));
+                  return (
+                    <div className="mt-3">
+                      <div className="text-xs text-slate-400 font-medium mb-2">Price target</div>
+                      <div className="relative h-2 bg-slate-100 rounded-full mb-1">
+                        {/* analyst low→high band */}
+                        <div className="absolute inset-y-0 bg-emerald-200 rounded-full"
+                          style={{ left: `${pos(lo)}%`, width: `${pos(hi) - pos(lo)}%` }} />
+                        {/* mean target marker */}
+                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1 h-4 bg-emerald-600 rounded"
+                          style={{ left: `${pos(mean)}%` }} title={`Mean ₹${fmt(mean)}`} />
+                        {/* current price marker */}
+                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow"
+                          style={{ left: `${pos(now)}%` }} title={`Now ₹${fmt(now)}`} />
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-blue-600 font-medium">now ₹{fmt(now)}</span>
+                        <span className="text-slate-500">
+                          mean <span className="font-medium text-slate-700">₹{fmt(mean)}</span>{" "}
+                          <span className={mean > now ? "text-emerald-600" : "text-red-500"}>
+                            {mean > now ? "▲" : "▼"} {Math.abs(((mean - now) / now) * 100).toFixed(1)}%
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                        <span>low ₹{fmt(lo)}</span>
+                        <span>high ₹{fmt(hi)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -367,41 +443,6 @@ export default function StockDetail() {
             )}
           </div>
 
-          {/* Sector Comparison Chart */}
-          {filteredSector && filteredSector.stock.length > 1 && (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-slate-700">
-                  {sym} vs {filteredSector.sector_name}
-                </span>
-                <div className="flex gap-1">
-                  {SECTOR_RANGES.map((r) => (
-                    <button key={r} onClick={() => setSectorRange(r)}
-                      className={`text-xs px-2 py-0.5 rounded-md transition-colors ${
-                        sectorRange === r ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                      }`}>
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <MacroLineChart height={150} title=""
-                series={[
-                  { label: sym, color: "#10b981", data: filteredSector.stock.map(p => ({ date: p.date, value: p.pct })) },
-                  { label: filteredSector.sector_name, color: "#94a3b8", data: filteredSector.sector.map(p => ({ date: p.date, value: p.pct })) },
-                ]}
-              />
-              <div className="flex gap-4 mt-1">
-                <span className="flex items-center gap-1 text-xs text-slate-500">
-                  <span className="inline-block w-3 h-0.5 bg-emerald-400 rounded" />{sym}
-                </span>
-                <span className="flex items-center gap-1 text-xs text-slate-500">
-                  <span className="inline-block w-3 h-0.5 bg-slate-400 rounded" />{filteredSector.sector_name}
-                </span>
-              </div>
-            </div>
-          )}
-
           {/* Tabs */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
             <div className="flex overflow-x-auto border-b border-slate-100">
@@ -417,8 +458,6 @@ export default function StockDetail() {
 
             <div className="p-3 min-h-[200px]">
               {tab === "fundamentals" && (() => {
-                type FundView = "pl" | "bs" | "cf";
-                const [fundView, setFundView] = useState<FundView>("pl");
                 const annual = fundamentals.filter(f => f.period_type === "A");
                 const quarterly = fundamentals.filter(f => f.period_type === "Q");
                 const data = fundPeriod === "Q" ? quarterly : annual;
@@ -533,14 +572,20 @@ export default function StockDetail() {
 
               {tab === "delivery" && (
                 syncingTab === "delivery" ? (
-                  <div className="flex flex-col items-center gap-2 py-10">
+                  <div className="flex flex-col items-center gap-2 py-10 px-4">
                     <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
-                    <div className="text-xs text-slate-400">Syncing bhavcopy from NSE — may take a minute…</div>
+                    <div className="text-xs font-medium text-slate-600">Sync started — running in the background</div>
+                    <div className="text-xs text-slate-400 text-center max-w-sm">
+                      Downloading the last ~3 months of NSE bhavcopy (price + delivery, ~130 files).
+                      The first sync takes a few minutes. You can keep using the app — the chart
+                      will appear here automatically when it's ready, or just refresh shortly.
+                    </div>
                   </div>
                 ) : delivery.length === 0 ? (
                   <div className="flex flex-col items-center gap-3 py-8">
                     <div className="text-xs text-slate-400 text-center">
                       Delivery data comes from NSE bhavcopy — not available via yfinance.
+                      The first sync downloads ~3 months of history (a few minutes).
                     </div>
                     <button onClick={() => syncTabData("bhavcopy", "delivery")} disabled={syncingTab !== null}
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
@@ -698,7 +743,9 @@ export default function StockDetail() {
                   <div className="text-xs text-slate-400 py-6 text-center">No recent news available.</div>
                 ) : (
                   <div className="flex flex-col divide-y divide-slate-50">
-                    {newsItems.map((item, i) => (
+                    {[...newsItems]
+                      .sort((a, b) => newsTime(b.published_at) - newsTime(a.published_at))
+                      .map((item, i) => (
                       <div key={i} className="py-2.5 first:pt-0">
                         <a href={item.link} target="_blank" rel="noopener noreferrer"
                           className="text-xs font-medium text-slate-700 hover:text-blue-600 transition-colors leading-snug block mb-1">
@@ -706,7 +753,7 @@ export default function StockDetail() {
                         </a>
                         <div className="flex gap-2 text-xs text-slate-400">
                           {item.source && <span>{item.source}</span>}
-                          {item.published_at && <span>· {item.published_at.slice(0, 16)}</span>}
+                          {item.published_at && <span>· {fmtNewsDate(item.published_at)}</span>}
                         </div>
                       </div>
                     ))}
@@ -743,9 +790,9 @@ export default function StockDetail() {
 
         </div>
 
-        {/* RIGHT — sticky chart */}
+        {/* RIGHT — price + sector charts (scroll together; no sticky to avoid overlap) */}
         <div className="flex flex-col">
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden xl:sticky xl:top-16">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
             <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-100">
               <Calendar size={12} className="text-slate-400 mr-1" />
               {RANGES.map((r) => (
@@ -759,6 +806,41 @@ export default function StockDetail() {
             </div>
             <CandleChart candles={candles} loading={loading.candles} />
           </div>
+
+          {/* Sector Comparison Chart — kept alongside the candle chart so all price/return charts sit together */}
+          {filteredSector && filteredSector.stock.length > 1 && (
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-slate-700">
+                  {sym} vs {filteredSector.sector_name}
+                </span>
+                <div className="flex gap-1">
+                  {SECTOR_RANGES.map((r) => (
+                    <button key={r} onClick={() => setSectorRange(r)}
+                      className={`text-xs px-2 py-0.5 rounded-md transition-colors ${
+                        sectorRange === r ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      }`}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <MacroLineChart height={150} title=""
+                series={[
+                  { label: sym, color: "#10b981", data: filteredSector.stock.map(p => ({ date: p.date, value: p.pct })) },
+                  { label: filteredSector.sector_name, color: "#94a3b8", data: filteredSector.sector.map(p => ({ date: p.date, value: p.pct })) },
+                ]}
+              />
+              <div className="flex gap-4 mt-1">
+                <span className="flex items-center gap-1 text-xs text-slate-500">
+                  <span className="inline-block w-3 h-0.5 bg-emerald-400 rounded" />{sym}
+                </span>
+                <span className="flex items-center gap-1 text-xs text-slate-500">
+                  <span className="inline-block w-3 h-0.5 bg-slate-400 rounded" />{filteredSector.sector_name}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
