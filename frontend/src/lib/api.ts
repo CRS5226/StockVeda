@@ -19,6 +19,11 @@ export interface Candle {
   rsi_14?: number;
   macd?: number; macd_signal?: number; macd_hist?: number;
   bb_upper?: number; bb_mid?: number; bb_lower?: number;
+  stoch_k?: number; stoch_d?: number;
+  willr?: number;
+  cci?: number;
+  adx?: number; adx_pos?: number; adx_neg?: number;
+  atr_14?: number;
   volume_sma_20?: number;
 }
 
@@ -99,6 +104,11 @@ export const api = {
 
   triggerSync: (source: string) =>
     apiFetch<{ status: string; source: string }>(`/sync/trigger/${source}`, { method: "POST" }),
+
+  prefetchSymbol: (symbol: string) =>
+    apiFetch<{ status: string; symbol: string; fetched: string[] }>(
+      `/stock/prefetch/${symbol}`, { method: "POST" }
+    ),
 
   getCandles: (symbol: string, fromDate?: string, withIndicators = false) => {
     const p = new URLSearchParams();

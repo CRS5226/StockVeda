@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
 from backend.core.indicators import add_indicators
 import pandas as pd
+import yfinance as yf
 
 router = APIRouter(prefix="/stock", tags=["stock"])
 
@@ -201,6 +202,98 @@ def get_insider_trades(
     sql += " ORDER BY trade_date DESC LIMIT 100"
     df = db.execute(sql, params).df()
     return df_to_records(df)
+
+
+@router.post("/prefetch/{symbol}")
+def prefetch_symbol(symbol: str):
+    """
+    Synchronously fetch all available yfinance data for one symbol (~5-10s).
+    Skips any section that already has data in the DB.
+    Called automatically by the frontend on stock detail page load.
+    """
+    sym = symbol.upper()
+    db = get_db()
+    fetched: list[str] = []
+
+    t = yf.Ticker(f"{sym}.NS")
+
+    # --- Fundamentals ---
+    fund_count = db.execute(
+        "SELECT COUNT(*) FROM stock_fundamentals WHERE symbol = ?", [sym]
+    ).fetchone()[0]
+    if fund_count == 0:
+        try:
+            from backend.data_sync.sync_fundamentals import _parse_financials
+            from backend.data_sync.base import upsert_df
+            rows = _parse_financials(t, sym, "Q") + _parse_financials(t, sym, "A")
+            if rows:
+                df = pd.DataFrame(rows).dropna(subset=["revenue", "pat"], how="all")
+                if not df.empty:
+                    upsert_df(df, "stock_fundamentals")
+                    fetched.append(f"fundamentals:{len(df)}")
+        except Exception as e:
+            print(f"[prefetch:{sym}] fundamentals: {e}")
+
+    # --- Shareholding (yfinance major_holders: insider % ≈ promoter %) ---
+    share_count = db.execute(
+        "SELECT COUNT(*) FROM shareholding WHERE symbol = ?", [sym]
+    ).fetchone()[0]
+    if share_count == 0:
+        try:
+            from backend.data_sync.base import upsert_df
+            mh = t.major_holders
+            # mh index = breakdown key (e.g. "insidersPercentHeld"), column "Value" = fraction
+            if mh is not None and not mh.empty and "Value" in mh.columns:
+                def _pct(key: str) -> float | None:
+                    if key in mh.index:
+                        try:
+                            return round(float(mh.loc[key, "Value"]) * 100, 2)
+                        except (TypeError, ValueError):
+                            pass
+                    return None
+                promoter_pct = _pct("insidersPercentHeld")
+                fii_pct = _pct("institutionsPercentHeld")
+                if promoter_pct is not None:
+                    df = pd.DataFrame([{
+                        "symbol": sym, "period": date.today(),
+                        "promoter_pct": promoter_pct,
+                        "promoter_pledge_pct": None,
+                        "fii_pct": fii_pct,
+                        "dii_pct": None, "mf_pct": None, "retail_pct": None,
+                        "government_pct": None, "total_shareholders": None,
+                    }])
+                    upsert_df(df, "shareholding")
+                    fetched.append("shareholding:1")
+        except Exception as e:
+            print(f"[prefetch:{sym}] shareholding: {e}")
+
+    # --- Corporate actions (dividends + splits) ---
+    ca_count = db.execute(
+        "SELECT COUNT(*) FROM corporate_actions WHERE symbol = ?", [sym]
+    ).fetchone()[0]
+    if ca_count == 0:
+        try:
+            from backend.data_sync.base import upsert_df
+            actions = t.actions
+            if actions is not None and not actions.empty:
+                rows = []
+                for idx, row in actions.iterrows():
+                    ex = idx.date() if hasattr(idx, "date") else idx
+                    if row.get("Dividends", 0) > 0:
+                        rows.append({"symbol": sym, "ex_date": ex,
+                                     "action_type": "DIVIDEND", "value": float(row["Dividends"]),
+                                     "ratio": None, "record_date": None})
+                    if row.get("Stock Splits", 0) > 0:
+                        rows.append({"symbol": sym, "ex_date": ex,
+                                     "action_type": "SPLIT", "value": None,
+                                     "ratio": str(row["Stock Splits"]), "record_date": None})
+                if rows:
+                    upsert_df(pd.DataFrame(rows), "corporate_actions")
+                    fetched.append(f"corp_actions:{len(rows)}")
+        except Exception as e:
+            print(f"[prefetch:{sym}] corp_actions: {e}")
+
+    return {"status": "ok", "symbol": sym, "fetched": fetched}
 
 
 @router.get("/fno/{symbol}")

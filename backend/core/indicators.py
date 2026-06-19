@@ -30,6 +30,10 @@ def add_indicators(df: pd.DataFrame, indicators: list[str] | None = None) -> pd.
         "macd",
         "bb",
         "atr_14",
+        "stoch",
+        "willr",
+        "cci",
+        "adx",
         "volume_sma_20",
     }
 
@@ -59,6 +63,21 @@ def add_indicators(df: pd.DataFrame, indicators: list[str] | None = None) -> pd.
             df["bb_lower"] = bb.iloc[:, 2]
     if "atr_14" in requested:
         df["atr_14"] = ta.atr(df["high"], df["low"], df["close"], length=14)
+    if "stoch" in requested:
+        stoch = ta.stoch(df["high"], df["low"], df["close"])
+        if stoch is not None and not stoch.empty:
+            df["stoch_k"] = stoch.iloc[:, 0]
+            df["stoch_d"] = stoch.iloc[:, 1]
+    if "willr" in requested:
+        df["willr"] = ta.willr(df["high"], df["low"], df["close"])
+    if "cci" in requested:
+        df["cci"] = ta.cci(df["high"], df["low"], df["close"])
+    if "adx" in requested:
+        adx = ta.adx(df["high"], df["low"], df["close"])
+        if adx is not None and not adx.empty:
+            df["adx"] = adx.iloc[:, 0]
+            df["adx_pos"] = adx.iloc[:, 1]
+            df["adx_neg"] = adx.iloc[:, 2]
     if "volume_sma_20" in requested and "volume" in df.columns:
         df["volume_sma_20"] = ta.sma(df["volume"].astype(float), length=20)
 

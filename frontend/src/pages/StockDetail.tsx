@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   TrendingUp, BarChart2, Users, Building2,
   ArrowUpRight, ArrowDownRight, SlidersHorizontal, FlaskConical,
-  ChevronRight, Calendar, Layers, RefreshCw, Info, CheckCircle, AlertCircle,
+  ChevronRight, Calendar, Layers, RefreshCw, Info, CheckCircle, AlertCircle, Loader2,
 } from "lucide-react";
 import { useStockStore } from "../store/useStockStore";
 import { useBacktestStore } from "../store/useBacktestStore";
@@ -74,6 +74,7 @@ export default function StockDetail() {
   const [stockInfo, setStockInfo] = useState<{ company_name: string | null; isin: string | null } | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [prefetching, setPrefetching] = useState(false);
 
   useEffect(() => { fetchCandles(sym, fromDate(range), true); }, [sym, range]);
 
@@ -87,8 +88,18 @@ export default function StockDetail() {
 
   useEffect(() => {
     loadStrategies(); setParams({ symbol: sym });
-    fetchFundamentals(sym, "Q"); fetchShareholding(sym);
     api.getStockInfo(sym).then((info) => setStockInfo(info)).catch(() => {});
+
+    // Auto-fetch all missing yfinance data for this symbol on page load
+    setPrefetching(true);
+    api.prefetchSymbol(sym)
+      .then(() => {
+        fetchFundamentals(sym, "Q");
+        fetchShareholding(sym);
+        fetchCorporateActions(sym);
+      })
+      .catch(() => {})
+      .finally(() => setPrefetching(false));
   }, [sym]);
 
   const triggerSync = async (source: string) => {
@@ -161,31 +172,45 @@ export default function StockDetail() {
             </div>
 
             {last && (
-              <div className="grid grid-cols-3 gap-3 text-xs mt-3 pt-3 border-t border-slate-100">
-                {[["Open", `₹${fmt(last.open)}`], ["High", `₹${fmt(last.high)}`], ["Low", `₹${fmt(last.low)}`],
-                  ["Volume", last.volume?.toLocaleString("en-IN") ?? "—"],
-                  ["Date", last.date],
-                  ["52W H/L", high52 && low52 ? `${fmt(high52)} / ${fmt(low52)}` : "—"],
-                ].map(([l, v]) => (
-                  <div key={l}>
-                    <span className="block text-slate-400 mb-0.5">{l}</span>
-                    <span className="font-medium text-slate-700">{v}</span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-3 text-xs mt-3 pt-3 border-t border-slate-100">
+                  {[["Open", `₹${fmt(last.open)}`], ["High", `₹${fmt(last.high)}`], ["Low", `₹${fmt(last.low)}`],
+                    ["Volume", last.volume?.toLocaleString("en-IN") ?? "—"],
+                    ["52W High", high52 ? `₹${fmt(high52)}` : "—"],
+                    ["52W Low",  low52  ? `₹${fmt(low52)}`  : "—"],
+                  ].map(([l, v]) => (
+                    <div key={l}>
+                      <span className="block text-slate-400 mb-0.5">{l}</span>
+                      <span className="font-medium text-slate-700">{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-100">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  <span className="text-xs text-slate-400">NSE EOD · data as of {last.date}</span>
+                </div>
+              </>
             )}
           </div>
 
           {/* Sync panel */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <RefreshCw size={14} className="text-blue-500" />
-              <span className="text-sm font-semibold text-slate-700">Sync Data for {sym}</span>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <RefreshCw size={14} className="text-blue-500" />
+                <span className="text-sm font-semibold text-slate-700">Sync Data for {sym}</span>
+              </div>
+              {prefetching && (
+                <div className="flex items-center gap-1.5 text-xs text-blue-500">
+                  <Loader2 size={12} className="animate-spin" />
+                  Fetching fresh data…
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {SYNC_SOURCES.map((src) => (
                 <button key={src} onClick={() => triggerSync(src)}
-                  disabled={syncing === src}
+                  disabled={syncing === src || prefetching}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
                   {syncing === src
                     ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" />
