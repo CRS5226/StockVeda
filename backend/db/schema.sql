@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS fno_ohlcv (
     settle_price DOUBLE,
     contracts BIGINT,
     open_interest BIGINT,
+    oi_change BIGINT,
     PRIMARY KEY (date, symbol, instrument, expiry, strike, option_type)
 );
 

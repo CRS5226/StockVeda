@@ -17,14 +17,14 @@ from backend.data_sync.base import (
 SOURCE_ID = "nse_bhavcopy_equity"
 BHAV_URL = NSEARCHIVES_BASE + "/archives/equities/bhavcopy/pr/PR{ddmmyy}.zip"
 MTO_URL  = NSEARCHIVES_BASE + "/archives/equities/mto/MTO_{ddmmyyyy}.DAT"
-DEFAULT_START = date(2015, 1, 1)
+DEFAULT_LOOKBACK_DAYS = 90  # first sync covers last 90 days only; incremental after that
 
 
 def _fetch_bhavcopy(client, d: date):
     """Download PR zip and extract equity OHLCV from pd{ddmmyy}.csv."""
     url = BHAV_URL.format(ddmmyy=d.strftime("%d%m%y"))   # 2-digit year
     resp = client.get(url)
-    if resp.status_code == 404:
+    if resp.status_code in (404, 403):
         return None
     resp.raise_for_status()
 
@@ -58,7 +58,7 @@ def _fetch_delivery(client, d: date):
     """Download MTO delivery file — pipe-separated."""
     url = MTO_URL.format(ddmmyyyy=d.strftime("%d%m%Y"))   # 4-digit year
     resp = client.get(url)
-    if resp.status_code == 404:
+    if resp.status_code in (404, 403):
         return None
     resp.raise_for_status()
 
@@ -81,7 +81,7 @@ def _fetch_delivery(client, d: date):
 
 
 def run():
-    last = last_synced_date(SOURCE_ID) or DEFAULT_START
+    last = last_synced_date(SOURCE_ID) or (date.today() - timedelta(days=DEFAULT_LOOKBACK_DAYS))
     today = last_business_day(date.today())
     days = business_days_between(last + timedelta(days=1), today)
 

@@ -47,6 +47,33 @@ export interface InsiderTrade {
   person_name: string; person_category: string; trade_date: string;
   transaction_type: string; quantity: number; price?: number; filing_date: string;
 }
+export interface StockRatios {
+  symbol: string;
+  market_cap_cr?: number; pe_ratio?: number; forward_pe?: number; pb_ratio?: number;
+  book_value?: number; roe_pct?: number; roa_pct?: number;
+  profit_margin_pct?: number; operating_margin_pct?: number;
+  eps_trailing?: number; eps_forward?: number;
+  div_yield_pct?: number; div_per_share?: number; payout_ratio_pct?: number; face_value?: number;
+  beta?: number; "52w_high"?: number; "52w_low"?: number;
+  avg_volume?: number; shares_outstanding?: number;
+  revenue_growth_pct?: number; earnings_growth_pct?: number;
+  target_high?: number; target_low?: number; target_mean?: number;
+  recommendation?: string;
+  employees?: number; website?: string; description?: string;
+  sector?: string; industry?: string;
+  next_earnings?: string;
+  recommendations_summary?: { period: string; strongBuy: number; buy: number; hold: number; sell: number; strongSell: number }[];
+}
+export interface SectorComparePoint { date: string; pct: number }
+export interface SectorCompareData {
+  stock: SectorComparePoint[]; sector: SectorComparePoint[]; sector_name: string;
+}
+export interface NewsItem { title: string; link: string; source: string; published_at: string }
+export interface Holder {
+  Holder: string; Shares: number; "Date Reported": string;
+  pctHeld?: number; "% Out"?: number; Value: number; pctChange?: number;
+}
+
 export interface FnoRow {
   date: string; symbol: string; instrument: string; expiry?: string;
   strike?: number; option_type?: string; open?: number; high?: number;
@@ -127,6 +154,18 @@ export const api = {
 
   getShareholding: (symbol: string) =>
     apiFetch<Shareholding[]>(`/stock/shareholding/${symbol}`),
+
+  getRatios: (symbol: string) =>
+    apiFetch<StockRatios>(`/stock/ratios/${symbol}`),
+
+  getSectorCompare: (symbol: string, days = 252) =>
+    apiFetch<SectorCompareData>(`/stock/sector-compare/${symbol}?days=${days}`),
+
+  getNews: (symbol: string) =>
+    apiFetch<NewsItem[]>(`/stock/news/${symbol}`),
+
+  getHolders: (symbol: string) =>
+    apiFetch<Holder[]>(`/stock/holders/${symbol}`),
 
   getCorporateActions: (symbol: string) =>
     apiFetch<CorporateAction[]>(`/stock/corporate-actions/${symbol}`),
