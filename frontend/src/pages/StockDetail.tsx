@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   TrendingUp, BarChart2, Users, Building2,
-  ArrowUpRight, ArrowDownRight, SlidersHorizontal, FlaskConical,
+  ArrowUpRight, ArrowDownRight, FlaskConical,
   ChevronRight, Calendar, Layers, RefreshCw, Info, CheckCircle, AlertCircle, Loader2,
 } from "lucide-react";
 import { useStockStore } from "../store/useStockStore";
@@ -110,7 +110,11 @@ export default function StockDetail() {
       setTimeout(() => {
         fetchCandles(sym, fromDate(range), true);
         fetchFundamentals(sym, fundPeriod);
-      }, 8000);
+        if (source === "bhavcopy" || source === "delivery") fetchDelivery(sym, fromDate("1Y"));
+        if (source === "shareholding") fetchShareholding(sym);
+        if (source === "corporate_actions") fetchCorporateActions(sym);
+        if (source === "fno_bhavcopy") fetchFno(sym);
+      }, 15000);
     } catch {
       setSyncMsg({ text: `Failed to trigger ${source} sync`, ok: false });
     }
@@ -244,10 +248,16 @@ export default function StockDetail() {
               <MetricCard label="Promoter %" icon={Users}
                 value={latestShare?.promoter_pct != null ? `${fmt(latestShare.promoter_pct)}%` : "—"}
                 up={latestShare?.promoter_pct != null ? latestShare.promoter_pct > 50 : undefined} />
-              <MetricCard label="FII %" icon={Users}
-                value={latestShare?.fii_pct != null ? `${fmt(latestShare.fii_pct)}%` : "—"} />
-              <MetricCard label="DII %" icon={Users}
-                value={latestShare?.dii_pct != null ? `${fmt(latestShare.dii_pct)}%` : "—"} />
+              {/* yfinance gives combined institutional % (FII+DII); label as "Institutional" unless we have the split */}
+              <MetricCard
+                label={latestShare?.dii_pct != null ? "FII %" : "Institutional %"}
+                icon={Users}
+                value={latestShare?.fii_pct != null ? `${fmt(latestShare.fii_pct)}%` : "—"}
+              />
+              {latestShare?.dii_pct != null && (
+                <MetricCard label="DII %" icon={Users}
+                  value={`${fmt(latestShare.dii_pct)}%`} />
+              )}
             </div>
           </div>
 
@@ -308,21 +318,60 @@ export default function StockDetail() {
               )}
 
               {tab === "delivery" && (
-                delivery.length === 0
-                  ? <div className="text-xs text-slate-400 py-6 text-center">No delivery data — sync bhavcopy first.</div>
-                  : <MacroLineChart title="Delivery %" height={160}
-                      series={[{ label: "Delivery %", color: "#10b981", data: delivery.map((d) => ({ date: d.date, value: d.delivery_pct })) }]} />
+                delivery.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 py-8">
+                    <div className="text-xs text-slate-400">Delivery data comes from NSE bhavcopy — not available via yfinance.</div>
+                    <button onClick={() => triggerSync("bhavcopy")} disabled={syncing !== null}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
+                      {syncing === "bhavcopy" ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" /> : <RefreshCw size={11} />}
+                      Sync bhavcopy now
+                    </button>
+                  </div>
+                ) : (
+                  <MacroLineChart title="Delivery %" height={160}
+                    series={[{ label: "Delivery %", color: "#10b981", data: delivery.map((d) => ({ date: d.date, value: d.delivery_pct })) }]} />
+                )
               )}
 
               {tab === "shareholding" && (
-                shareholding.length === 0
-                  ? <div className="text-xs text-slate-400 py-6 text-center">No shareholding data.</div>
-                  : <MacroLineChart title="Shareholding %" height={160}
-                      series={[
-                        { label: "Promoter", color: "#3b82f6", data: shareholding.map((s) => ({ date: s.period, value: s.promoter_pct ?? 0 })) },
-                        { label: "FII", color: "#f59e0b", data: shareholding.map((s) => ({ date: s.period, value: s.fii_pct ?? 0 })) },
-                        { label: "DII", color: "#10b981", data: shareholding.map((s) => ({ date: s.period, value: s.dii_pct ?? 0 })) },
-                      ]} />
+                shareholding.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 py-8">
+                    <div className="text-xs text-slate-400 text-center">Quarterly shareholding pattern requires NSE sync.<br/>Current snapshot is in Key Metrics above.</div>
+                    <button onClick={() => triggerSync("shareholding")} disabled={syncing !== null}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
+                      {syncing === "shareholding" ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" /> : <RefreshCw size={11} />}
+                      Sync shareholding
+                    </button>
+                  </div>
+                ) : shareholding.length <= 2 ? (
+                  /* Single snapshot from yfinance — show table, not chart */
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-slate-400 border-b border-slate-100">
+                      {["Period", "Promoter", "FII / Inst.", "DII", "MF", "Retail"].map(h => (
+                        <th key={h} className="text-left py-1.5 px-2">{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {shareholding.map((s, i) => (
+                        <tr key={i} className="border-b border-slate-50">
+                          <td className="py-1.5 px-2 text-slate-500">{s.period}</td>
+                          <td className="py-1.5 px-2 text-slate-700">{s.promoter_pct != null ? `${fmt(s.promoter_pct)}%` : "—"}</td>
+                          <td className="py-1.5 px-2 text-slate-700">{s.fii_pct != null ? `${fmt(s.fii_pct)}%` : "—"}</td>
+                          <td className="py-1.5 px-2 text-slate-700">{s.dii_pct != null ? `${fmt(s.dii_pct)}%` : "—"}</td>
+                          <td className="py-1.5 px-2 text-slate-700">{s.mf_pct != null ? `${fmt(s.mf_pct)}%` : "—"}</td>
+                          <td className="py-1.5 px-2 text-slate-700">{s.retail_pct != null ? `${fmt(s.retail_pct)}%` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <MacroLineChart title="Shareholding % (quarterly)" height={160}
+                    series={[
+                      { label: "Promoter", color: "#3b82f6", data: shareholding.map((s) => ({ date: s.period, value: s.promoter_pct ?? 0 })) },
+                      { label: "FII/Inst", color: "#f59e0b", data: shareholding.map((s) => ({ date: s.period, value: s.fii_pct ?? 0 })) },
+                      { label: "DII", color: "#10b981", data: shareholding.map((s) => ({ date: s.period, value: s.dii_pct ?? 0 })) },
+                    ]} />
+                )
               )}
 
               {tab === "corp" && (
@@ -376,31 +425,104 @@ export default function StockDetail() {
                 </div>
               )}
 
-              {tab === "fno" && (
-                fno.length === 0
-                  ? <div className="text-xs text-slate-400 py-6 text-center">No F&O data — sync fno_bhavcopy first.</div>
-                  : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead><tr className="text-slate-400 border-b border-slate-100">
-                          {["Instrument", "Expiry", "Strike", "Type", "Close", "OI"].map((h) => <th key={h} className="text-left py-1.5 px-2">{h}</th>)}
-                        </tr></thead>
-                        <tbody>
-                          {fno.slice(0, 20).map((f, i) => (
-                            <tr key={i} className="border-b border-slate-50">
-                              <td className="py-1.5 px-2 text-slate-700">{f.instrument}</td>
-                              <td className="py-1.5 px-2 text-slate-500">{f.expiry ?? "—"}</td>
-                              <td className="py-1.5 px-2 text-slate-700">{f.strike != null ? fmt(f.strike, 0) : "—"}</td>
-                              <td className={`py-1.5 px-2 font-medium ${f.option_type === "CE" ? "text-emerald-600" : f.option_type === "PE" ? "text-red-500" : "text-slate-600"}`}>{f.option_type ?? "—"}</td>
-                              <td className="py-1.5 px-2 text-slate-700">{fmt(f.close)}</td>
-                              <td className="py-1.5 px-2 text-slate-600">{f.open_interest?.toLocaleString("en-IN") ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+              {tab === "fno" && (() => {
+                if (fno.length === 0) return (
+                  <div className="flex flex-col items-center gap-3 py-8">
+                    <div className="text-xs text-slate-400 text-center">
+                      F&O data shows EOD futures &amp; options: open interest, price, and volume by strike &amp; expiry.<br/>
+                      Sourced from NSE bhavcopy — sync below to populate.
                     </div>
-                  )
-              )}
+                    <button onClick={() => triggerSync("fno_bhavcopy")} disabled={syncing !== null}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">
+                      {syncing === "fno_bhavcopy" ? <div className="w-3 h-3 border border-slate-300 border-t-blue-500 rounded-full animate-spin" /> : <RefreshCw size={11} />}
+                      Sync F&amp;O bhavcopy
+                    </button>
+                  </div>
+                );
+
+                const opts = fno.filter(f => f.instrument === "OPTSTK");
+                const futs = fno.filter(f => f.instrument === "FUTSTK");
+                const ceOI = opts.filter(f => f.option_type === "CE").reduce((s, f) => s + (f.open_interest ?? 0), 0);
+                const peOI = opts.filter(f => f.option_type === "PE").reduce((s, f) => s + (f.open_interest ?? 0), 0);
+                const pcr  = ceOI > 0 ? peOI / ceOI : null;
+
+                return (
+                  <div className="flex flex-col gap-3">
+                    {/* PCR + summary */}
+                    <div className="flex flex-wrap gap-3">
+                      {pcr != null && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                          <div className="text-slate-400 mb-0.5">PCR (OI)</div>
+                          <div className={`font-bold text-sm ${pcr > 1 ? "text-emerald-600" : "text-red-500"}`}>{pcr.toFixed(2)}</div>
+                          <div className="text-slate-400 mt-0.5">{pcr > 1 ? "Bullish bias" : "Bearish bias"}</div>
+                        </div>
+                      )}
+                      {ceOI > 0 && <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                        <div className="text-slate-400 mb-0.5">Total CE OI</div>
+                        <div className="font-bold text-emerald-600">{ceOI.toLocaleString("en-IN")}</div>
+                      </div>}
+                      {peOI > 0 && <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                        <div className="text-slate-400 mb-0.5">Total PE OI</div>
+                        <div className="font-bold text-red-500">{peOI.toLocaleString("en-IN")}</div>
+                      </div>}
+                      {futs.length > 0 && <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                        <div className="text-slate-400 mb-0.5">Futures OI</div>
+                        <div className="font-bold text-blue-600">{(futs[0].open_interest ?? 0).toLocaleString("en-IN")}</div>
+                      </div>}
+                    </div>
+
+                    {/* Options chain */}
+                    {opts.length > 0 && (
+                      <div className="overflow-x-auto">
+                        <div className="text-xs text-slate-500 font-medium mb-1">Options Chain (latest EOD)</div>
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-slate-400 border-b border-slate-100">
+                            {["Expiry", "Strike", "CE/PE", "Close", "OI", "OI Chg"].map(h => (
+                              <th key={h} className="text-left py-1.5 px-2">{h}</th>
+                            ))}
+                          </tr></thead>
+                          <tbody>
+                            {opts.slice(0, 30).map((f, i) => (
+                              <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                                <td className="py-1.5 px-2 text-slate-500">{f.expiry ?? "—"}</td>
+                                <td className="py-1.5 px-2 text-slate-700 font-medium">{f.strike != null ? fmt(f.strike, 0) : "—"}</td>
+                                <td className={`py-1.5 px-2 font-semibold ${f.option_type === "CE" ? "text-emerald-600" : "text-red-500"}`}>{f.option_type ?? "—"}</td>
+                                <td className="py-1.5 px-2 text-slate-700">{fmt(f.close)}</td>
+                                <td className="py-1.5 px-2 text-slate-600">{f.open_interest?.toLocaleString("en-IN") ?? "—"}</td>
+                                <td className={`py-1.5 px-2 ${(f.oi_change ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>{f.oi_change != null ? f.oi_change.toLocaleString("en-IN") : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Futures */}
+                    {futs.length > 0 && (
+                      <div className="overflow-x-auto">
+                        <div className="text-xs text-slate-500 font-medium mb-1">Futures</div>
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-slate-400 border-b border-slate-100">
+                            {["Expiry", "Close", "OI", "OI Chg"].map(h => (
+                              <th key={h} className="text-left py-1.5 px-2">{h}</th>
+                            ))}
+                          </tr></thead>
+                          <tbody>
+                            {futs.slice(0, 5).map((f, i) => (
+                              <tr key={i} className="border-b border-slate-50">
+                                <td className="py-1.5 px-2 text-slate-500">{f.expiry ?? "—"}</td>
+                                <td className="py-1.5 px-2 text-slate-700">{fmt(f.close)}</td>
+                                <td className="py-1.5 px-2 text-slate-600">{f.open_interest?.toLocaleString("en-IN") ?? "—"}</td>
+                                <td className={`py-1.5 px-2 ${(f.oi_change ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>{f.oi_change != null ? f.oi_change.toLocaleString("en-IN") : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {tab === "backtest" && (
                 <div className="flex flex-col gap-3">
@@ -429,17 +551,6 @@ export default function StockDetail() {
             </div>
           </div>
 
-          {/* Quick nav */}
-          <div className="flex gap-2">
-            <button onClick={() => navigate("/screener")}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-500 text-xs font-medium rounded-xl py-2.5 transition-all shadow-sm">
-              <SlidersHorizontal size={13} /> Screener
-            </button>
-            <button onClick={() => navigate("/backtest")}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-500 text-xs font-medium rounded-xl py-2.5 transition-all shadow-sm">
-              <FlaskConical size={13} /> Full Backtest
-            </button>
-          </div>
         </div>
 
         {/* RIGHT — sticky chart */}
