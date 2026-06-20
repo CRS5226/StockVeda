@@ -83,9 +83,16 @@ export interface ScreenerResult {
   symbol: string; date: string; close: number; volume: number;
   pe_ratio?: number; debt_to_equity?: number; promoter_pct?: number;
   fii_pct?: number; delivery_pct?: number; eps_basic?: number; pat?: number;
+  ebitda?: number;
+  rsi_14?: number; sma_20?: number; sma_50?: number; sma_200?: number;
+  ema_20?: number; ema_50?: number; macd?: number; macd_signal?: number;
+  bb_upper?: number; bb_lower?: number; atr_14?: number;
 }
 export interface ScreenerCondition { metric: string; op: string; value: number }
 export interface ScreenerPreset { name: string; description: string; conditions: ScreenerCondition[] }
+export interface ScreenerPresetOption { id: string; label: string; count: number; symbols: string[] }
+export interface Watchlist { id: number; name: string; symbols: string[]; created_at: string }
+export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface BacktestResult {
   equity_curve: { date: string; value: number }[];
   trades: {
@@ -98,6 +105,24 @@ export interface BacktestResult {
     max_drawdown_pct: number; avg_pnl: number;
   };
 }
+export interface BacktestTradeV2 {
+  entry_date: string; exit_date: string;
+  entry_price: number; target_price: number; sl_price: number;
+  exit_price: number; exit_reason: "target" | "sl" | "timeout" | "indicator";
+  pnl: number; pnl_pct: number; shares: number;
+}
+export interface BacktestSymbolResult {
+  ohlcv: { date: string; open: number; high: number; low: number; close: number }[];
+  trades: BacktestTradeV2[];
+  stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
+}
+export interface BacktestV2Response {
+  aggregate: { total_trades: number; win_rate_pct: number; total_pnl: number;
+               avg_pnl_pct: number; best_symbol: string; worst_symbol: string };
+  per_symbol: Record<string, BacktestSymbolResult>;
+}
+export interface EntryCondition { id: string; label: string; has_threshold: boolean }
+export interface ConditionRow { left: string; operator: string; right: string }
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -118,6 +143,10 @@ export interface DashboardData {
   nifty_hist: { date: string; close: number }[];
   fii_latest: { date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number } | null;
   usdinr: { close: number; change_pct?: number } | null;
+  india_vix: { close: number; change_pct?: number } | null;
+  us_markets: { name: string; close: number; change: number; change_pct: number }[];
+  us_sectors: { name: string; close: number; change: number; change_pct: number }[];
+  global_markets: { name: string; close: number; change: number; change_pct: number; region: string }[];
 }
 
 // ── API functions ──────────────────────────────────────────────────────────
@@ -176,18 +205,41 @@ export const api = {
   getFno: (symbol: string) =>
     apiFetch<FnoRow[]>(`/stock/fno/${symbol}?limit=200`),
 
-  screenStocks: (conditions: ScreenerCondition[], limit = 200) =>
+  screenStocks: (conditions: ScreenerCondition[], limit = 200, symbols?: string[]) =>
     apiFetch<{ count: number; results: ScreenerResult[] }>("/screener/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conditions, limit }),
+      body: JSON.stringify({ conditions, limit, symbols: symbols?.length ? symbols : undefined }),
     }),
 
-  getScreenerPresets: () =>
-    apiFetch<ScreenerPreset[]>("/screener/presets"),
+  getScreenerUniversePresets: () =>
+    apiFetch<ScreenerPresetOption[]>("/screener/presets"),
 
   getScreenerMetrics: () =>
     apiFetch<{ metrics: string[]; operators: string[] }>("/screener/metrics"),
+
+  startSync: (symbols: string[], candle_days: number) =>
+    apiFetch<{ job_id: string; total: number }>("/screener/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols, candle_days }),
+    }),
+
+  getSyncJob: (jobId: string) =>
+    apiFetch<SyncJob>(`/screener/sync/${jobId}`),
+
+  createWatchlist: (name: string, symbols: string[]) =>
+    apiFetch<Watchlist>("/screener/watchlists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, symbols }),
+    }),
+
+  getWatchlists: () =>
+    apiFetch<Watchlist[]>("/screener/watchlists"),
+
+  deleteWatchlist: (id: number) =>
+    apiFetch<{ ok: boolean }>(`/screener/watchlists/${id}`, { method: "DELETE" }),
 
   runBacktest: (params: {
     symbol: string; from_date: string; to_date: string;
@@ -204,6 +256,23 @@ export const api = {
 
   getBacktestStrategies: () =>
     apiFetch<Strategy[]>("/backtest/strategies"),
+
+  getEntryConditions: () =>
+    apiFetch<EntryCondition[]>("/backtest/entry-conditions"),
+
+  getBacktestIndicators: () =>
+    apiFetch<{ indicators: string[]; operators: string[] }>("/backtest/indicators"),
+
+  runBacktestV2: (params: {
+    symbols: string[]; from_date: string; to_date: string;
+    entry_conditions: ConditionRow[]; exit_conditions: ConditionRow[];
+    target_pct: number; sl_pct: number; max_bars: number; capital_per_trade: number;
+  }) =>
+    apiFetch<BacktestV2Response>("/backtest/run-v2", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
 
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });

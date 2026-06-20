@@ -7,7 +7,11 @@ from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from backend.db.connection import get_db
-from backend.core.backtest_engine import run_backtest, BacktestParams
+from backend.core.backtest_engine import (
+    run_backtest, BacktestParams,
+    run_backtest_v2, BacktestParamsV2, ConditionRow,
+    ENTRY_CONDITIONS, VALID_INDICATORS, VALID_OPERATORS,
+)
 import pandas as pd
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -109,3 +113,91 @@ def list_strategies():
             },
         },
     ]
+
+
+# ── V2 endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/entry-conditions")
+def get_entry_conditions():
+    return ENTRY_CONDITIONS
+
+
+@router.get("/indicators")
+def get_indicators():
+    return {"indicators": VALID_INDICATORS, "operators": VALID_OPERATORS}
+
+
+class ConditionRowIn(BaseModel):
+    left: str
+    operator: str
+    right: str
+
+
+class BacktestV2Request(BaseModel):
+    symbols: list[str]
+    from_date: str
+    to_date: str
+    entry_conditions: list[ConditionRowIn]
+    exit_conditions: list[ConditionRowIn] = []
+    target_pct: float = 15.0
+    sl_pct: float = 7.0
+    max_bars: int = Field(30, ge=1, le=252)
+    capital_per_trade: float = Field(10_000.0, gt=0)
+
+
+@router.post("/run-v2")
+def run_v2(req: BacktestV2Request):
+    if not req.entry_conditions:
+        raise HTTPException(400, "At least one entry condition is required")
+
+    db = get_db()
+    entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
+    exit_rows  = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.exit_conditions]
+
+    params = BacktestParamsV2(
+        entry_conditions=entry_rows,
+        exit_conditions=exit_rows,
+        target_pct=req.target_pct,
+        sl_pct=req.sl_pct,
+        max_bars=req.max_bars,
+        capital_per_trade=req.capital_per_trade,
+    )
+
+    per_symbol: dict = {}
+    for sym in req.symbols:
+        sym = sym.upper()
+        df = db.execute(
+            """SELECT date, open, high, low, close, volume FROM stock_ohlcv
+               WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
+            [sym, req.from_date, req.to_date],
+        ).df()
+        if len(df) < 30:
+            continue
+        try:
+            per_symbol[sym] = run_backtest_v2(df, params)
+        except Exception:
+            continue
+
+    if not per_symbol:
+        raise HTTPException(400, "No data found for any symbol in the given date range. Sync data first via the Screener.")
+
+    # Aggregate stats
+    all_trades = [t for r in per_symbol.values() for t in r["trades"]]
+    total_trades = len(all_trades)
+    winners = [t for t in all_trades if t["exit_reason"] == "target" or t["pnl"] > 0]
+    total_pnl = sum(t["pnl"] for t in all_trades)
+
+    sym_pnl = {sym: sum(t["pnl"] for t in r["trades"]) for sym, r in per_symbol.items() if r["trades"]}
+    best  = max(sym_pnl, key=sym_pnl.get) if sym_pnl else ""
+    worst = min(sym_pnl, key=sym_pnl.get) if sym_pnl else ""
+
+    aggregate = {
+        "total_trades":  total_trades,
+        "win_rate_pct":  round(len(winners) / total_trades * 100, 1) if total_trades else 0,
+        "total_pnl":     round(total_pnl, 2),
+        "avg_pnl_pct":   round(sum(t["pnl_pct"] for t in all_trades) / total_trades, 2) if total_trades else 0,
+        "best_symbol":   best,
+        "worst_symbol":  worst,
+    }
+
+    return {"aggregate": aggregate, "per_symbol": per_symbol}
