@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, Wifi, WifiOff } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -12,6 +12,10 @@ export default function Navbar() {
   const [cursor, setCursor] = useState(-1);
   const [loading, setLoading] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -56,6 +60,32 @@ export default function Navbar() {
     else if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => Math.max(c - 1, -1)); }
     else if (e.key === "Enter") { e.preventDefault(); const s = cursor >= 0 ? results[cursor] : results[0]; if (s) go(s.symbol); }
     else if (e.key === "Escape") { setOpen(false); setCursor(-1); }
+  };
+
+  const triggerSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncMsg(null);
+    const sources = ["indices", "bhavcopy", "fii_dii", "currency"];
+    try {
+      await Promise.all(sources.map((s) => api.triggerSync(s)));
+      setSyncMsg("Sync queued");
+    } catch {
+      setSyncMsg("Sync failed");
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncMsg(null), 3000);
+    }
+  };
+
+  const resetStockData = async () => {
+    setResetting(true);
+    try {
+      await fetch("/api/screener/stock-data", { method: "DELETE" });
+    } finally {
+      setResetting(false);
+      setShowResetConfirm(false);
+    }
   };
 
   const navLinks = [
@@ -116,6 +146,63 @@ export default function Navbar() {
         {online ? <Wifi size={13} /> : <WifiOff size={13} />}
         <span className="hidden sm:inline">{online ? "Online" : "Offline"}</span>
       </div>
+
+      {/* Sync button */}
+      <div className="relative flex items-center">
+        <button
+          onClick={triggerSync}
+          disabled={syncing}
+          title="Sync market data (indices, bhavcopy, FII/DII, currency)"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all whitespace-nowrap ${
+            syncing
+              ? "bg-blue-50 text-blue-400 border-blue-200 cursor-not-allowed"
+              : "bg-white text-slate-500 border-slate-200 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50"
+          }`}>
+          <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+          <span className="hidden sm:inline">{syncMsg ?? "Sync"}</span>
+        </button>
+      </div>
+
+      {/* Reset stock data */}
+      <button
+        onClick={() => setShowResetConfirm(true)}
+        title="Delete all fetched stock OHLCV data (watchlists kept)"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all whitespace-nowrap">
+        <Trash2 size={13} />
+        <span className="hidden sm:inline">Reset Data</span>
+      </button>
+
+      {/* Confirm dialog */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-red-50 rounded-lg shrink-0">
+                <AlertTriangle size={18} className="text-red-500" />
+              </div>
+              <div>
+                <div className="font-semibold text-slate-800 text-sm">Delete all stock data?</div>
+                <div className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  This removes all downloaded OHLCV candles and indicator cache. Your watchlists are not affected.
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="px-4 py-1.5 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors font-medium">
+                Cancel
+              </button>
+              <button
+                onClick={resetStockData}
+                disabled={resetting}
+                className="px-4 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 rounded-lg transition-colors font-medium flex items-center gap-1.5">
+                {resetting ? <><div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Deleting…</> : <><Trash2 size={12} /> Delete All</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Nav links */}
       <div className="flex gap-1 text-sm font-medium whitespace-nowrap">

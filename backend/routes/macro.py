@@ -10,9 +10,33 @@ import pandas as pd
 
 router = APIRouter(prefix="/macro", tags=["macro"])
 
-HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX"]
+HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100"]
 SECTOR_INDICES   = ["NIFTY IT", "NIFTY BANK", "NIFTY AUTO", "NIFTY FMCG",
-                    "NIFTY PHARMA", "NIFTY METAL", "NIFTY ENERGY", "NIFTY REALTY"]
+                    "NIFTY PHARMA", "NIFTY METAL", "NIFTY ENERGY", "NIFTY REALTY",
+                    "NIFTY MIDCAP 100"]
+
+US_TICKERS = [
+    ("^GSPC",  "S&P 500"),
+    ("^IXIC",  "NASDAQ"),
+    ("^DJI",   "Dow Jones"),
+]
+
+US_SECTOR_TICKERS = [
+    ("XLK",  "Technology"),
+    ("XLF",  "Financials"),
+    ("XLV",  "Healthcare"),
+    ("XLE",  "Energy"),
+    ("XLY",  "Cons. Disc"),
+    ("XLP",  "Cons. Stapl"),
+    ("XLI",  "Industrials"),
+]
+
+GLOBAL_TICKERS = [
+    ("^N225",  "Nikkei 225",   "Japan"),
+    ("^STI",   "STI",          "Singapore"),
+    ("^KS11",  "KOSPI",        "S. Korea"),
+    ("^FTSE",  "FTSE 100",     "UK"),
+]
 
 
 @router.get("/dashboard")
@@ -52,6 +76,61 @@ def get_dashboard():
         "SELECT date, close FROM currency_ohlcv WHERE pair = 'USDINR' ORDER BY date DESC LIMIT 2"
     ).fetchall()
 
+    # --- live yfinance calls (US + global + VIX) bundled to minimise imports ---
+    us_markets, us_sectors, global_markets, india_vix_live = [], [], [], None
+    try:
+        import yfinance as yf
+        import numpy as np
+
+        def _yf_pct(ticker: str, period: str = "3d"):
+            """Return (close, prev_close) or None if data unavailable."""
+            h = yf.Ticker(ticker).history(period=period)
+            if h.empty:
+                return None
+            vals = [v for v in h["Close"].values if not np.isnan(v)]
+            if len(vals) < 2:
+                return None
+            return float(vals[-1]), float(vals[-2])
+
+        def _build(name, pair, extra=None):
+            if pair is None:
+                return None
+            c, p = pair
+            chg = c - p
+            obj = {"name": name, "close": round(c, 2),
+                   "change": round(chg, 2),
+                   "change_pct": round(chg / p * 100, 4) if p else 0,
+                   "date": today.isoformat()}
+            if extra:
+                obj.update(extra)
+            return obj
+
+        for ticker, name in US_TICKERS:
+            r = _build(name, _yf_pct(ticker))
+            if r:
+                us_markets.append(r)
+
+        for ticker, name in US_SECTOR_TICKERS:
+            r = _build(name, _yf_pct(ticker))
+            if r:
+                us_sectors.append(r)
+
+        for ticker, name, region in GLOBAL_TICKERS:
+            pair = _yf_pct(ticker) or _yf_pct(ticker, "5d")
+            r = _build(name, pair, {"region": region})
+            if r:
+                global_markets.append(r)
+
+        # India VIX — prefer ^INDIAVIX (yfinance) as DB table is often empty
+        vix_pair = _yf_pct("^INDIAVIX") or _yf_pct("^INDIAVIX", "5d")
+        if vix_pair:
+            c, p = vix_pair
+            india_vix_live = {"close": round(c, 2),
+                               "change_pct": round((c - p) / p * 100, 4) if p else 0,
+                               "date": today.isoformat()}
+    except Exception:
+        pass
+
     # --- process latest 2 rows per index ---
     by_idx: dict[str, list] = {}
     for d, name, close in rows_latest:
@@ -64,7 +143,8 @@ def get_dashboard():
         c, p = rows[0]["close"], rows[1]["close"]
         chg = c - p
         return {"name": name, "close": c, "prev": p,
-                "change": round(chg, 2), "change_pct": round(chg / p * 100, 4) if p else 0}
+                "change": round(chg, 2), "change_pct": round(chg / p * 100, 4) if p else 0,
+                "date": rows[0]["date"]}
 
     headline = [t for name in HEADLINE_INDICES if (t := _tile(name))]
     sector_perf = []
@@ -84,17 +164,21 @@ def get_dashboard():
 
     usdinr = None
     if rows_cur:
-        usdinr = {"close": rows_cur[0][1]}
+        usdinr = {"close": rows_cur[0][1], "date": str(rows_cur[0][0])}
         if len(rows_cur) > 1:
             prev = rows_cur[1][1]
             usdinr["change_pct"] = round((rows_cur[0][1] - prev) / prev * 100, 4) if prev else 0
 
     return {
-        "headline":    headline,
-        "sector_perf": sector_perf,
-        "nifty_hist":  nifty_hist,
-        "fii_latest":  fii_latest,
-        "usdinr":      usdinr,
+        "headline":       headline,
+        "sector_perf":    sector_perf,
+        "nifty_hist":     nifty_hist,
+        "fii_latest":     fii_latest,
+        "usdinr":         usdinr,
+        "india_vix":      india_vix_live,
+        "us_markets":     us_markets,
+        "us_sectors":     us_sectors,
+        "global_markets": global_markets,
     }
 
 

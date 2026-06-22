@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, EntryCondition, Watchlist, ConditionRow } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -70,6 +70,10 @@ interface BacktestState {
   v2Loading: boolean;
   v2Error: string | null;
   activeSymbol: string | null;
+  candleStats: CandleStat[];
+  syncJob: SyncJob | null;
+  syncJobId: string | null;
+  syncLoading: boolean;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -81,6 +85,8 @@ interface BacktestState {
   loadIndicators: () => Promise<void>;
   loadWatchlists: () => Promise<void>;
   setActiveSymbol: (sym: string) => void;
+  fetchCandleStats: () => Promise<void>;
+  startDataSync: (candle_days: number) => Promise<void>;
 }
 
 const DEFAULT_PARAMS: BacktestParams = {
@@ -149,6 +155,10 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   v2Loading: false,
   v2Error: null,
   activeSymbol: null,
+  candleStats: [],
+  syncJob: null,
+  syncJobId: null,
+  syncLoading: false,
 
   addSymbol: (sym) => {
     const upper = sym.toUpperCase().trim();
@@ -209,4 +219,36 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   },
 
   setActiveSymbol: (sym) => set({ activeSymbol: sym }),
+
+  fetchCandleStats: async () => {
+    const { pickedSymbols } = get();
+    if (!pickedSymbols.length) { set({ candleStats: [] }); return; }
+    try {
+      const stats = await api.getCandleStats(pickedSymbols);
+      set({ candleStats: stats });
+    } catch {}
+  },
+
+  startDataSync: async (candle_days: number) => {
+    const { pickedSymbols } = get();
+    if (!pickedSymbols.length) return;
+    set({ syncLoading: true, syncJob: null, syncJobId: null });
+    try {
+      const { job_id } = await api.startSync(pickedSymbols, candle_days);
+      set({ syncJobId: job_id });
+      const poll = setInterval(async () => {
+        try {
+          const job = await api.getSyncJob(job_id);
+          set({ syncJob: job });
+          if (job.status === "complete" || job.status === "done" || job.status === "error") {
+            clearInterval(poll);
+            set({ syncLoading: false });
+            get().fetchCandleStats();
+          }
+        } catch { clearInterval(poll); set({ syncLoading: false }); }
+      }, 1200);
+    } catch (e) {
+      set({ syncLoading: false });
+    }
+  },
 }));

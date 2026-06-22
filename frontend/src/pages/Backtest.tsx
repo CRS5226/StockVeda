@@ -257,6 +257,124 @@ function ConditionBuilder({
 
 // ── Main page ───────────────────────────────────────────────────────────────
 
+const SYNC_DAY_OPTIONS = [
+  { label: "6 months", days: 180 },
+  { label: "1 year",   days: 365 },
+  { label: "2 years",  days: 730 },
+  { label: "3 years",  days: 1095 },
+  { label: "5 years",  days: 1825 },
+];
+
+function DataPanel() {
+  const { pickedSymbols, candleStats, syncJob, syncLoading, fetchCandleStats, startDataSync, removeSymbol } = useBacktestStore();
+  const [syncDays, setSyncDays] = useState(730);
+  const prevSyncLoading = useRef(false);
+
+  useEffect(() => { fetchCandleStats(); }, [pickedSymbols.join(",")]);
+
+  useEffect(() => {
+    if (!syncLoading && prevSyncLoading.current) fetchCandleStats();
+    prevSyncLoading.current = syncLoading;
+  }, [syncLoading]);
+
+  const statMap = Object.fromEntries(candleStats.map((s) => [s.symbol, s]));
+
+  const barColor = (candles: number) => {
+    if (candles >= 500) return "bg-emerald-400";
+    if (candles >= 200) return "bg-yellow-400";
+    if (candles > 0)    return "bg-orange-400";
+    return "bg-slate-200";
+  };
+
+  const isDone = syncJob?.status === "complete" || syncJob?.status === "done";
+
+  return (
+    <div className="mt-3">
+      {/* Per-symbol data table */}
+      <div className="rounded-lg border border-slate-100 overflow-hidden mb-3">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-semibold">
+              <th className="text-left px-3 py-1.5">Symbol</th>
+              <th className="text-right px-3 py-1.5">Daily Candles</th>
+              <th className="text-left px-3 py-1.5 hidden sm:table-cell">Date Range</th>
+              <th className="px-3 py-1.5 w-28 hidden sm:table-cell">vs 5yr</th>
+              <th className="px-2 py-1.5 w-6"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {pickedSymbols.map((sym) => {
+              const stat = statMap[sym];
+              const candles = stat?.candles ?? 0;
+              const pct = Math.min(100, Math.round((candles / 1260) * 100)); // 1260 ≈ 5 trading years
+              return (
+                <tr key={sym} className="border-b border-slate-50 last:border-0">
+                  <td className="px-3 py-1.5 font-semibold text-slate-700">{sym}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    {candles === 0 ? (
+                      <span className="text-slate-300 italic">no data</span>
+                    ) : (
+                      <span className={candles >= 200 ? "text-slate-700" : "text-orange-500 font-semibold"}>{candles.toLocaleString()}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 text-slate-400 hidden sm:table-cell">
+                    {stat?.from_date ? `${stat.from_date} → ${stat.to_date}` : <span className="text-slate-200">—</span>}
+                  </td>
+                  <td className="px-3 py-1.5 hidden sm:table-cell">
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${barColor(candles)}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-[10px] text-slate-400 w-8 text-right shrink-0">{pct}%</span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <button onClick={() => removeSymbol(sym)} className="text-slate-200 hover:text-red-400 transition-colors"><X size={11} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Sync controls */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-slate-500 font-medium">Fetch historical data:</span>
+        <select value={syncDays} onChange={(e) => setSyncDays(Number(e.target.value))}
+          disabled={syncLoading}
+          className="text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 disabled:opacity-50">
+          {SYNC_DAY_OPTIONS.map((o) => (
+            <option key={o.days} value={o.days}>{o.label}</option>
+          ))}
+        </select>
+        <button onClick={() => startDataSync(syncDays)} disabled={syncLoading}
+          className="flex items-center gap-1.5 px-3 py-1 text-xs bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg transition-colors font-medium">
+          {syncLoading
+            ? <><span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin inline-block" /> Syncing…</>
+            : "Sync Selected"}
+        </button>
+        {syncJob && (
+          <div className="flex items-center gap-2 flex-1 min-w-40">
+            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${isDone ? "bg-emerald-400" : "bg-blue-400"}`}
+                style={{ width: `${syncJob.pct}%` }} />
+            </div>
+            <span className="text-[10px] text-slate-400 whitespace-nowrap">
+              {syncJob.done}/{syncJob.total}
+              {syncJob.current_symbol && !isDone ? ` · ${syncJob.current_symbol}` : ""}
+              {isDone ? " · done ✓" : ""}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="mt-1.5 text-[10px] text-slate-400">
+        All candles are <span className="font-semibold text-slate-500">daily (1D)</span> · Green ≥500 days · Yellow ≥200 · Orange &lt;200 (limited history)
+      </div>
+    </div>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -267,6 +385,7 @@ export default function Backtest() {
   } = store;
 
   const [showExitConditions, setShowExitConditions] = useState(false);
+  const [activePreset, setActivePreset] = useState<string | null>("MACD Cross");
 
   useEffect(() => {
     store.loadEntryConditions();
@@ -303,17 +422,7 @@ export default function Backtest() {
         </div>
 
         {pickedSymbols.length > 0 ? (
-          <>
-            <div className="flex flex-wrap gap-1.5">
-              {pickedSymbols.map((sym) => (
-                <span key={sym} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold rounded-full">
-                  {sym}
-                  <button onClick={() => removeSymbol(sym)} className="hover:text-red-500 transition-colors ml-0.5"><X size={10} /></button>
-                </span>
-              ))}
-            </div>
-            <div className="mt-2 text-xs text-slate-500">{pickedSymbols.length} stock{pickedSymbols.length !== 1 ? "s" : ""} selected</div>
-          </>
+          <DataPanel />
         ) : (
           <div className="text-xs text-slate-400 py-3 text-center border border-dashed border-slate-200 rounded-lg">
             No stocks selected — search above or load a watchlist
@@ -330,25 +439,57 @@ export default function Backtest() {
 
         {/* Quick-start presets */}
         <div className="mb-4">
-          <div className="text-xs text-slate-400 mb-2 font-medium">Quick-start presets</div>
+          <div className="text-xs text-slate-400 mb-2 font-medium">Quick-start presets — click to load, then customise below</div>
           <div className="flex flex-wrap gap-1.5">
-            {PRESETS.map((p) => (
-              <button key={p.label}
-                onClick={() => setStrategy({ entry_conditions: p.conditions })}
-                className="px-2.5 py-1 text-xs bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 border border-slate-200 rounded-full transition-all font-medium">
-                {p.label}
-              </button>
-            ))}
+            {PRESETS.map((p) => {
+              const isActive = activePreset === p.label;
+              return (
+                <button key={p.label}
+                  onClick={() => {
+                    setStrategy({ entry_conditions: p.conditions });
+                    setActivePreset(p.label);
+                  }}
+                  className={`px-2.5 py-1 text-xs border rounded-full transition-all font-medium ${
+                    isActive
+                      ? "bg-blue-500 text-white border-blue-500 shadow-sm"
+                      : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300"
+                  }`}>
+                  {p.label}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => {
+                setStrategy({ entry_conditions: [{ left: "close", operator: "crosses_above", right: "sma_50" }] });
+                setActivePreset("Custom");
+              }}
+              className={`px-2.5 py-1 text-xs border rounded-full transition-all font-medium ${
+                activePreset === "Custom"
+                  ? "bg-violet-500 text-white border-violet-500 shadow-sm"
+                  : "bg-slate-100 text-slate-500 border-slate-200 border-dashed hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+              }`}>
+              + Custom
+            </button>
           </div>
         </div>
 
         {/* Entry conditions */}
         <div className="mb-4">
-          <div className="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wide">Entry Conditions</div>
+          <div className="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wide">
+            Entry Conditions
+            {activePreset && activePreset !== "Custom" && (
+              <span className="ml-2 text-[10px] font-normal text-blue-500 normal-case">
+                {activePreset} — edit below to customise
+              </span>
+            )}
+          </div>
           {indicators.length > 0 ? (
             <ConditionBuilder
               conditions={strategy.entry_conditions}
-              onChange={(rows) => setStrategy({ entry_conditions: rows })}
+              onChange={(rows) => {
+                setStrategy({ entry_conditions: rows });
+                setActivePreset(null);
+              }}
               indicators={indicators}
               operators={operators}
             />

@@ -99,6 +99,24 @@ def get_ohlcv(
     return df_to_records(df)
 
 
+@router.get("/candle-stats")
+def get_candle_stats(symbols: str = Query(..., description="Comma-separated symbols")):
+    """Return candle count + date range for each requested symbol."""
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not syms:
+        return []
+    db = get_db()
+    rows = db.execute(
+        """SELECT symbol, COUNT(*) as candles, MIN(date) as from_date, MAX(date) as to_date
+           FROM stock_ohlcv
+           WHERE symbol IN ({})
+           GROUP BY symbol""".format(",".join("?" * len(syms))),
+        syms,
+    ).fetchall()
+    result = {r[0]: {"symbol": r[0], "candles": r[1], "from_date": str(r[2]), "to_date": str(r[3])} for r in rows}
+    return [result.get(s, {"symbol": s, "candles": 0, "from_date": None, "to_date": None}) for s in syms]
+
+
 @router.get("/search")
 def search_symbols(q: str = Query(..., min_length=1)):
     db = get_db()

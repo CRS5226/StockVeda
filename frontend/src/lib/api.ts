@@ -91,8 +91,10 @@ export interface ScreenerResult {
 export interface ScreenerCondition { metric: string; op: string; value: number }
 export interface ScreenerPreset { name: string; description: string; conditions: ScreenerCondition[] }
 export interface ScreenerPresetOption { id: string; label: string; count: number; symbols: string[] }
+export interface SavedScreener { id: number; name: string; conditions: ScreenerCondition[]; created_at: string }
 export interface Watchlist { id: number; name: string; symbols: string[]; created_at: string }
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
+export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
   equity_curve: { date: string; value: number }[];
   trades: {
@@ -138,20 +140,23 @@ export interface FiiDiiRow {
 export interface CurrencyRow { date: string; pair: string; open: number; high: number; low: number; close: number }
 export interface MacroRow { date: string; metric: string; value: number; unit: string }
 export interface DashboardData {
-  headline: { name: string; close: number; prev: number; change: number; change_pct: number }[];
+  headline: { name: string; close: number; prev: number; change: number; change_pct: number; date?: string }[];
   sector_perf: { name: string; pct: number }[];
   nifty_hist: { date: string; close: number }[];
   fii_latest: { date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number } | null;
-  usdinr: { close: number; change_pct?: number } | null;
-  india_vix: { close: number; change_pct?: number } | null;
-  us_markets: { name: string; close: number; change: number; change_pct: number }[];
-  us_sectors: { name: string; close: number; change: number; change_pct: number }[];
-  global_markets: { name: string; close: number; change: number; change_pct: number; region: string }[];
+  usdinr: { close: number; change_pct?: number; date?: string } | null;
+  india_vix: { close: number; change_pct?: number; date?: string } | null;
+  us_markets: { name: string; close: number; change: number; change_pct: number; date?: string }[];
+  us_sectors: { name: string; close: number; change: number; change_pct: number; date?: string }[];
+  global_markets: { name: string; close: number; change: number; change_pct: number; region: string; date?: string }[];
 }
 
 // ── API functions ──────────────────────────────────────────────────────────
 
 export const api = {
+  getCandleStats: (symbols: string[]) =>
+    apiFetch<CandleStat[]>(`/stock/candle-stats?symbols=${symbols.map(encodeURIComponent).join(",")}`),
+
   searchSymbols: (q: string) =>
     apiFetch<{ symbol: string; name: string }[]>(`/stock/search?q=${encodeURIComponent(q)}`),
 
@@ -240,6 +245,22 @@ export const api = {
 
   deleteWatchlist: (id: number) =>
     apiFetch<{ ok: boolean }>(`/screener/watchlists/${id}`, { method: "DELETE" }),
+
+  deleteAllStockData: () =>
+    apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),
+
+  getSavedScreeners: () =>
+    apiFetch<SavedScreener[]>("/screener/saved-screeners"),
+
+  createSavedScreener: (name: string, conditions: ScreenerCondition[]) =>
+    apiFetch<SavedScreener>("/screener/saved-screeners", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, conditions }),
+    }),
+
+  deleteSavedScreener: (id: number) =>
+    apiFetch<{ ok: boolean }>(`/screener/saved-screeners/${id}`, { method: "DELETE" }),
 
   runBacktest: (params: {
     symbol: string; from_date: string; to_date: string;

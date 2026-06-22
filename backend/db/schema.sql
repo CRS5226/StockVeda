@@ -231,3 +231,82 @@ CREATE TABLE IF NOT EXISTS mf_nav (
     nav DOUBLE,
     PRIMARY KEY (date, scheme_code)
 );
+
+CREATE TABLE IF NOT EXISTS stock_technical_cache (
+    symbol      VARCHAR,
+    date        DATE,
+    sma_20      DOUBLE,
+    sma_50      DOUBLE,
+    sma_200     DOUBLE,
+    ema_20      DOUBLE,
+    ema_50      DOUBLE,
+    rsi_14      DOUBLE,
+    macd        DOUBLE,
+    macd_signal DOUBLE,
+    bb_upper    DOUBLE,
+    bb_lower    DOUBLE,
+    atr_14      DOUBLE,
+    PRIMARY KEY (symbol, date)
+);
+
+CREATE TABLE IF NOT EXISTS watchlists (
+    id          INTEGER,
+    name        VARCHAR NOT NULL,
+    symbols     VARCHAR[],
+    created_at  TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+CREATE SEQUENCE IF NOT EXISTS watchlist_id_seq START 1;
+
+-- ── Saved Screeners ────────────────────────────────────────────────────────
+CREATE SEQUENCE IF NOT EXISTS screener_id_seq START 1;
+CREATE TABLE IF NOT EXISTS saved_screeners (
+    id          INTEGER DEFAULT nextval('screener_id_seq'),
+    name        VARCHAR NOT NULL,
+    conditions  VARCHAR NOT NULL,
+    created_at  TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+-- ── Extend stock_technical_cache with additional indicators ────────────────
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS sma_5        DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS sma_10       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS sma_100      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS ema_9        DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS ema_12       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS ema_26       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS ema_100      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS ema_200      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS wma_20       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS vwma_20      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS rsi_9        DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS rsi_21       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS macd_hist    DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS stoch_k      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS stoch_d      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS willr        DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS cci_20       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS roc_10       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS roc_20       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS mfi_14       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS ppo          DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS trix_15      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS atr_7        DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS atr_21       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS bb_width     DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS bb_pct       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS std_20       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS adx_14       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS adx_pos      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS adx_neg      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS volume_sma_20 DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS volume_ratio  DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS cmf_20       DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS high_52w     DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS low_52w      DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS pct_from_52w_high DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS pct_from_52w_low  DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_1d    DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_5d    DOUBLE;
+ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_20d   DOUBLE;
