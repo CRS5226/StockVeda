@@ -549,10 +549,22 @@ function MultiAlgoPanel({
                   <span className="w-3 h-3 rounded-full shrink-0" style={{ background: slot.color }} />
                   <input value={slot.label} onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onUpdateAlgo(slot.id, { label: e.target.value })}
-                    className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-28 border-b border-transparent hover:border-slate-300 focus:border-blue-400" />
-                  <span className="text-[10px] text-slate-400">
-                    {slot.strategy.entry_conditions.length} condition{slot.strategy.entry_conditions.length !== 1 ? "s" : ""}
-                    · T{slot.strategy.target_pct}% SL{slot.strategy.sl_pct}%
+                    className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-24 border-b border-transparent hover:border-slate-300 focus:border-blue-400" />
+                  {/* Preset picker */}
+                  <select
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const preset = PRESETS.find((p) => p.label === e.target.value);
+                      if (preset) onUpdateAlgo(slot.id, { label: preset.label, strategy: { ...slot.strategy, entry_conditions: preset.conditions } });
+                      e.target.value = "";
+                    }}
+                    defaultValue=""
+                    className="text-[10px] text-slate-500 bg-white border border-slate-200 rounded px-1 py-0.5 outline-none hover:border-blue-300 cursor-pointer max-w-[110px] truncate">
+                    <option value="" disabled>Load preset…</option>
+                    {PRESETS.map((p) => <option key={p.label} value={p.label}>{p.label}</option>)}
+                  </select>
+                  <span className="text-[10px] text-slate-400 hidden sm:inline">
+                    {slot.strategy.entry_conditions.length} cond · T{slot.strategy.target_pct}% SL{slot.strategy.sl_pct}%
                   </span>
                   <span className="ml-auto flex items-center gap-2">
                     <ChevronDown size={12} className={`text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
