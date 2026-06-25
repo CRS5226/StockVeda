@@ -737,38 +737,64 @@ function MultiAlgoResults({
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-      {/* Summary bar */}
-      <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white flex items-center gap-6 flex-wrap">
-        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide shrink-0">Summary</div>
-        <div>
-          <div className="text-[10px] text-slate-400">Net P&L</div>
-          <div className={`text-sm font-bold ${totalPnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-            {totalPnl >= 0 ? "+" : ""}₹{fmt(totalPnl)}
+      {/* Summary card */}
+      <div className="border-b border-slate-100 bg-slate-50/40">
+        <div className="px-4 pt-3 pb-1 flex items-center gap-1.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Summary</span>
+          <span className="text-[10px] text-slate-300">· {slotsWithResults.length} algo{slotsWithResults.length !== 1 ? "s" : ""} on {symbol}</span>
+        </div>
+        {/* Top row: global KPIs */}
+        <div className="px-4 pb-3 grid grid-cols-4 gap-3">
+          <div className={`rounded-lg px-3 py-2 ${totalPnl >= 0 ? "bg-emerald-50 border border-emerald-100" : "bg-red-50 border border-red-100"}`}>
+            <div className="text-[10px] text-slate-500 mb-0.5">Net P&L</div>
+            <div className={`text-base font-extrabold ${totalPnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+              {totalPnl >= 0 ? "+" : ""}₹{fmt(totalPnl)}
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-[10px] text-slate-400">Total Trades</div>
-          <div className="text-sm font-bold text-slate-700">{totalTrades}</div>
-        </div>
-        <div>
-          <div className="text-[10px] text-slate-400">Avg Win Rate</div>
-          <div className="text-sm font-bold text-slate-700">{avgWinRate}%</div>
-        </div>
-        {bestAlgo && (
-          <div>
-            <div className="text-[10px] text-slate-400">Best Algo</div>
-            <div className="text-sm font-bold truncate max-w-[100px]" style={{ color: bestAlgo.color }}>{bestAlgo.label}</div>
+          <div className="rounded-lg px-3 py-2 bg-white border border-slate-100">
+            <div className="text-[10px] text-slate-500 mb-0.5">Total Trades</div>
+            <div className="text-base font-extrabold text-slate-700">{totalTrades}</div>
           </div>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          {summaryStats.map((s) => (
-            <div key={s.label} className="text-right">
-              <div className="text-[9px]" style={{ color: s.color }}>{s.label}</div>
-              <div className={`text-[11px] font-semibold ${s.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                {s.total_pnl >= 0 ? "+" : ""}₹{fmt(s.total_pnl)}
+          <div className="rounded-lg px-3 py-2 bg-white border border-slate-100">
+            <div className="text-[10px] text-slate-500 mb-0.5">Avg Win Rate</div>
+            <div className={`text-base font-extrabold ${avgWinRate >= 50 ? "text-emerald-600" : "text-amber-500"}`}>{avgWinRate}%</div>
+          </div>
+          {bestAlgo && (
+            <div className="rounded-lg px-3 py-2 bg-white border border-slate-100" style={{ borderLeftWidth: 3, borderLeftColor: bestAlgo.color }}>
+              <div className="text-[10px] text-slate-500 mb-0.5">Best Algo</div>
+              <div className="text-sm font-extrabold truncate" style={{ color: bestAlgo.color }}>{bestAlgo.label}</div>
+              <div className={`text-[10px] font-semibold ${bestAlgo.total_pnl >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                {bestAlgo.total_pnl >= 0 ? "+" : ""}₹{fmt(bestAlgo.total_pnl)}
               </div>
             </div>
-          ))}
+          )}
+        </div>
+        {/* Per-algo breakdown chips */}
+        <div className="px-4 pb-3 flex items-center gap-2 flex-wrap">
+          {summaryStats.map((s) => {
+            const ts = s.profitFactor;
+            return (
+              <div key={s.label} className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white text-xs"
+                style={{ borderColor: s.color + "40" }}>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                <span className="font-semibold text-slate-600 truncate max-w-[80px]">{s.label}</span>
+                <span className="text-slate-300">·</span>
+                <span className={`font-bold ${s.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {s.total_pnl >= 0 ? "+" : ""}₹{fmt(s.total_pnl)}
+                </span>
+                <span className="text-slate-300">·</span>
+                <span className="text-slate-500">{s.total_trades}T</span>
+                <span className="text-slate-300">·</span>
+                <span className={`${s.win_rate_pct >= 50 ? "text-emerald-500" : "text-amber-500"}`}>{s.win_rate_pct}% win</span>
+                {isFinite(ts) && (
+                  <>
+                    <span className="text-slate-300">·</span>
+                    <span className={`${ts >= 1.5 ? "text-emerald-500" : ts >= 1 ? "text-amber-500" : "text-red-400"}`}>PF {ts.toFixed(1)}×</span>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
