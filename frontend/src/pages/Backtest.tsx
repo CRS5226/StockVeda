@@ -3,6 +3,8 @@ import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, 
 import { api, ConditionRow } from "../lib/api";
 import { useBacktestStore, SavedRun } from "../store/useBacktestStore";
 import BacktestChart from "../components/BacktestChart";
+import { detectPatterns } from "../lib/candlePatterns";
+import type { BacktestTradeV2 } from "../lib/api";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -12,6 +14,23 @@ function fmt(n: number, dec = 0) {
 
 function pnlClass(n: number) {
   return n >= 0 ? "text-emerald-600" : "text-red-500";
+}
+
+function tradeStats(trades: BacktestTradeV2[]) {
+  if (!trades.length) return { profitFactor: 0, expectancy: 0, targetHits: 0, slHits: 0, timeStops: 0 };
+  const winners   = trades.filter((t) => t.pnl > 0);
+  const losers    = trades.filter((t) => t.pnl <= 0);
+  const gProfit   = winners.reduce((s, t) => s + t.pnl, 0);
+  const gLoss     = Math.abs(losers.reduce((s, t) => s + t.pnl, 0));
+  const pf        = gLoss > 0 ? gProfit / gLoss : gProfit > 0 ? Infinity : 0;
+  const winRate   = winners.length / trades.length;
+  const avgWin    = winners.length ? winners.reduce((s, t) => s + t.pnl_pct, 0) / winners.length : 0;
+  const avgLoss   = losers.length  ? Math.abs(losers.reduce((s, t) => s + t.pnl_pct, 0) / losers.length) : 0;
+  const exp       = winRate * avgWin - (1 - winRate) * avgLoss;
+  const targetHits = trades.filter((t) => t.exit_reason === "target").length;
+  const slHits     = trades.filter((t) => t.exit_reason === "sl").length;
+  const timeStops  = trades.length - targetHits - slHits;
+  return { profitFactor: pf, expectancy: exp, targetHits, slHits, timeStops };
 }
 
 // ── Strategy presets ───────────────────────────────────────────────────────
@@ -513,12 +532,32 @@ export default function Backtest() {
 
   const canRun = pickedSymbols.length > 0 && strategy.entry_conditions.length > 0 && !v2Loading;
 
+  // Risk:Reward computed vars
+  const rr      = strategy.sl_pct > 0 ? strategy.target_pct / strategy.sl_pct : 0;
+  const rrColor = rr >= 2 ? "text-emerald-600" : rr >= 1.5 ? "text-amber-500" : "text-red-500";
+  const minWin  = rr > 0 ? Math.ceil((1 / (1 + rr)) * 100) : 0;
+  const randomPTarget = strategy.sl_pct > 0
+    ? (strategy.sl_pct / (strategy.target_pct + strategy.sl_pct)) * 100
+    : 0;
+
   // In compare mode, show saved run data; otherwise show current run
   const displayResults: typeof v2Results = compareMode && activeRunId
     ? savedRuns.find((r) => r.id === activeRunId)?.results ?? v2Results
     : v2Results;
   const symbolsWithResults = displayResults ? Object.keys(displayResults.per_symbol) : [];
   const activeData = activeSymbol && displayResults?.per_symbol[activeSymbol];
+
+  // Aggregate trader stats across all symbols in displayed results
+  const allTrades = displayResults
+    ? Object.values(displayResults.per_symbol).flatMap((s) => s.trades)
+    : [];
+  const aggStats = tradeStats(allTrades);
+  const edge = allTrades.length
+    ? (aggStats.targetHits / allTrades.length) * 100 - randomPTarget
+    : 0;
+
+  // Pattern hits for active stock
+  const patternHits = activeData ? detectPatterns(activeData.ohlcv) : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -658,16 +697,35 @@ export default function Backtest() {
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
           <div>
-            <label className="text-xs text-slate-500 mb-1 block">Max Hold (bars)</label>
+            <label className="text-xs text-slate-500 mb-1 block">
+              Max Hold ({strategy.timeframe === "1W" ? "weeks" : "days"})
+            </label>
             <input type="number" value={strategy.max_bars}
               onChange={(e) => setStrategy({ max_bars: parseInt(e.target.value) })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
           <div>
-            <label className="text-xs text-slate-500 mb-1 block">Capital / Stock (₹)</label>
+            <label className="text-xs text-slate-500 mb-1 block">Position Size (₹)</label>
             <input type="number" value={strategy.capital_per_trade}
               onChange={(e) => setStrategy({ capital_per_trade: parseFloat(e.target.value) })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+        </div>
+
+        {/* Risk : Reward display */}
+        <div className="flex items-center gap-5 px-3 py-2 rounded-lg bg-slate-50 border border-slate-100 mb-3">
+          <div>
+            <div className="text-[10px] text-slate-400 font-medium">Risk : Reward</div>
+            <div className={`text-lg font-bold leading-tight ${rrColor}`}>1 : {rr.toFixed(2)}</div>
+          </div>
+          <div className="border-l border-slate-200 pl-5">
+            <div className="text-[10px] text-slate-400">Min win rate to profit</div>
+            <div className="text-sm font-semibold text-slate-600">{minWin}%</div>
+          </div>
+          <div className="border-l border-slate-200 pl-5 text-[10px] text-slate-400 leading-relaxed">
+            {rr >= 2 ? "✓ Excellent — even 32% wins are profitable"
+              : rr >= 1.5 ? "~ Good ratio — solid risk management"
+              : "⚠ Low R:R — need very high win rate to profit"}
           </div>
         </div>
 
@@ -800,18 +858,50 @@ export default function Backtest() {
             {/* Left panel: stock list */}
             <div className="w-52 shrink-0 border-r border-slate-100 flex flex-col">
               <div className="p-3 border-b border-slate-100 bg-slate-50/60">
-                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Combined Results</div>
+                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Strategy Results</div>
                 {displayResults ? (
                   <>
                     <div className={`text-base font-bold ${pnlClass(displayResults.aggregate.total_pnl)}`}>
                       {displayResults.aggregate.total_pnl >= 0 ? "+" : ""}₹{fmt(displayResults.aggregate.total_pnl)}
                     </div>
-                    <div className="flex gap-3 mt-1 text-[10px] text-slate-400">
-                      <span>{displayResults.aggregate.total_trades} trades</span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mt-1.5 text-[10px]">
+                      <span className="text-slate-400">{displayResults.aggregate.total_trades} trades</span>
                       <span className={displayResults.aggregate.win_rate_pct >= 50 ? "text-emerald-500" : "text-red-400"}>
-                        {displayResults.aggregate.win_rate_pct}% win
+                        {displayResults.aggregate.win_rate_pct}% win rate
+                      </span>
+                      <span className={aggStats.profitFactor >= 1.5 ? "text-emerald-500" : aggStats.profitFactor >= 1 ? "text-amber-500" : "text-red-400"}>
+                        PF {isFinite(aggStats.profitFactor) ? aggStats.profitFactor.toFixed(2) : "∞"}×
+                      </span>
+                      <span className={aggStats.expectancy >= 0 ? "text-emerald-500" : "text-red-400"}>
+                        {aggStats.expectancy >= 0 ? "+" : ""}{aggStats.expectancy.toFixed(1)}% exp
                       </span>
                     </div>
+                    {/* Outcome probability bars */}
+                    {allTrades.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {[
+                          { label: "🎯 Target", count: aggStats.targetHits, color: "bg-emerald-400" },
+                          { label: "🛑 Stop", count: aggStats.slHits, color: "bg-red-400" },
+                          { label: "⏱ Time", count: aggStats.timeStops, color: "bg-slate-300" },
+                        ].map(({ label, count, color }) => {
+                          const pct = (count / allTrades.length) * 100;
+                          return (
+                            <div key={label}>
+                              <div className="flex justify-between text-[9px] text-slate-400 mb-0.5">
+                                <span>{label}</span>
+                                <span>{pct.toFixed(0)}% ({count})</span>
+                              </div>
+                              <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                                <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className={`text-[9px] font-semibold mt-1 ${edge >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                          {edge >= 0 ? "+" : ""}{edge.toFixed(1)}% edge vs random walk ({randomPTarget.toFixed(0)}% baseline)
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="text-slate-300 text-sm animate-pulse">—</div>
@@ -820,8 +910,10 @@ export default function Backtest() {
 
               <div className="overflow-y-auto flex-1">
                 {symbolsWithResults.map((sym) => {
-                  const symStats = displayResults!.per_symbol[sym].stats;
-                  const isActive = sym === activeSymbol;
+                  const symStats  = displayResults!.per_symbol[sym].stats;
+                  const symTrades = displayResults!.per_symbol[sym].trades;
+                  const symPF     = tradeStats(symTrades).profitFactor;
+                  const isActive  = sym === activeSymbol;
                   return (
                     <button key={sym} onClick={() => setActiveSymbol(sym)}
                       className={`w-full text-left px-3 py-2.5 border-b border-slate-50 transition-colors ${
@@ -834,7 +926,12 @@ export default function Backtest() {
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-400 mt-0.5">
-                        {symStats.total_trades} trades · {symStats.win_rate_pct}% win
+                        {symStats.total_trades} trades · {symStats.win_rate_pct}% win rate
+                        {symTrades.length > 0 && (
+                          <span className={`ml-1 ${symPF >= 1.5 ? "text-emerald-500" : symPF >= 1 ? "text-amber-500" : "text-red-400"}`}>
+                            · PF {isFinite(symPF) ? symPF.toFixed(1) : "∞"}×
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
@@ -868,6 +965,25 @@ export default function Backtest() {
                     ohlcv={activeData.ohlcv}
                     trades={activeData.trades}
                   />
+
+                  {/* Recent Patterns panel */}
+                  {patternHits.length > 0 && (
+                    <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/40">
+                      <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recent Candle Patterns</div>
+                      <div className="space-y-0.5">
+                        {patternHits.slice(-5).reverse().map((p, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[10px]">
+                            <span className="w-4 h-4 rounded bg-purple-100 text-purple-600 font-bold flex items-center justify-center shrink-0">{p.label}</span>
+                            <span className="text-slate-400 shrink-0">{p.date}</span>
+                            <span className="text-slate-600 truncate">{p.tip}</span>
+                            <span className={`ml-auto shrink-0 font-semibold ${p.bias === "bullish" ? "text-emerald-500" : "text-slate-400"}`}>
+                              {p.bias === "bullish" ? "↑ Bullish" : "→ Neutral"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {activeData.trades.length > 0 ? (
                     <div className="border-t border-slate-100 overflow-x-auto">

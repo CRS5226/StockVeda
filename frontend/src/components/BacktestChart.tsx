@@ -6,6 +6,7 @@ import {
   ColorType, CrosshairMode, LineStyle,
 } from "lightweight-charts";
 import { BacktestTradeV2 } from "../lib/api";
+import { detectPatterns } from "../lib/candlePatterns";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -136,9 +137,36 @@ export default function BacktestChart({ ohlcv, trades }: Props) {
         size: 1,
       });
     });
+
+    // Candle pattern markers — purple squares below bars
+    detectPatterns(ohlcv).forEach((p) => {
+      markers.push({
+        time: p.date as Time,
+        position: "belowBar",
+        shape: "square",
+        color: "#9333ea",
+        text: p.label,
+        size: 1,
+      });
+    });
+
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
   }, [ohlcv, trades]);
 
-  return <div ref={containerRef} className="w-full" />;
+  return (
+    <div>
+      <div ref={containerRef} className="w-full" />
+      <div className="flex gap-4 px-3 py-1 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50 flex-wrap">
+        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-blue-500" />B Buy entry</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />T Target hit</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-400" />SL Stop-loss</span>
+        <span className="text-slate-200">|</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500" />H Hammer</span>
+        <span className="flex items-center gap-1 text-slate-400">E Engulfing</span>
+        <span className="flex items-center gap-1 text-slate-400">I Inside Bar</span>
+        <span className="flex items-center gap-1 text-slate-400">P Pin Bar</span>
+      </div>
+    </div>
+  );
 }
