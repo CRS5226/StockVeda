@@ -769,33 +769,6 @@ function MultiAlgoResults({
             </div>
           )}
         </div>
-        {/* Per-algo breakdown chips */}
-        <div className="px-4 pb-3 flex items-center gap-2 flex-wrap">
-          {summaryStats.map((s) => {
-            const ts = s.profitFactor;
-            return (
-              <div key={s.label} className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white text-xs"
-                style={{ borderColor: s.color + "40" }}>
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-                <span className="font-semibold text-slate-600 truncate max-w-[80px]">{s.label}</span>
-                <span className="text-slate-300">·</span>
-                <span className={`font-bold ${s.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                  {s.total_pnl >= 0 ? "+" : ""}₹{fmt(s.total_pnl)}
-                </span>
-                <span className="text-slate-300">·</span>
-                <span className="text-slate-500">{s.total_trades}T</span>
-                <span className="text-slate-300">·</span>
-                <span className={`${s.win_rate_pct >= 50 ? "text-emerald-500" : "text-amber-500"}`}>{s.win_rate_pct}% win</span>
-                {isFinite(ts) && (
-                  <>
-                    <span className="text-slate-300">·</span>
-                    <span className={`${ts >= 1.5 ? "text-emerald-500" : ts >= 1 ? "text-amber-500" : "text-red-400"}`}>PF {ts.toFixed(1)}×</span>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
       </div>
 
       <div className="flex" style={{ minHeight: 500 }}>
