@@ -32,7 +32,8 @@ interface StrategyV2 {
   timeframe: "1D" | "1W";
 }
 
-export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#ec4899", "#f59e0b"];
+// 5 perceptually distinct colours — blue, orange, teal, violet, rose
+export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
 
 export interface AlgoSlot {
   id: string;
@@ -213,11 +214,13 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
 
   addAlgoSlot: () => set((s) => {
     if (s.algoSlots.length >= 5) return s;
-    const idx = s.algoSlots.length;
-    const id  = String(Date.now());
+    const usedColors = new Set(s.algoSlots.map((a) => a.color));
+    const color = ALGO_COLORS.find((c) => !usedColors.has(c)) ?? ALGO_COLORS[s.algoSlots.length % ALGO_COLORS.length];
+    const id = String(Date.now());
+    const num = s.algoSlots.length + 1;
     return {
       algoSlots: [...s.algoSlots, {
-        id, label: `Algo ${idx + 1}`, color: ALGO_COLORS[idx % ALGO_COLORS.length],
+        id, label: `Algo ${num}`, color,
         strategy: { ...DEFAULT_STRATEGY }, results: null, loading: false, error: null,
       }],
     };
