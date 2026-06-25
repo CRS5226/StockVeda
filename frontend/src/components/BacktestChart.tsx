@@ -116,14 +116,18 @@ export default function BacktestChart({
 
     const markers: SeriesMarker<Time>[] = [];
 
-    const drawTrades = (tradeset: BacktestTradeV2[], color: string, active: boolean) => {
-      const markerSize = active ? 2 : 1;
+    const drawTrades = (
+      tradeset: BacktestTradeV2[], color: string, active: boolean, multiAlgo: boolean
+    ) => {
+      // In multi-algo mode all markers are size 2 so all algos are equally visible.
+      // In multi-stock mode active=true always, so size 2 as well.
+      const markerSize = 2;
       tradeset.forEach((t) => {
         const entryDate = t.entry_date.slice(0, 10);
         const exitDate  = t.exit_date.slice(0, 10);
         if (!dateSet.has(entryDate)) return;
 
-        // H-lines only for active algo (avoid visual noise in multi-algo mode)
+        // H-lines only for the active algo to avoid clutter
         if (active) {
           addHLine(entryDate, exitDate, t.entry_price,  color);
           addHLine(entryDate, exitDate, t.target_price, "#22c55e");
@@ -136,24 +140,27 @@ export default function BacktestChart({
           color, text: "B", size: markerSize,
         });
 
-        const exitColor = t.exit_reason === "target" ? "#22c55e"
-          : t.exit_reason === "sl" ? "#ef4444" : "#94a3b8";
+        // In multi-algo mode use the algo's own color for exits so you can
+        // tell algos apart. In multi-stock mode keep semantic green/red.
+        const exitColor = multiAlgo
+          ? color
+          : t.exit_reason === "target" ? "#22c55e"
+            : t.exit_reason === "sl" ? "#ef4444" : "#94a3b8";
         markers.push({
           time: exitDate as Time,
           position: "aboveBar",
           shape: t.exit_reason === "target" ? "circle" : "arrowDown",
-          color: exitColor, text: t.exit_reason === "target" ? "T" : t.exit_reason === "sl" ? "SL" : "⏱",
+          color: exitColor,
+          text: t.exit_reason === "target" ? "T" : t.exit_reason === "sl" ? "SL" : "⏱",
           size: markerSize,
         });
       });
     };
 
     if (algoTrades && algoTrades.length > 0) {
-      // Multi-algo mode: draw each algo with its own color, active one gets h-lines + larger markers
-      algoTrades.forEach((at) => drawTrades(at.trades, at.color, at.active));
+      algoTrades.forEach((at) => drawTrades(at.trades, at.color, at.active, true));
     } else {
-      // Multi-stock mode: single color scheme
-      drawTrades(trades, "#3b82f6", true);
+      drawTrades(trades, "#3b82f6", true, false);
     }
 
     // Candle pattern markers (only when enabled)
@@ -180,12 +187,16 @@ export default function BacktestChart({
       <div ref={containerRef} className="w-full" />
       <div className="flex gap-3 px-3 py-1 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50 flex-wrap">
         {isMultiAlgo ? (
-          algoTrades!.map((at) => (
-            <span key={at.label} className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-full" style={{ background: at.color }} />
-              {at.label}
-            </span>
-          ))
+          <>
+            {algoTrades!.map((at) => (
+              <span key={at.label} className="flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full" style={{ background: at.color }} />
+                <span style={{ color: at.color }} className="font-medium">{at.label}</span>
+                <span className="text-slate-300 text-[9px]">↑B ●T ↓SL</span>
+              </span>
+            ))}
+            <span className="text-slate-300 text-[9px] ml-1">· each algo in its own colour</span>
+          </>
         ) : (
           <>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-blue-500" />B Buy</span>
