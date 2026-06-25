@@ -722,55 +722,8 @@ function MultiAlgoResults({
 
   const patternHits = showPatterns && ohlcv.length ? detectPatterns(ohlcv) : [];
 
-  // Cross-algo summary
-  const summaryStats = slotsWithResults.map((s) => {
-    const ts = tradeStats(s.results!.trades);
-    return { ...s.results!.stats, profitFactor: ts.profitFactor, color: s.color, label: s.label };
-  });
-  const totalPnl = summaryStats.reduce((a, s) => a + s.total_pnl, 0);
-  const totalTrades = summaryStats.reduce((a, s) => a + s.total_trades, 0);
-  const avgWinRate = summaryStats.length
-    ? Math.round(summaryStats.reduce((a, s) => a + s.win_rate_pct, 0) / summaryStats.length)
-    : 0;
-  const bestAlgo = summaryStats.reduce<typeof summaryStats[0] | null>((best, s) =>
-    !best || s.total_pnl > best.total_pnl ? s : best, null);
-
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-      {/* Summary card */}
-      <div className="border-b border-slate-100 bg-slate-50/40">
-        <div className="px-4 pt-3 pb-1 flex items-center gap-1.5">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Summary</span>
-          <span className="text-[10px] text-slate-300">· {slotsWithResults.length} algo{slotsWithResults.length !== 1 ? "s" : ""} on {symbol}</span>
-        </div>
-        {/* Top row: global KPIs */}
-        <div className="px-4 pb-3 grid grid-cols-4 gap-3">
-          <div className={`rounded-lg px-3 py-2 ${totalPnl >= 0 ? "bg-emerald-50 border border-emerald-100" : "bg-red-50 border border-red-100"}`}>
-            <div className="text-[10px] text-slate-500 mb-0.5">Net P&L</div>
-            <div className={`text-base font-extrabold ${totalPnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-              {totalPnl >= 0 ? "+" : ""}₹{fmt(totalPnl)}
-            </div>
-          </div>
-          <div className="rounded-lg px-3 py-2 bg-white border border-slate-100">
-            <div className="text-[10px] text-slate-500 mb-0.5">Total Trades</div>
-            <div className="text-base font-extrabold text-slate-700">{totalTrades}</div>
-          </div>
-          <div className="rounded-lg px-3 py-2 bg-white border border-slate-100">
-            <div className="text-[10px] text-slate-500 mb-0.5">Avg Win Rate</div>
-            <div className={`text-base font-extrabold ${avgWinRate >= 50 ? "text-emerald-600" : "text-amber-500"}`}>{avgWinRate}%</div>
-          </div>
-          {bestAlgo && (
-            <div className="rounded-lg px-3 py-2 bg-white border border-slate-100" style={{ borderLeftWidth: 3, borderLeftColor: bestAlgo.color }}>
-              <div className="text-[10px] text-slate-500 mb-0.5">Best Algo</div>
-              <div className="text-sm font-extrabold truncate" style={{ color: bestAlgo.color }}>{bestAlgo.label}</div>
-              <div className={`text-[10px] font-semibold ${bestAlgo.total_pnl >= 0 ? "text-emerald-500" : "text-red-400"}`}>
-                {bestAlgo.total_pnl >= 0 ? "+" : ""}₹{fmt(bestAlgo.total_pnl)}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="flex" style={{ minHeight: 500 }}>
         {/* Left: algo list */}
         <div className="w-56 shrink-0 border-r border-slate-100 flex flex-col">
