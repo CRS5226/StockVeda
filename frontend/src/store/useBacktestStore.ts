@@ -243,7 +243,11 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       timeframe: strategy.timeframe,
       results: v2Results,
     };
-    set((s) => ({ savedRuns: [...s.savedRuns, run] }));
+    set((s) => ({
+      savedRuns: s.savedRuns.some((r) => r.label === label)
+        ? s.savedRuns.map((r) => r.label === label ? run : r)
+        : [...s.savedRuns, run],
+    }));
   },
 
   clearSavedRuns: () => set({ savedRuns: [] }),

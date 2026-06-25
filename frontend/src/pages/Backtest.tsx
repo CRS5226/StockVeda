@@ -458,11 +458,12 @@ export default function Backtest() {
   const [showExitConditions, setShowExitConditions] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>("MACD Cross");
   const [compareMode, setCompareMode] = useState(false);
-  const [saveLabel, setSaveLabel] = useState("");
-  const [showSaveInput, setShowSaveInput] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [loadingPct, setLoadingPct] = useState(0);
   const loadingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showCustomSave, setShowCustomSave] = useState(false);
+  const [customSaveLabel, setCustomSaveLabel] = useState("");
+  const prevLoadingRef = useRef(false);
 
   useEffect(() => {
     store.loadEntryConditions();
@@ -490,6 +491,24 @@ export default function Backtest() {
       }
     }
     return () => { if (loadingTimer.current) clearInterval(loadingTimer.current); };
+  }, [v2Loading]);
+
+  // Auto-save when run completes
+  useEffect(() => {
+    const wasLoading = prevLoadingRef.current;
+    prevLoadingRef.current = v2Loading;
+    if (wasLoading && !v2Loading && v2Results) {
+      if (activePreset && activePreset !== "Custom") {
+        // Preset run — auto-save with preset name, open compare
+        saveCurrentRun(activePreset);
+        setCompareMode(true);
+        setActiveRunId(null);
+      } else {
+        // Custom run — prompt user to name it
+        setShowCustomSave(true);
+        setCustomSaveLabel("");
+      }
+    }
   }, [v2Loading]);
 
   const canRun = pickedSymbols.length > 0 && strategy.entry_conditions.length > 0 && !v2Loading;
@@ -702,38 +721,42 @@ export default function Backtest() {
       {(v2Results || v2Loading) && (
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
 
-          {/* Save / Compare toolbar — only when results exist */}
-          {v2Results && <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-wrap">
-            <span className="text-xs font-semibold text-slate-500 mr-1">Results</span>
-            {savedRuns.length > 0 && (
-              <button onClick={() => { setCompareMode((m) => !m); setActiveRunId(null); }}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs border rounded-lg font-medium transition-colors ${
-                  compareMode ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
-                }`}>
-                <BarChart2 size={12} /> Compare ({savedRuns.length})
-              </button>
-            )}
-            {showSaveInput ? (
-              <div className="flex items-center gap-1.5">
-                <input autoFocus value={saveLabel} onChange={(e) => setSaveLabel(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && saveLabel.trim()) { saveCurrentRun(saveLabel.trim()); setSaveLabel(""); setShowSaveInput(false); } if (e.key === "Escape") setShowSaveInput(false); }}
-                  placeholder="Run label…"
-                  className="text-xs px-2 py-1 border border-slate-200 rounded-lg outline-none focus:border-blue-400 w-36" />
-                <button disabled={!saveLabel.trim()}
-                  onClick={() => { saveCurrentRun(saveLabel.trim()); setSaveLabel(""); setShowSaveInput(false); }}
-                  className="text-xs px-2 py-1 bg-blue-500 text-white rounded-lg disabled:opacity-40 hover:bg-blue-600">Save</button>
-                <button onClick={() => setShowSaveInput(false)} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
-              </div>
-            ) : (
-              <button onClick={() => setShowSaveInput(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-lg text-slate-600 hover:border-blue-300 hover:bg-blue-50 font-medium transition-colors">
-                <BookmarkPlus size={12} /> Save Run
-              </button>
-            )}
-            {savedRuns.length > 0 && (
-              <button onClick={clearSavedRuns} className="text-xs text-slate-400 hover:text-red-400 transition-colors ml-auto">Clear saved</button>
-            )}
-          </div>}
+          {/* Toolbar */}
+          {v2Results && (
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 bg-slate-50/60 flex-wrap">
+              <span className="text-xs font-semibold text-slate-500">Results</span>
+              {savedRuns.length > 0 && (
+                <>
+                  <button onClick={() => { setCompareMode((m) => !m); setActiveRunId(null); }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs border rounded-lg font-medium transition-colors ${
+                      compareMode ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
+                    }`}>
+                    <BarChart2 size={12} /> Compare ({savedRuns.length} saved)
+                  </button>
+                  <button onClick={clearSavedRuns} className="text-xs text-slate-400 hover:text-red-400 transition-colors ml-auto">Clear all</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Custom-run save banner */}
+          {showCustomSave && v2Results && (
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-blue-100 bg-blue-50/60 flex-wrap">
+              <BookmarkPlus size={13} className="text-blue-500 shrink-0" />
+              <span className="text-xs text-blue-700 font-medium">Custom run complete — save to compare later:</span>
+              <input autoFocus value={customSaveLabel} onChange={(e) => setCustomSaveLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && customSaveLabel.trim()) { saveCurrentRun(customSaveLabel.trim()); setShowCustomSave(false); setCompareMode(true); }
+                  if (e.key === "Escape") setShowCustomSave(false);
+                }}
+                placeholder="Name this run…"
+                className="text-xs px-2 py-1 border border-blue-200 rounded-lg outline-none focus:border-blue-400 bg-white w-40" />
+              <button disabled={!customSaveLabel.trim()}
+                onClick={() => { saveCurrentRun(customSaveLabel.trim()); setShowCustomSave(false); setCompareMode(true); }}
+                className="text-xs px-2.5 py-1 bg-blue-500 text-white rounded-lg disabled:opacity-40 hover:bg-blue-600 font-medium">Save</button>
+              <button onClick={() => setShowCustomSave(false)} className="text-xs text-slate-400 hover:text-slate-600">Skip</button>
+            </div>
+          )}
 
           {/* Compare table */}
           {v2Results && compareMode && savedRuns.length > 0 && (
