@@ -742,6 +742,17 @@ function MultiAlgoResults({
                       </span>
                     )}
                   </div>
+                  {/* Show conditions used — helps debug "same chart" issue */}
+                  <div className="pl-5 mt-1.5 space-y-0.5">
+                    {slot.strategy.entry_conditions.slice(0, 3).map((c, ci) => (
+                      <div key={ci} className="text-[9px] text-slate-300 truncate">
+                        {c.left} <span className="text-slate-200">{c.operator.replace(/_/g, " ")}</span> {c.right}
+                      </div>
+                    ))}
+                    {slot.strategy.entry_conditions.length > 3 && (
+                      <div className="text-[9px] text-slate-200">+{slot.strategy.entry_conditions.length - 3} more</div>
+                    )}
+                  </div>
                 </button>
               );
             })}
