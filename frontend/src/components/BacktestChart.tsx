@@ -6,7 +6,7 @@ import {
   ColorType, CrosshairMode, LineStyle,
 } from "lightweight-charts";
 import { BacktestTradeV2 } from "../lib/api";
-import { detectPatterns } from "../lib/candlePatterns";
+import type { PatternHit } from "../lib/candlePatterns";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -24,7 +24,8 @@ interface Props {
   trades?: BacktestTradeV2[];
   /** Multi-algo mode: N algo trade sets overlaid */
   algoTrades?: AlgoTradeSet[];
-  showPatterns?: boolean;
+  /** TA-Lib pattern hits from backend; pass [] to hide patterns */
+  patternHits?: PatternHit[];
 }
 
 const BG   = "#ffffff";
@@ -39,7 +40,7 @@ function hexWithAlpha(hex: string, alpha: number): string {
 }
 
 export default function BacktestChart({
-  ohlcv, trades = [], algoTrades, showPatterns = true,
+  ohlcv, trades = [], algoTrades, patternHits = [],
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
@@ -170,22 +171,19 @@ export default function BacktestChart({
       drawTrades(trades, "#3b82f6", true, false);
     }
 
-    // Candle pattern markers (only when enabled)
-    if (showPatterns) {
-      detectPatterns(ohlcv).forEach((p) => {
-        const bullish = p.bias === "bullish";
-        markers.push({
-          time: p.date as Time,
-          position: "belowBar", shape: "square",
-          color: bullish ? "#9333ea" : "#c026d3",
-          text: p.label, size: 1,
-        });
+    // TA-Lib candle pattern markers from backend
+    patternHits.forEach((p) => {
+      markers.push({
+        time: p.date as Time,
+        position: "belowBar", shape: "square",
+        color: p.bias === "bullish" ? "#9333ea" : p.bias === "bearish" ? "#c026d3" : "#94a3b8",
+        text: p.label, size: 1,
       });
-    }
+    });
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, showPatterns]);
+  }, [ohlcv, trades, algoTrades, patternHits]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
@@ -211,12 +209,12 @@ export default function BacktestChart({
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-400" />SL Stop</span>
           </>
         )}
-        {showPatterns && (
+        {patternHits.length > 0 && (
           <>
             <span className="text-slate-200">|</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500" />Bullish patterns</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-600" />Bearish patterns</span>
-            <span className="text-slate-300">H E P MS = bullish · S BE ES = bearish · D I = neutral</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500" />Bullish pattern</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-600" />Bearish pattern</span>
+            <span className="text-slate-300">MS 3W E H P = bullish · ES 3B BE SS DC = bearish</span>
           </>
         )}
       </div>

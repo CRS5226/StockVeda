@@ -3,7 +3,8 @@ import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, 
 import { api, ConditionRow } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS } from "../store/useBacktestStore";
 import BacktestChart from "../components/BacktestChart";
-import { detectPatterns } from "../lib/candlePatterns";
+import TrendOutlook from "../components/TrendOutlook";
+import type { PatternHit } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -695,11 +696,15 @@ function MultiAlgoPanel({
 
 function MultiAlgoResults({
   symbol, algoSlots, activeAlgoId, onSetActive, showPatterns, onTogglePatterns,
+  patternHits, outlook, outlookLoading,
 }: {
   symbol: string;
   algoSlots: import("../store/useBacktestStore").AlgoSlot[];
   activeAlgoId: string | null; onSetActive: (id: string) => void;
   showPatterns: boolean; onTogglePatterns: () => void;
+  patternHits: PatternHit[];
+  outlook: Parameters<typeof TrendOutlook>[0]["data"];
+  outlookLoading: boolean;
 }) {
   const slotsWithResults = algoSlots.filter((a) => a.results);
   if (slotsWithResults.length === 0) return null;
@@ -720,7 +725,7 @@ function MultiAlgoResults({
     active: slot.id === activeId,
   }));
 
-  const patternHits = showPatterns && ohlcv.length ? detectPatterns(ohlcv) : [];
+  const activePatternHits = showPatterns ? patternHits : [];
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -807,7 +812,7 @@ function MultiAlgoResults({
           </div>
 
           {ohlcv.length > 0 && (
-            <BacktestChart symbol={symbol} ohlcv={ohlcv} algoTrades={algoTradeSets} showPatterns={showPatterns} />
+            <BacktestChart symbol={symbol} ohlcv={ohlcv} algoTrades={algoTradeSets} patternHits={activePatternHits} />
           )}
 
           {/* No-signals message for active algo */}
@@ -876,23 +881,7 @@ function MultiAlgoResults({
             </div>
           )}
 
-          {showPatterns && patternHits.length > 0 && (
-            <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/40">
-              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recent Patterns</div>
-              <div className="space-y-0.5">
-                {patternHits.slice(-5).reverse().map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 text-[10px]">
-                    <span className="w-4 h-4 rounded bg-purple-100 text-purple-600 font-bold flex items-center justify-center shrink-0">{p.label}</span>
-                    <span className="text-slate-400 shrink-0">{p.date}</span>
-                    <span className="text-slate-600 truncate">{p.tip}</span>
-                    <span className={`ml-auto shrink-0 font-semibold ${p.bias === "bullish" ? "text-emerald-500" : p.bias === "bearish" ? "text-red-400" : "text-slate-400"}`}>
-                      {p.bias === "bullish" ? "↑ Bullish" : p.bias === "bearish" ? "↓ Bearish" : "→ Neutral"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <TrendOutlook symbol={symbol} data={outlook} loading={outlookLoading} />
         </div>
       </div>
     </section>
@@ -935,6 +924,9 @@ export default function Backtest() {
   const [showCustomSave, setShowCustomSave] = useState(false);
   const [showPatterns, setShowPatterns] = useState(false);
   const [customSaveLabel, setCustomSaveLabel] = useState("");
+  const [patternCache, setPatternCache] = useState<Record<string, PatternHit[]>>({});
+  const [outlookCache, setOutlookCache] = useState<Record<string, Record<string, unknown> | null>>({});
+  const [outlookLoading, setOutlookLoading] = useState<Record<string, boolean>>({});
   const prevLoadingRef = useRef(false);
 
   useEffect(() => {
@@ -1009,8 +1001,22 @@ export default function Backtest() {
     ? (aggStats.targetHits / allTrades.length) * 100 - randomPTarget
     : 0;
 
-  // Pattern hits for active stock
-  const patternHits = activeData ? detectPatterns(activeData.ohlcv) : [];
+  // Fetch TA-Lib patterns + outlook when active symbol changes
+  useEffect(() => {
+    const sym = mode === "multi_algo" ? multiAlgoSymbol : activeSymbol;
+    if (!sym || patternCache[sym] !== undefined) return;
+    api.getCandlePatterns(sym).then((hits) => setPatternCache((c) => ({ ...c, [sym]: hits }))).catch(() => {});
+    setOutlookLoading((o) => ({ ...o, [sym]: true }));
+    api.getOutlook(sym)
+      .then((out) => setOutlookCache((c) => ({ ...c, [sym]: out as Record<string, unknown> })))
+      .catch(() => {})
+      .finally(() => setOutlookLoading((o) => ({ ...o, [sym]: false })));
+  }, [activeSymbol, multiAlgoSymbol, mode]);
+
+  const _activePatternSym = mode === "multi_algo" ? multiAlgoSymbol : (activeSymbol ?? "");
+  const activePatternHits = (showPatterns ? (patternCache[_activePatternSym] ?? []) : []);
+  const activeOutlook = outlookCache[_activePatternSym] ?? null;
+  const activeOutlookLoading = outlookLoading[_activePatternSym] ?? false;
 
   return (
     <div className="flex flex-col gap-4">
@@ -1276,6 +1282,9 @@ export default function Backtest() {
         onSetActive={setActiveAlgo}
         showPatterns={showPatterns}
         onTogglePatterns={() => setShowPatterns((v) => !v)}
+        patternHits={activePatternHits}
+        outlook={activeOutlook as Parameters<typeof TrendOutlook>[0]["data"]}
+        outlookLoading={activeOutlookLoading}
       />}
 
       {/* ── Section 3: Results — left panel + right panel (Multi-Stock mode) ── */}
@@ -1479,27 +1488,14 @@ export default function Backtest() {
                     symbol={activeSymbol!}
                     ohlcv={activeData.ohlcv}
                     trades={activeData.trades}
-                    showPatterns={showPatterns}
+                    patternHits={activePatternHits}
                   />
 
-                  {/* Recent Patterns panel */}
-                  {showPatterns && patternHits.length > 0 && (
-                    <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/40">
-                      <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recent Candle Patterns</div>
-                      <div className="space-y-0.5">
-                        {patternHits.slice(-5).reverse().map((p, i) => (
-                          <div key={i} className="flex items-center gap-2 text-[10px]">
-                            <span className="w-4 h-4 rounded bg-purple-100 text-purple-600 font-bold flex items-center justify-center shrink-0">{p.label}</span>
-                            <span className="text-slate-400 shrink-0">{p.date}</span>
-                            <span className="text-slate-600 truncate">{p.tip}</span>
-                            <span className={`ml-auto shrink-0 font-semibold ${p.bias === "bullish" ? "text-emerald-500" : "text-slate-400"}`}>
-                              {p.bias === "bullish" ? "↑ Bullish" : "→ Neutral"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <TrendOutlook
+                    symbol={activeSymbol!}
+                    data={activeOutlook as Parameters<typeof TrendOutlook>[0]["data"]}
+                    loading={activeOutlookLoading}
+                  />
 
                   {activeData.trades.length > 0 ? (
                     <div className="border-t border-slate-100 overflow-x-auto">

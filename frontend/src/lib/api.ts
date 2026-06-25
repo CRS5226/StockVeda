@@ -339,4 +339,19 @@ export const api = {
     apiFetch<{ status: string; index_rows: number; sources?: Record<string, string> }>(
       "/macro/bootstrap", { method: "POST" }
     ),
+
+  getCandlePatterns: (symbol: string, limit = 500) =>
+    apiFetch<import("./candlePatterns").PatternHit[]>(`/v1/candle-patterns/${symbol}?limit=${limit}`),
+
+  getOutlook: (symbol: string) =>
+    apiFetch<{
+      score: number; label: string;
+      components: Record<string, number>;
+      indicators: { rsi: number; macd_hist: number | null; sma20_diff_pct: number | null; close: number };
+      recent_patterns: string[];
+      pattern_stats: {
+        pattern: string; label: string; name: string; occurrences: number;
+        up5d_pct: number; up10d_pct: number; up20d_pct: number; avg_move5d: number;
+      }[];
+    }>(`/v1/outlook/${symbol}`),
 };
