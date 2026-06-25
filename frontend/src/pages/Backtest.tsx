@@ -695,8 +695,12 @@ function MultiAlgoResults({
 
   const activeId = activeAlgoId ?? slotsWithResults[0]?.id;
   const activeSlot = algoSlots.find((a) => a.id === activeId) ?? slotsWithResults[0];
-  const ohlcv = activeSlot?.results?.ohlcv ?? [];
   const activeTrades = activeSlot?.results?.trades ?? [];
+
+  // All algos run on the same stock → ohlcv is identical across slots.
+  // Pin to the first slot so the chart never remounts or resets zoom when
+  // the user switches active algo.
+  const ohlcv = slotsWithResults[0]?.results?.ohlcv ?? [];
 
   const algoTradeSets = slotsWithResults.map((slot) => ({
     label: slot.label,

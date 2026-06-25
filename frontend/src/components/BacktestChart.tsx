@@ -41,10 +41,11 @@ function hexWithAlpha(hex: string, alpha: number): string {
 export default function BacktestChart({
   ohlcv, trades = [], algoTrades, showPatterns = true,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef     = useRef<IChartApi | null>(null);
-  const candleRef    = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const tradeLines   = useRef<ISeriesApi<"Line">[]>([]);
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const chartRef      = useRef<IChartApi | null>(null);
+  const candleRef     = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const tradeLines    = useRef<ISeriesApi<"Line">[]>([]);
+  const loadedSymRef  = useRef<string>("");  // tracks which symbol's candles are loaded
 
   // Init chart once
   useEffect(() => {
@@ -76,16 +77,22 @@ export default function BacktestChart({
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
   }, []);
 
-  // Update candle data
+  // Update candle data — only fitContent() when the underlying symbol/data changes,
+  // not when the caller swaps ohlcv references for the same stock data.
   useEffect(() => {
     if (!candleRef.current || !ohlcv.length) return;
+    const identity = ohlcv[0]?.date + "|" + ohlcv[ohlcv.length - 1]?.date + "|" + ohlcv.length;
+    const isNewData = loadedSymRef.current !== identity;
     candleRef.current.setData(
       ohlcv.map((r) => ({
         time: r.date.slice(0, 10) as Time,
         open: r.open, high: r.high, low: r.low, close: r.close,
       } as CandlestickData))
     );
-    chartRef.current?.timeScale().fitContent();
+    if (isNewData) {
+      chartRef.current?.timeScale().fitContent();
+      loadedSymRef.current = identity;
+    }
   }, [ohlcv]);
 
   // Draw trade markers and h-lines
