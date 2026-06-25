@@ -143,6 +143,7 @@ class BacktestV2Request(BaseModel):
     sl_pct: float = 7.0
     max_bars: int = Field(30, ge=1, le=252)
     capital_per_trade: float = Field(10_000.0, gt=0)
+    timeframe: str = "1D"
 
 
 @router.post("/run-v2")
@@ -161,6 +162,7 @@ def run_v2(req: BacktestV2Request):
         sl_pct=req.sl_pct,
         max_bars=req.max_bars,
         capital_per_trade=req.capital_per_trade,
+        timeframe=req.timeframe,
     )
 
     per_symbol: dict = {}

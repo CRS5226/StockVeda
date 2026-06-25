@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2 } from "lucide-react";
+import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
 import { api, ConditionRow } from "../lib/api";
-import { useBacktestStore } from "../store/useBacktestStore";
+import { useBacktestStore, SavedRun } from "../store/useBacktestStore";
 import BacktestChart from "../components/BacktestChart";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -14,35 +14,101 @@ function pnlClass(n: number) {
   return n >= 0 ? "text-emerald-600" : "text-red-500";
 }
 
-// ── Quick-start presets ────────────────────────────────────────────────────
+// ── Strategy presets ───────────────────────────────────────────────────────
 
-const PRESETS: { label: string; conditions: ConditionRow[] }[] = [
+const PRESETS: { label: string; tip: string; conditions: ConditionRow[] }[] = [
+  {
+    label: "Trend Momentum",
+    tip: "Strong trend + momentum flip — SMA200 regime filter avoids bear markets",
+    conditions: [
+      { left: "rsi_14",      operator: "above",         right: "50" },
+      { left: "macd",        operator: "crosses_above",  right: "macd_signal" },
+      { left: "close",       operator: "above",          right: "sma_200" },
+      { left: "adx_14",      operator: "above",          right: "25" },
+    ],
+  },
+  {
+    label: "Volume Breakout",
+    tip: "Price + RSI + unusual volume all confirm — avoids false breakouts",
+    conditions: [
+      { left: "close",        operator: "crosses_above", right: "sma_50" },
+      { left: "rsi_14",       operator: "above",         right: "55" },
+      { left: "volume_ratio", operator: "above",         right: "1.2" },
+    ],
+  },
+  {
+    label: "Golden Zone Buy",
+    tip: "Pullback-to-SMA50 retest in uptrend — highest probability daily setup",
+    conditions: [
+      { left: "close",  operator: "crosses_above", right: "sma_50" },
+      { left: "sma_50", operator: "above",          right: "sma_200" },
+      { left: "rsi_14", operator: "above",          right: "40" },
+      { left: "rsi_14", operator: "below",          right: "60" },
+    ],
+  },
+  {
+    label: "RSI Midline Surge",
+    tip: "RSI crossing 50 with MACD hist positive is a strong continuation signal",
+    conditions: [
+      { left: "rsi_14",    operator: "crosses_above", right: "50" },
+      { left: "macd_hist", operator: "above",          right: "0" },
+      { left: "close",     operator: "above",          right: "ema_20" },
+    ],
+  },
+  {
+    label: "Mean Reversion",
+    tip: "Oversold → turning — requires price AND momentum confirmation",
+    conditions: [
+      { left: "rsi_14",    operator: "crosses_above", right: "30" },
+      { left: "close",     operator: "above",          right: "bb_lower" },
+      { left: "macd_hist", operator: "above",          right: "0" },
+    ],
+  },
+  {
+    label: "EMA Ribbon Entry",
+    tip: "All EMAs aligned up + fresh pullback entry + MACD momentum",
+    conditions: [
+      { left: "ema_20", operator: "above",          right: "ema_50" },
+      { left: "close",  operator: "crosses_above",  right: "ema_20" },
+      { left: "macd_hist", operator: "above",       right: "0" },
+    ],
+  },
+  {
+    label: "ADX Trend Entry",
+    tip: "Only enters when ADX > 25 (genuinely trending, not ranging)",
+    conditions: [
+      { left: "adx_14", operator: "above",          right: "25" },
+      { left: "macd",   operator: "crosses_above",  right: "macd_signal" },
+      { left: "close",  operator: "above",          right: "sma_200" },
+    ],
+  },
+  {
+    label: "Pin Bar + Trend",
+    tip: "Bullish pin bar rejection candle in an uptrend — candlestick + indicator combo",
+    conditions: [
+      { left: "cdl_pin_bar_bull", operator: "above", right: "0" },
+      { left: "close",            operator: "above",  right: "sma_50" },
+      { left: "rsi_14",           operator: "above",  right: "40" },
+    ],
+  },
+  {
+    label: "Engulfing Reversal",
+    tip: "Bullish engulfing after a pullback — strong reversal pattern",
+    conditions: [
+      { left: "cdl_bull_engulf", operator: "above", right: "0" },
+      { left: "rsi_14",         operator: "below",  right: "50" },
+      { left: "close",          operator: "above",  right: "sma_200" },
+    ],
+  },
   {
     label: "MACD Cross",
+    tip: "Classic MACD crossover — momentum shift signal",
     conditions: [{ left: "macd", operator: "crosses_above", right: "macd_signal" }],
   },
   {
-    label: "RSI Bounce",
-    conditions: [{ left: "rsi_14", operator: "crosses_above", right: "30" }],
-  },
-  {
     label: "Golden Cross",
+    tip: "SMA50 crosses above SMA200 — long-term trend confirmation",
     conditions: [{ left: "sma_50", operator: "crosses_above", right: "sma_200" }],
-  },
-  {
-    label: "EMA Cross",
-    conditions: [{ left: "ema_20", operator: "crosses_above", right: "ema_50" }],
-  },
-  {
-    label: "Price > SMA50",
-    conditions: [{ left: "close", operator: "crosses_above", right: "sma_50" }],
-  },
-  {
-    label: "52W Breakout",
-    conditions: [
-      { left: "close", operator: "crosses_above", right: "sma_200" },
-      { left: "rsi_14", operator: "above", right: "50" },
-    ],
   },
 ];
 
@@ -52,6 +118,9 @@ const INDICATOR_LABELS: Record<string, string> = {
   ema_20: "EMA 20", ema_50: "EMA 50",
   macd: "MACD", macd_signal: "MACD Signal", macd_hist: "MACD Histogram",
   bb_upper: "BB Upper", bb_lower: "BB Lower", atr_14: "ATR (14)",
+  adx_14: "ADX (14)", volume_ratio: "Volume Ratio",
+  cdl_hammer: "Hammer Candle", cdl_bull_engulf: "Bullish Engulfing",
+  cdl_inside_bar: "Inside Bar (NR4)", cdl_pin_bar_bull: "Pin Bar (Bull)",
 };
 
 const OPERATOR_LABELS: Record<string, string> = {
@@ -291,9 +360,9 @@ function DataPanel() {
   return (
     <div className="mt-3">
       {/* Per-symbol data table */}
-      <div className="rounded-lg border border-slate-100 overflow-hidden mb-3">
+      <div className="rounded-lg border border-slate-100 overflow-hidden mb-3 max-h-64 overflow-y-auto">
         <table className="w-full text-xs">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-semibold">
               <th className="text-left px-3 py-1.5">Symbol</th>
               <th className="text-right px-3 py-1.5">Daily Candles</th>
@@ -380,12 +449,18 @@ export default function Backtest() {
   const {
     pickedSymbols, indicators, operators, strategy,
     v2Results, v2Loading, v2Error, activeSymbol,
+    savedRuns,
     addSymbol, removeSymbol, clearSymbols,
     setStrategy, runBacktestV2, setActiveSymbol,
+    saveCurrentRun, clearSavedRuns,
   } = store;
 
   const [showExitConditions, setShowExitConditions] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>("MACD Cross");
+  const [compareMode, setCompareMode] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   useEffect(() => {
     store.loadEntryConditions();
@@ -395,8 +470,12 @@ export default function Backtest() {
 
   const canRun = pickedSymbols.length > 0 && strategy.entry_conditions.length > 0 && !v2Loading;
 
-  const symbolsWithResults = v2Results ? Object.keys(v2Results.per_symbol) : [];
-  const activeData = activeSymbol && v2Results?.per_symbol[activeSymbol];
+  // In compare mode, show saved run data; otherwise show current run
+  const displayResults: typeof v2Results = compareMode && activeRunId
+    ? savedRuns.find((r) => r.id === activeRunId)?.results ?? v2Results
+    : v2Results;
+  const symbolsWithResults = displayResults ? Object.keys(displayResults.per_symbol) : [];
+  const activeData = activeSymbol && displayResults?.per_symbol[activeSymbol];
 
   return (
     <div className="flex flex-col gap-4">
@@ -437,14 +516,14 @@ export default function Backtest() {
           <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
         </div>
 
-        {/* Quick-start presets */}
+        {/* Strategy presets */}
         <div className="mb-4">
-          <div className="text-xs text-slate-400 mb-2 font-medium">Quick-start presets — click to load, then customise below</div>
+          <div className="text-xs text-slate-400 mb-2 font-medium">Strategy presets — click to load, then customise below</div>
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map((p) => {
               const isActive = activePreset === p.label;
               return (
-                <button key={p.label}
+                <button key={p.label} title={p.tip}
                   onClick={() => {
                     setStrategy({ entry_conditions: p.conditions });
                     setActivePreset(p.label);
@@ -471,6 +550,11 @@ export default function Backtest() {
               + Custom
             </button>
           </div>
+          {activePreset && activePreset !== "Custom" && (
+            <div className="mt-1.5 text-[11px] text-slate-400 italic">
+              {PRESETS.find((p) => p.label === activePreset)?.tip}
+            </div>
+          )}
         </div>
 
         {/* Entry conditions */}
@@ -544,7 +628,7 @@ export default function Backtest() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-3 gap-3 mb-4">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">From Date</label>
             <input type="date" value={strategy.from_date}
@@ -557,13 +641,38 @@ export default function Backtest() {
               onChange={(e) => setStrategy({ to_date: e.target.value })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Timeframe</label>
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
+              {(["1D", "1W"] as const).map((tf) => (
+                <button key={tf}
+                  onClick={() => setStrategy({ timeframe: tf })}
+                  className={`flex-1 font-medium transition-colors ${
+                    strategy.timeframe === tf
+                      ? "bg-blue-500 text-white"
+                      : "text-slate-500 bg-slate-50 hover:bg-slate-100"
+                  }`}>
+                  {tf === "1D" ? "Daily" : "Weekly"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <button onClick={runBacktestV2} disabled={!canRun}
-          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-          <Play size={13} className={v2Loading ? "animate-pulse" : ""} />
-          {v2Loading ? `Running on ${pickedSymbols.length} stocks…` : `Run Backtest on ${pickedSymbols.length} stock${pickedSymbols.length !== 1 ? "s" : ""}`}
-        </button>
+        <div>
+          <button onClick={runBacktestV2} disabled={!canRun}
+            className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+            {v2Loading
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running on {pickedSymbols.length} stocks…</>
+              : <><Play size={13} /> Run Backtest on {pickedSymbols.length} stock{pickedSymbols.length !== 1 ? "s" : ""}</>
+            }
+          </button>
+          {v2Loading && (
+            <div className="mt-2 w-64 h-0.5 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-400 rounded-full w-1/2 animate-[pulse_1.2s_ease-in-out_infinite]" />
+            </div>
+          )}
+        </div>
 
         {v2Error && (
           <div className="mt-3 flex items-center gap-2 text-sm text-red-500">
@@ -575,19 +684,90 @@ export default function Backtest() {
       {/* ── Section 3: Results — left panel + right panel ── */}
       {v2Results && (
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="flex" style={{ minHeight: 520 }}>
+
+          {/* Save / Compare toolbar */}
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-wrap">
+            <span className="text-xs font-semibold text-slate-500 mr-1">Results</span>
+            {savedRuns.length > 0 && (
+              <button onClick={() => { setCompareMode((m) => !m); setActiveRunId(null); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs border rounded-lg font-medium transition-colors ${
+                  compareMode ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
+                }`}>
+                <BarChart2 size={12} /> Compare ({savedRuns.length})
+              </button>
+            )}
+            {showSaveInput ? (
+              <div className="flex items-center gap-1.5">
+                <input autoFocus value={saveLabel} onChange={(e) => setSaveLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && saveLabel.trim()) { saveCurrentRun(saveLabel.trim()); setSaveLabel(""); setShowSaveInput(false); } if (e.key === "Escape") setShowSaveInput(false); }}
+                  placeholder="Run label…"
+                  className="text-xs px-2 py-1 border border-slate-200 rounded-lg outline-none focus:border-blue-400 w-36" />
+                <button disabled={!saveLabel.trim()}
+                  onClick={() => { saveCurrentRun(saveLabel.trim()); setSaveLabel(""); setShowSaveInput(false); }}
+                  className="text-xs px-2 py-1 bg-blue-500 text-white rounded-lg disabled:opacity-40 hover:bg-blue-600">Save</button>
+                <button onClick={() => setShowSaveInput(false)} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowSaveInput(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-lg text-slate-600 hover:border-blue-300 hover:bg-blue-50 font-medium transition-colors">
+                <BookmarkPlus size={12} /> Save Run
+              </button>
+            )}
+            {savedRuns.length > 0 && (
+              <button onClick={clearSavedRuns} className="text-xs text-slate-400 hover:text-red-400 transition-colors ml-auto">Clear saved</button>
+            )}
+          </div>
+
+          {/* Compare table */}
+          {compareMode && savedRuns.length > 0 && (
+            <div className="border-b border-slate-100 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-semibold">
+                    {["Run", "TF", "Total PnL", "Win Rate", "Trades", "Avg PnL%", "Best", "Worst"].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...savedRuns, { id: "current", label: "Current run", timeframe: strategy.timeframe, results: v2Results }].map((run) => {
+                    const agg = run.results.aggregate;
+                    const isActive = (compareMode && activeRunId === run.id) || (!compareMode && run.id === "current");
+                    return (
+                      <tr key={run.id}
+                        onClick={() => { setActiveRunId(run.id === "current" ? null : run.id); }}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${isActive ? "bg-blue-50" : "hover:bg-slate-50"}`}>
+                        <td className="px-3 py-2 font-semibold text-slate-700">{run.label}</td>
+                        <td className="px-3 py-2 text-slate-400">{run.timeframe}</td>
+                        <td className={`px-3 py-2 font-semibold ${pnlClass(agg.total_pnl)}`}>
+                          {agg.total_pnl >= 0 ? "+" : ""}₹{fmt(agg.total_pnl)}
+                        </td>
+                        <td className={`px-3 py-2 ${agg.win_rate_pct >= 50 ? "text-emerald-600" : "text-red-400"}`}>{agg.win_rate_pct}%</td>
+                        <td className="px-3 py-2 text-slate-500">{agg.total_trades}</td>
+                        <td className={`px-3 py-2 ${pnlClass(agg.avg_pnl_pct)}`}>{agg.avg_pnl_pct}%</td>
+                        <td className="px-3 py-2 text-emerald-600 font-medium">{agg.best_symbol || "—"}</td>
+                        <td className="px-3 py-2 text-red-400 font-medium">{agg.worst_symbol || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="flex" style={{ height: 640 }}>
 
             {/* Left panel: stock list */}
             <div className="w-52 shrink-0 border-r border-slate-100 flex flex-col">
               <div className="p-3 border-b border-slate-100 bg-slate-50/60">
                 <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Combined Results</div>
-                <div className={`text-base font-bold ${pnlClass(v2Results.aggregate.total_pnl)}`}>
-                  {v2Results.aggregate.total_pnl >= 0 ? "+" : ""}₹{fmt(v2Results.aggregate.total_pnl)}
+                <div className={`text-base font-bold ${pnlClass(displayResults!.aggregate.total_pnl)}`}>
+                  {displayResults!.aggregate.total_pnl >= 0 ? "+" : ""}₹{fmt(displayResults!.aggregate.total_pnl)}
                 </div>
                 <div className="flex gap-3 mt-1 text-[10px] text-slate-400">
-                  <span>{v2Results.aggregate.total_trades} trades</span>
-                  <span className={v2Results.aggregate.win_rate_pct >= 50 ? "text-emerald-500" : "text-red-400"}>
-                    {v2Results.aggregate.win_rate_pct}% win
+                  <span>{displayResults!.aggregate.total_trades} trades</span>
+                  <span className={displayResults!.aggregate.win_rate_pct >= 50 ? "text-emerald-500" : "text-red-400"}>
+                    {displayResults!.aggregate.win_rate_pct}% win
                   </span>
                 </div>
               </div>

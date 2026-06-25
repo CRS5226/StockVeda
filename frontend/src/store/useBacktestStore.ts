@@ -29,6 +29,14 @@ interface StrategyV2 {
   from_date: string;
   to_date: string;
   capital_per_trade: number;
+  timeframe: "1D" | "1W";
+}
+
+export interface SavedRun {
+  id: string;
+  label: string;
+  timeframe: string;
+  results: BacktestV2Response;
 }
 
 const TWO_YEARS_AGO = new Date(Date.now() - 2 * 365 * 86400_000).toISOString().slice(0, 10);
@@ -43,6 +51,7 @@ const DEFAULT_STRATEGY: StrategyV2 = {
   from_date: TWO_YEARS_AGO,
   to_date: TODAY,
   capital_per_trade: 10000,
+  timeframe: "1D",
 };
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -74,6 +83,7 @@ interface BacktestState {
   syncJob: SyncJob | null;
   syncJobId: string | null;
   syncLoading: boolean;
+  savedRuns: SavedRun[];
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -87,6 +97,8 @@ interface BacktestState {
   setActiveSymbol: (sym: string) => void;
   fetchCandleStats: () => Promise<void>;
   startDataSync: (candle_days: number) => Promise<void>;
+  saveCurrentRun: (label: string) => void;
+  clearSavedRuns: () => void;
 }
 
 const DEFAULT_PARAMS: BacktestParams = {
@@ -159,6 +171,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   syncJob: null,
   syncJobId: null,
   syncLoading: false,
+  savedRuns: [],
 
   addSymbol: (sym) => {
     const upper = sym.toUpperCase().trim();
@@ -189,6 +202,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         sl_pct: strategy.sl_pct,
         max_bars: strategy.max_bars,
         capital_per_trade: strategy.capital_per_trade,
+        timeframe: strategy.timeframe,
       });
       const firstSym = Object.keys(res.per_symbol)[0] ?? null;
       set({ v2Results: res, v2Loading: false, activeSymbol: firstSym });
@@ -219,6 +233,20 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   },
 
   setActiveSymbol: (sym) => set({ activeSymbol: sym }),
+
+  saveCurrentRun: (label) => {
+    const { v2Results, strategy } = get();
+    if (!v2Results) return;
+    const run: SavedRun = {
+      id: String(Date.now()),
+      label,
+      timeframe: strategy.timeframe,
+      results: v2Results,
+    };
+    set((s) => ({ savedRuns: [...s.savedRuns, run] }));
+  },
+
+  clearSavedRuns: () => set({ savedRuns: [] }),
 
   fetchCandleStats: async () => {
     const { pickedSymbols } = get();

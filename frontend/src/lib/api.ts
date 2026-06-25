@@ -288,6 +288,7 @@ export const api = {
     symbols: string[]; from_date: string; to_date: string;
     entry_conditions: ConditionRow[]; exit_conditions: ConditionRow[];
     target_pct: number; sl_pct: number; max_bars: number; capital_per_trade: number;
+    timeframe?: string;
   }) =>
     apiFetch<BacktestV2Response>("/backtest/run-v2", {
       method: "POST",

@@ -209,14 +209,16 @@ VALID_INDICATORS = [
     "ema_20", "ema_50",
     "macd", "macd_signal", "macd_hist",
     "bb_upper", "bb_lower",
-    "atr_14",
+    "atr_14", "adx_14", "volume_ratio",
+    # Candle patterns (0/1 columns)
+    "cdl_hammer", "cdl_bull_engulf", "cdl_inside_bar", "cdl_pin_bar_bull",
 ]
 
 VALID_OPERATORS = ["crosses_above", "crosses_below", "above", "below"]
 
 ALL_INDICATORS_NEEDED = {
     "sma_20", "sma_50", "sma_200", "ema_20", "ema_50",
-    "rsi_14", "macd", "bb", "atr_14",
+    "rsi_14", "macd", "bb", "atr_14", "adx", "volume_sma_20",
 }
 
 
@@ -227,6 +229,66 @@ class ConditionRow:
     right: str      # indicator id OR numeric string e.g. "30"
 
 
+def aggregate_weekly(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate daily OHLCV into weekly bars (Monday–Friday week ending on last trading day)."""
+    df = df.copy()
+    df["_week"] = pd.to_datetime(df["date"]).dt.to_period("W")
+    weekly = df.groupby("_week", sort=True).agg(
+        date=("date", "last"),
+        open=("open", "first"),
+        high=("high", "max"),
+        low=("low", "min"),
+        close=("close", "last"),
+        volume=("volume", "sum"),
+    ).reset_index(drop=True)
+    return weekly
+
+
+def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
+    """Add derived columns (adx_14 alias, volume_ratio, candle patterns) after add_indicators()."""
+    # ADX alias
+    if "adx" in df.columns:
+        df["adx_14"] = df["adx"]
+
+    # Volume ratio = volume / 20-day SMA of volume
+    if "volume_sma_20" in df.columns:
+        df["volume_ratio"] = df["volume"].astype(float) / df["volume_sma_20"].replace(0, float("nan"))
+    else:
+        df["volume_ratio"] = 1.0
+
+    # Candle patterns (pure pandas math, no external library)
+    body = (df["close"] - df["open"]).abs()
+    rng = (df["high"] - df["low"]).clip(lower=1e-9)
+    upper_wick = df["high"] - df[["close", "open"]].max(axis=1)
+    lower_wick = df[["close", "open"]].min(axis=1) - df["low"]
+    tiny = 1e-9
+
+    df["cdl_hammer"] = (
+        (lower_wick >= 2.0 * body.clip(lower=tiny)) &
+        (upper_wick <= 0.2 * rng) &
+        (body <= 0.4 * rng)
+    ).astype(int)
+
+    df["cdl_bull_engulf"] = (
+        (df["close"] > df["open"]) &
+        (df["open"].shift(1) > df["close"].shift(1)) &
+        (df["close"] > df["open"].shift(1)) &
+        (df["open"] < df["close"].shift(1))
+    ).astype(int)
+
+    df["cdl_inside_bar"] = (
+        (df["high"] < df["high"].shift(1)) &
+        (df["low"] > df["low"].shift(1))
+    ).astype(int)
+
+    df["cdl_pin_bar_bull"] = (
+        (lower_wick >= 2.5 * body.clip(lower=tiny)) &
+        (lower_wick >= 0.6 * rng)
+    ).astype(int)
+
+    return df
+
+
 @dataclass
 class BacktestParamsV2:
     entry_conditions: list  # list[ConditionRow]
@@ -235,6 +297,7 @@ class BacktestParamsV2:
     sl_pct: float = 7.0
     max_bars: int = 30
     capital_per_trade: float = 10_000.0
+    timeframe: str = "1D"  # "1D" or "1W"
 
 
 def _get_series(df: pd.DataFrame, name: str) -> pd.Series:
@@ -281,7 +344,10 @@ def run_backtest_v2(df: pd.DataFrame, params: BacktestParamsV2) -> dict:
     Exit fires on: target%, SL%, max_bars timeout, OR (if set) all exit_conditions True.
     Returns ohlcv array + trades + per-symbol stats.
     """
+    if params.timeframe == "1W":
+        df = aggregate_weekly(df.copy())
     df = add_indicators(df.copy(), list(ALL_INDICATORS_NEEDED))
+    df = _add_derived(df)
     df = df.reset_index(drop=True)
 
     signals = _eval_conditions(df, params.entry_conditions)
