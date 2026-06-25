@@ -481,6 +481,7 @@ export default function Backtest() {
   const [loadingPct, setLoadingPct] = useState(0);
   const loadingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showCustomSave, setShowCustomSave] = useState(false);
+  const [showPatterns, setShowPatterns] = useState(true);
   const [customSaveLabel, setCustomSaveLabel] = useState("");
   const prevLoadingRef = useRef(false);
 
@@ -950,24 +951,37 @@ export default function Backtest() {
                       <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-emerald-500" /> Target</span>
                       <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-400" /> SL</span>
                     </div>
-                    <span className="ml-auto text-xs text-slate-400">
-                      {activeData.trades.length} trade{activeData.trades.length !== 1 ? "s" : ""}
-                      {activeData.stats.total_pnl !== 0 && (
-                        <span className={`ml-2 font-semibold ${pnlClass(activeData.stats.total_pnl)}`}>
-                          {activeData.stats.total_pnl >= 0 ? "+" : ""}₹{fmt(activeData.stats.total_pnl)}
-                        </span>
-                      )}
-                    </span>
+                    <div className="ml-auto flex items-center gap-3">
+                      <button
+                        onClick={() => setShowPatterns((v) => !v)}
+                        className={`flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                          showPatterns
+                            ? "bg-purple-50 border-purple-200 text-purple-600"
+                            : "border-slate-200 text-slate-400 hover:border-slate-300"
+                        }`}>
+                        <span className="inline-block w-2 h-2 rounded-sm bg-purple-400" />
+                        Patterns {showPatterns ? "on" : "off"}
+                      </button>
+                      <span className="text-xs text-slate-400">
+                        {activeData.trades.length} trade{activeData.trades.length !== 1 ? "s" : ""}
+                        {activeData.stats.total_pnl !== 0 && (
+                          <span className={`ml-2 font-semibold ${pnlClass(activeData.stats.total_pnl)}`}>
+                            {activeData.stats.total_pnl >= 0 ? "+" : ""}₹{fmt(activeData.stats.total_pnl)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   </div>
 
                   <BacktestChart
                     symbol={activeSymbol!}
                     ohlcv={activeData.ohlcv}
                     trades={activeData.trades}
+                    showPatterns={showPatterns}
                   />
 
                   {/* Recent Patterns panel */}
-                  {patternHits.length > 0 && (
+                  {showPatterns && patternHits.length > 0 && (
                     <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/40">
                       <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recent Candle Patterns</div>
                       <div className="space-y-0.5">

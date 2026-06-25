@@ -14,13 +14,14 @@ interface Props {
   ohlcv: OhlcvRow[];
   trades: BacktestTradeV2[];
   symbol: string;
+  showPatterns?: boolean;
 }
 
 const BG   = "#ffffff";
 const GRID = "#f1f5f9";
 const TEXT = "#64748b";
 
-export default function BacktestChart({ ohlcv, trades }: Props) {
+export default function BacktestChart({ ohlcv, trades, showPatterns = true }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef     = useRef<IChartApi | null>(null);
   const candleRef    = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -138,21 +139,23 @@ export default function BacktestChart({ ohlcv, trades }: Props) {
       });
     });
 
-    // Candle pattern markers — purple squares below bars
-    detectPatterns(ohlcv).forEach((p) => {
-      markers.push({
-        time: p.date as Time,
-        position: "belowBar",
-        shape: "square",
-        color: "#9333ea",
-        text: p.label,
-        size: 1,
+    // Candle pattern markers — purple squares below bars (only when enabled)
+    if (showPatterns) {
+      detectPatterns(ohlcv).forEach((p) => {
+        markers.push({
+          time: p.date as Time,
+          position: "belowBar",
+          shape: "square",
+          color: "#9333ea",
+          text: p.label,
+          size: 1,
+        });
       });
-    });
+    }
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades]);
+  }, [ohlcv, trades, showPatterns]);
 
   return (
     <div>
