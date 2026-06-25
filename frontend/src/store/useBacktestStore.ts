@@ -105,6 +105,7 @@ interface BacktestState {
   activeAlgoId: string | null;
   setMode: (mode: "multi_stock" | "multi_algo") => void;
   addAlgoSlot: () => void;
+  addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
   updateAlgoSlot: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
   setActiveAlgo: (id: string) => void;
@@ -222,6 +223,20 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       algoSlots: [...s.algoSlots, {
         id, label: `Algo ${num}`, color,
         strategy: { ...DEFAULT_STRATEGY }, results: null, loading: false, error: null,
+      }],
+    };
+  }),
+
+  addCustomAlgoSlot: () => set((s) => {
+    if (s.algoSlots.length >= 5) return s;
+    const usedColors = new Set(s.algoSlots.map((a) => a.color));
+    const color = ALGO_COLORS.find((c) => !usedColors.has(c)) ?? ALGO_COLORS[s.algoSlots.length % ALGO_COLORS.length];
+    const id = String(Date.now());
+    return {
+      algoSlots: [...s.algoSlots, {
+        id, label: "Custom Algo", color,
+        strategy: { ...DEFAULT_STRATEGY, entry_conditions: [] },
+        results: null, loading: false, error: null,
       }],
     };
   }),

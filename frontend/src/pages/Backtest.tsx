@@ -470,13 +470,13 @@ function DataPanel() {
 
 function MultiAlgoPanel({
   symbol, algoSlots, activeAlgoId, indicators, operators,
-  onSymbolChange, onAddAlgo, onRemoveAlgo, onUpdateAlgo, onSetActive, onRunAll,
+  onSymbolChange, onAddAlgo, onAddCustomAlgo, onRemoveAlgo, onUpdateAlgo, onSetActive, onRunAll,
   expandedAlgoId, setExpandedAlgoId,
 }: {
   symbol: string; algoSlots: import("../store/useBacktestStore").AlgoSlot[];
   activeAlgoId: string | null; indicators: string[]; operators: string[];
   onSymbolChange: (s: string) => void;
-  onAddAlgo: () => void; onRemoveAlgo: (id: string) => void;
+  onAddAlgo: () => void; onAddCustomAlgo: () => void; onRemoveAlgo: (id: string) => void;
   onUpdateAlgo: (id: string, patch: Partial<Pick<import("../store/useBacktestStore").AlgoSlot, "label" | "strategy">>) => void;
   onSetActive: (id: string) => void; onRunAll: () => Promise<void>;
   expandedAlgoId: string | null; setExpandedAlgoId: (id: string | null) => void;
@@ -534,10 +534,14 @@ function MultiAlgoPanel({
           <span className="text-xs text-slate-400 ml-1">— all algos run on this single symbol</span>
         </div>
         <div className="relative max-w-sm">
-          <input value={symbol || search}
-            onChange={(e) => { setSearch(e.target.value); if (!e.target.value) onSymbolChange(""); }}
+          <input value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              if (symbol) onSymbolChange("");
+              if (!e.target.value) setSuggestions([]);
+            }}
             onKeyDown={handleKeyDown}
-            placeholder="Search symbol e.g. HDFCBANK…"
+            placeholder={symbol ? `${symbol} — type to change…` : "Search symbol e.g. HDFCBANK…"}
             className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-400 bg-slate-50" />
           {suggestions.length > 0 && (
             <div className="absolute z-20 top-full left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
@@ -578,12 +582,6 @@ function MultiAlgoPanel({
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
           <span className="text-sm font-semibold text-slate-700">Strategy Stack</span>
           <span className="text-xs text-slate-400 ml-1">— up to 5 algos, each with independent conditions</span>
-          {algoSlots.length < 5 && (
-            <button onClick={onAddAlgo}
-              className="ml-auto flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-blue-50 hover:border-blue-300">
-              <Plus size={11} /> Add Algo
-            </button>
-          )}
         </div>
 
         <div className="space-y-2">
@@ -668,6 +666,19 @@ function MultiAlgoPanel({
           })}
         </div>
 
+        {algoSlots.length < 5 && (
+          <div className="flex gap-2 mt-2">
+            <button onClick={onAddAlgo}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-blue-50 hover:border-blue-300 transition-colors">
+              <Plus size={11} /> Add Preset Algo
+            </button>
+            <button onClick={onAddCustomAlgo}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:bg-violet-50 hover:border-violet-400 hover:text-violet-600 transition-colors">
+              <Plus size={11} /> Custom Algo
+            </button>
+          </div>
+        )}
+
         <button onClick={onRunAll} disabled={!symbol || anyLoading}
           className="mt-3 flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
           {anyLoading
@@ -711,8 +722,56 @@ function MultiAlgoResults({
 
   const patternHits = showPatterns && ohlcv.length ? detectPatterns(ohlcv) : [];
 
+  // Cross-algo summary
+  const summaryStats = slotsWithResults.map((s) => {
+    const ts = tradeStats(s.results!.trades);
+    return { ...s.results!.stats, profitFactor: ts.profitFactor, color: s.color, label: s.label };
+  });
+  const totalPnl = summaryStats.reduce((a, s) => a + s.total_pnl, 0);
+  const totalTrades = summaryStats.reduce((a, s) => a + s.total_trades, 0);
+  const avgWinRate = summaryStats.length
+    ? Math.round(summaryStats.reduce((a, s) => a + s.win_rate_pct, 0) / summaryStats.length)
+    : 0;
+  const bestAlgo = summaryStats.reduce<typeof summaryStats[0] | null>((best, s) =>
+    !best || s.total_pnl > best.total_pnl ? s : best, null);
+
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      {/* Summary bar */}
+      <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white flex items-center gap-6 flex-wrap">
+        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide shrink-0">Summary</div>
+        <div>
+          <div className="text-[10px] text-slate-400">Net P&L</div>
+          <div className={`text-sm font-bold ${totalPnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+            {totalPnl >= 0 ? "+" : ""}₹{fmt(totalPnl)}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] text-slate-400">Total Trades</div>
+          <div className="text-sm font-bold text-slate-700">{totalTrades}</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-slate-400">Avg Win Rate</div>
+          <div className="text-sm font-bold text-slate-700">{avgWinRate}%</div>
+        </div>
+        {bestAlgo && (
+          <div>
+            <div className="text-[10px] text-slate-400">Best Algo</div>
+            <div className="text-sm font-bold truncate max-w-[100px]" style={{ color: bestAlgo.color }}>{bestAlgo.label}</div>
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {summaryStats.map((s) => (
+            <div key={s.label} className="text-right">
+              <div className="text-[9px]" style={{ color: s.color }}>{s.label}</div>
+              <div className={`text-[11px] font-semibold ${s.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                {s.total_pnl >= 0 ? "+" : ""}₹{fmt(s.total_pnl)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="flex" style={{ minHeight: 500 }}>
         {/* Left: algo list */}
         <div className="w-56 shrink-0 border-r border-slate-100 flex flex-col">
@@ -899,13 +958,21 @@ export default function Backtest() {
     saveCurrentRun, clearSavedRuns,
     // multi-algo
     mode, algoSlots, multiAlgoSymbol, activeAlgoId,
-    setMode, addAlgoSlot, removeAlgoSlot, updateAlgoSlot,
+    setMode, addAlgoSlot, addCustomAlgoSlot, removeAlgoSlot, updateAlgoSlot,
     setActiveAlgo, setMultiAlgoSymbol, runAllAlgos,
   } = store;
 
   const [algoSymbolSearch, setAlgoSymbolSearch] = useState("");
   const [algoSymbolSuggestions, setAlgoSymbolSuggestions] = useState<{symbol:string;name:string}[]>([]);
   const [expandedAlgoId, setExpandedAlgoId] = useState<string | null>(null);
+  const prevAlgoCountRef = useRef(algoSlots.length);
+  useEffect(() => {
+    if (algoSlots.length > prevAlgoCountRef.current) {
+      const newest = algoSlots[algoSlots.length - 1];
+      if (newest.strategy.entry_conditions.length === 0) setExpandedAlgoId(newest.id);
+    }
+    prevAlgoCountRef.current = algoSlots.length;
+  }, [algoSlots.length]);
 
   const [showExitConditions, setShowExitConditions] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>("MACD Cross");
@@ -914,7 +981,7 @@ export default function Backtest() {
   const [loadingPct, setLoadingPct] = useState(0);
   const loadingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showCustomSave, setShowCustomSave] = useState(false);
-  const [showPatterns, setShowPatterns] = useState(true);
+  const [showPatterns, setShowPatterns] = useState(false);
   const [customSaveLabel, setCustomSaveLabel] = useState("");
   const prevLoadingRef = useRef(false);
 
@@ -1055,6 +1122,7 @@ export default function Backtest() {
           operators={operators}
           onSymbolChange={setMultiAlgoSymbol}
           onAddAlgo={addAlgoSlot}
+          onAddCustomAlgo={addCustomAlgoSlot}
           onRemoveAlgo={removeAlgoSlot}
           onUpdateAlgo={updateAlgoSlot}
           onSetActive={setActiveAlgo}
