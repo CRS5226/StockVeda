@@ -253,6 +253,53 @@ def _compute_indicators(raw: pd.DataFrame) -> pd.Series:
     })
 
 
+def _fetch_fundamentals(t, sym: str, db) -> None:
+    """Fetch quarterly + annual financials from yfinance and upsert into stock_fundamentals."""
+    count = db.execute("SELECT COUNT(*) FROM stock_fundamentals WHERE symbol = ?", [sym]).fetchone()[0]
+    if count > 0:
+        return
+    try:
+        from backend.data_sync.sync_fundamentals import _parse_financials
+        from backend.data_sync.base import upsert_df
+        rows = _parse_financials(t, sym, "Q") + _parse_financials(t, sym, "A")
+        if rows:
+            df = pd.DataFrame(rows).dropna(subset=["revenue", "pat"], how="all")
+            if not df.empty:
+                upsert_df(df, "stock_fundamentals")
+    except Exception:
+        pass
+
+
+def _fetch_shareholding(t, sym: str, db) -> None:
+    """Fetch insider/institutional holding from yfinance major_holders as promoter/FII proxy."""
+    count = db.execute("SELECT COUNT(*) FROM shareholding WHERE symbol = ?", [sym]).fetchone()[0]
+    if count > 0:
+        return
+    try:
+        from backend.data_sync.base import upsert_df
+        mh = t.major_holders
+        if mh is not None and not mh.empty and "Value" in mh.columns:
+            def _pct(key):
+                if key in mh.index:
+                    try:
+                        return round(float(mh.loc[key, "Value"]) * 100, 2)
+                    except (TypeError, ValueError):
+                        pass
+                return None
+            promoter_pct = _pct("insidersPercentHeld")
+            fii_pct = _pct("institutionsPercentHeld")
+            if promoter_pct is not None:
+                df = pd.DataFrame([{
+                    "symbol": sym, "period": date.today(),
+                    "promoter_pct": promoter_pct, "promoter_pledge_pct": None,
+                    "fii_pct": fii_pct, "dii_pct": None, "mf_pct": None,
+                    "retail_pct": None, "government_pct": None, "total_shareholders": None,
+                }])
+                upsert_df(df, "shareholding")
+    except Exception:
+        pass
+
+
 def smart_sync(symbols: list[str], candle_days: int, job_id: str) -> None:
     """
     Per-symbol incremental sync:
@@ -260,6 +307,7 @@ def smart_sync(symbols: list[str], candle_days: int, job_id: str) -> None:
       2. Fetch only the missing date range from yfinance (.NS suffix).
       3. Upsert into stock_ohlcv.
       4. Recompute technical indicators and upsert latest row into stock_technical_cache.
+      5. Fetch fundamentals + shareholding if not already present.
     Progress is stored in _SYNC_JOBS[job_id] for polling.
     """
     import yfinance as yf
@@ -300,10 +348,15 @@ def smart_sync(symbols: list[str], candle_days: int, job_id: str) -> None:
                 if max_date >= today and min_date <= required_from:
                     fetch_from = None  # already covers full requested range
                     fetch_to = today
-                elif min_date > required_from:
-                    # Need to backfill: existing data starts too late
+                elif min_date > required_from and max_date < today:
+                    # Gap at both ends — fetch full range (only first-time backfill scenario)
                     fetch_from = required_from
-                    fetch_to = today  # also picks up any forward gap
+                    fetch_to = today
+                elif min_date > required_from:
+                    # Historical gap only (data is current at the front, missing a few days at the start)
+                    # Only fetch the small missing slice, don't re-download the whole history
+                    fetch_from = required_from
+                    fetch_to = min_date - timedelta(days=1)
                 else:
                     # Just fetch recent missing data forward
                     fetch_from = max_date + timedelta(days=1)
@@ -350,6 +403,11 @@ def smart_sync(symbols: list[str], candle_days: int, job_id: str) -> None:
                 cols = ", ".join(cache_row.columns)
                 db.execute(f"INSERT OR REPLACE INTO stock_technical_cache ({cols}) SELECT {cols} FROM _tech_tmp")
                 db.unregister("_tech_tmp")
+
+            # Fetch fundamentals + shareholding (skips if already present)
+            ticker = yf.Ticker(f"{sym}.NS")
+            _fetch_fundamentals(ticker, sym, db)
+            _fetch_shareholding(ticker, sym, db)
 
         except Exception:
             pass  # one symbol failing must not abort the whole job
