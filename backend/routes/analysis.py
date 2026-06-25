@@ -34,5 +34,13 @@ def get_outlook(symbol: str):
         raise HTTPException(404, f"No OHLCV data for {symbol}")
     result = compute_outlook(df)
     if "error" in result:
-        raise HTTPException(400, result["error"])
+        # Return a neutral skeleton rather than a 400 so the UI always shows something
+        return {
+            "score": 0, "label": "Neutral",
+            "components": {"rsi": 0, "macd": 0, "sma20": 0, "sma50": 0, "volume": 0, "patterns": 0},
+            "indicators": {"rsi": 50.0, "macd_hist": None, "sma20_diff_pct": None, "close": float(df["close"].iloc[-1])},
+            "recent_patterns": [],
+            "pattern_stats": [],
+            "_note": result["error"],
+        }
     return result

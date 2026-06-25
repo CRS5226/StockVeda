@@ -694,14 +694,19 @@ function MultiAlgoPanel({
 
 // ── Multi-Algo Results ────────────────────────────────────────────────────────
 
+const CANDLE_BARS: Record<string, number> = {
+  MS: 3, ES: 3, "3W": 3, "3B": 3,
+  E: 2, BE: 2, P: 2, DC: 2,
+  H: 1, IH: 1, SS: 1, DD: 1, GD: 1, M: 1,
+};
+
 function MultiAlgoResults({
-  symbol, algoSlots, activeAlgoId, onSetActive, showPatterns, onTogglePatterns,
+  symbol, algoSlots, activeAlgoId, onSetActive,
   patternHits, outlook, outlookLoading,
 }: {
   symbol: string;
   algoSlots: import("../store/useBacktestStore").AlgoSlot[];
   activeAlgoId: string | null; onSetActive: (id: string) => void;
-  showPatterns: boolean; onTogglePatterns: () => void;
   patternHits: PatternHit[];
   outlook: Parameters<typeof TrendOutlook>[0]["data"];
   outlookLoading: boolean;
@@ -725,7 +730,8 @@ function MultiAlgoResults({
     active: slot.id === activeId,
   }));
 
-  const activePatternHits = showPatterns ? patternHits : [];
+  const last10Dates = new Set(ohlcv.slice(-10).map(r => r.date.slice(0, 10)));
+  const chartPatternHits = patternHits.filter(h => last10Dates.has(h.date));
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -779,8 +785,8 @@ function MultiAlgoResults({
           </div>
         </div>
 
-        {/* Right: combined chart */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        {/* Center: chart + trade log */}
+        <div className="flex-1 min-w-0 flex flex-col border-r border-slate-100">
           {/* Chart header */}
           <div className="px-4 pt-3 pb-2 flex items-center gap-3 border-b border-slate-100 flex-wrap">
             <div>
@@ -803,16 +809,10 @@ function MultiAlgoResults({
                 );
               })}
             </div>
-            <button onClick={onTogglePatterns}
-              className={`ml-auto flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                showPatterns ? "bg-purple-50 border-purple-200 text-purple-600" : "border-slate-200 text-slate-400"
-              }`}>
-              <span className="w-2 h-2 rounded-sm bg-purple-400 inline-block" />Patterns {showPatterns ? "on" : "off"}
-            </button>
           </div>
 
           {ohlcv.length > 0 && (
-            <BacktestChart symbol={symbol} ohlcv={ohlcv} algoTrades={algoTradeSets} patternHits={activePatternHits} />
+            <BacktestChart symbol={symbol} ohlcv={ohlcv} algoTrades={algoTradeSets} patternHits={chartPatternHits} />
           )}
 
           {/* No-signals message for active algo */}
@@ -829,7 +829,7 @@ function MultiAlgoResults({
             </div>
           )}
 
-          {/* Trade log — inside right panel so it doesn't bleed under left algo column */}
+          {/* Trade log */}
           {activeTrades.length > 0 && (
             <div className="border-t border-slate-100">
               <div className="px-4 py-2 flex items-center gap-2 bg-slate-50/60">
@@ -880,8 +880,43 @@ function MultiAlgoResults({
               </div>
             </div>
           )}
+        </div>
 
-          <TrendOutlook symbol={symbol} data={outlook} loading={outlookLoading} />
+        {/* Right sidebar: recent patterns + trend outlook */}
+        <div className="w-72 shrink-0 flex flex-col overflow-y-auto bg-slate-50/30">
+          <div className="px-3 pt-3 pb-2 border-b border-slate-100">
+            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+              Recent Patterns · Last 10 Days
+            </div>
+          </div>
+          <div className="flex-1 px-2 py-2 space-y-1.5">
+            {chartPatternHits.length === 0 ? (
+              <div className="text-[10px] text-slate-400 text-center py-6">No patterns in last 10 trading days</div>
+            ) : (
+              chartPatternHits.map((p, i) => {
+                const bars = CANDLE_BARS[p.label] ?? 1;
+                return (
+                  <div key={i} className={`px-2 py-1.5 rounded-lg border ${
+                    p.bias === "bullish" ? "bg-purple-50 border-purple-100" : "bg-fuchsia-50 border-fuchsia-100"
+                  }`}>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className={`font-bold text-[11px] ${p.bias === "bullish" ? "text-purple-600" : "text-fuchsia-600"}`}>{p.label}</span>
+                      <span className="text-[9px] text-slate-400 bg-slate-100 rounded px-1">{bars}-bar</span>
+                      <span className={`ml-auto text-xs ${p.bias === "bullish" ? "text-purple-400" : "text-fuchsia-400"}`}>
+                        {p.bias === "bullish" ? "↑" : "↓"}
+                      </span>
+                    </div>
+                    <div className={`text-[10px] font-semibold ${p.bias === "bullish" ? "text-purple-700" : "text-fuchsia-700"}`}>{p.date}</div>
+                    <div className="text-slate-500 text-[9px] leading-tight mt-0.5">{p.tip}</div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div className="border-t border-slate-100 px-3 pt-3 pb-4">
+            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Trend Outlook</div>
+            <TrendOutlook symbol={symbol} data={outlook} loading={outlookLoading} sidebar />
+          </div>
         </div>
       </div>
     </section>
@@ -922,7 +957,6 @@ export default function Backtest() {
   const [loadingPct, setLoadingPct] = useState(0);
   const loadingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showCustomSave, setShowCustomSave] = useState(false);
-  const [showPatterns, setShowPatterns] = useState(false);
   const [customSaveLabel, setCustomSaveLabel] = useState("");
   const [patternCache, setPatternCache] = useState<Record<string, PatternHit[]>>({});
   const [outlookCache, setOutlookCache] = useState<Record<string, Record<string, unknown> | null>>({});
@@ -1014,7 +1048,12 @@ export default function Backtest() {
   }, [activeSymbol, multiAlgoSymbol, mode]);
 
   const _activePatternSym = mode === "multi_algo" ? multiAlgoSymbol : (activeSymbol ?? "");
-  const activePatternHits = (showPatterns ? (patternCache[_activePatternSym] ?? []) : []);
+  const _last10Dates = new Set(
+    (activeData && typeof activeData === "object" && "ohlcv" in activeData ? activeData.ohlcv : [])
+      .slice(-10).map((r: { date: string }) => r.date.slice(0, 10))
+  );
+  const activePatternHits = (patternCache[_activePatternSym] ?? [])
+    .filter(h => _last10Dates.has(h.date));
   const activeOutlook = outlookCache[_activePatternSym] ?? null;
   const activeOutlookLoading = outlookLoading[_activePatternSym] ?? false;
 
@@ -1280,8 +1319,6 @@ export default function Backtest() {
         algoSlots={algoSlots}
         activeAlgoId={activeAlgoId}
         onSetActive={setActiveAlgo}
-        showPatterns={showPatterns}
-        onTogglePatterns={() => setShowPatterns((v) => !v)}
         patternHits={activePatternHits}
         outlook={activeOutlook as Parameters<typeof TrendOutlook>[0]["data"]}
         outlookLoading={activeOutlookLoading}
@@ -1451,8 +1488,8 @@ export default function Backtest() {
               </div>
             </div>
 
-            {/* Right panel: chart + trade log */}
-            <div className="flex-1 min-w-0 flex flex-col">
+            {/* Center: chart + trade log */}
+            <div className="flex-1 min-w-0 flex flex-col border-r border-slate-100">
               {activeData ? (
                 <>
                   <div className="px-4 pt-3 pb-1.5 flex items-center gap-3 border-b border-slate-100 flex-wrap">
@@ -1462,17 +1499,7 @@ export default function Backtest() {
                       <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-emerald-500" /> Target</span>
                       <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-400" /> SL</span>
                     </div>
-                    <div className="ml-auto flex items-center gap-3">
-                      <button
-                        onClick={() => setShowPatterns((v) => !v)}
-                        className={`flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                          showPatterns
-                            ? "bg-purple-50 border-purple-200 text-purple-600"
-                            : "border-slate-200 text-slate-400 hover:border-slate-300"
-                        }`}>
-                        <span className="inline-block w-2 h-2 rounded-sm bg-purple-400" />
-                        Patterns {showPatterns ? "on" : "off"}
-                      </button>
+                    <div className="ml-auto">
                       <span className="text-xs text-slate-400">
                         {activeData.trades.length} trade{activeData.trades.length !== 1 ? "s" : ""}
                         {activeData.stats.total_pnl !== 0 && (
@@ -1489,12 +1516,6 @@ export default function Backtest() {
                     ohlcv={activeData.ohlcv}
                     trades={activeData.trades}
                     patternHits={activePatternHits}
-                  />
-
-                  <TrendOutlook
-                    symbol={activeSymbol!}
-                    data={activeOutlook as Parameters<typeof TrendOutlook>[0]["data"]}
-                    loading={activeOutlookLoading}
                   />
 
                   {activeData.trades.length > 0 ? (
@@ -1564,6 +1585,48 @@ export default function Backtest() {
                   Select a stock from the list to view its chart
                 </div>
               )}
+            </div>
+
+            {/* Right sidebar: recent patterns + trend outlook */}
+            <div className="w-72 shrink-0 flex flex-col overflow-y-auto bg-slate-50/30">
+              <div className="px-3 pt-3 pb-2 border-b border-slate-100">
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                  Recent Patterns · Last 10 Days
+                </div>
+              </div>
+              <div className="flex-1 px-2 py-2 space-y-1.5">
+                {activePatternHits.length === 0 ? (
+                  <div className="text-[10px] text-slate-400 text-center py-6">No patterns in last 10 trading days</div>
+                ) : (
+                  activePatternHits.map((p, i) => {
+                    const bars = CANDLE_BARS[p.label] ?? 1;
+                    return (
+                      <div key={i} className={`px-2 py-1.5 rounded-lg border ${
+                        p.bias === "bullish" ? "bg-purple-50 border-purple-100" : "bg-fuchsia-50 border-fuchsia-100"
+                      }`}>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className={`font-bold text-[11px] ${p.bias === "bullish" ? "text-purple-600" : "text-fuchsia-600"}`}>{p.label}</span>
+                          <span className="text-[9px] text-slate-400 bg-slate-100 rounded px-1">{bars}-bar</span>
+                          <span className={`ml-auto text-xs ${p.bias === "bullish" ? "text-purple-400" : "text-fuchsia-400"}`}>
+                            {p.bias === "bullish" ? "↑" : "↓"}
+                          </span>
+                        </div>
+                        <div className={`text-[10px] font-semibold ${p.bias === "bullish" ? "text-purple-700" : "text-fuchsia-700"}`}>{p.date}</div>
+                        <div className="text-slate-500 text-[9px] leading-tight mt-0.5">{p.tip}</div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="border-t border-slate-100 px-3 pt-3 pb-4">
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Trend Outlook</div>
+                <TrendOutlook
+                  symbol={activeSymbol ?? ""}
+                  data={activeOutlook as Parameters<typeof TrendOutlook>[0]["data"]}
+                  loading={activeOutlookLoading}
+                  sidebar
+                />
+              </div>
             </div>
 
           </div>

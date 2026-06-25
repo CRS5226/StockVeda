@@ -56,13 +56,26 @@ def get_candles(
     to_date:   Optional[date] = Query(None),
     indicators: bool = Query(False),
 ):
-    """OHLCV for charting — DB first, yfinance fallback (cached to DB on first fetch)."""
+    """OHLCV for charting — DB first, yfinance fallback (cached to DB on first fetch).
+    Also falls back when DB has data but it doesn't reach the requested from_date
+    (e.g. only 2 recent bhavcopy rows while user asks for 1Y).
+    """
+    from datetime import timedelta
     df = _fetch_ohlcv(symbol, from_date, to_date)
-    if df.empty:
-        df = _yfinance_ohlcv(symbol, from_date, to_date)
-        if not df.empty:
-            _cache_ohlcv(symbol, df)
+
+    needs_yfinance = df.empty
+    if not df.empty and from_date:
+        earliest = pd.to_datetime(df["date"].iloc[0]).date()
+        # Gap > 14 days means DB is missing significant history for this request
+        if (earliest - from_date).days > 14:
+            needs_yfinance = True
+
+    if needs_yfinance:
+        yf_df = _yfinance_ohlcv(symbol, from_date, to_date)
+        if not yf_df.empty:
+            _cache_ohlcv(symbol, yf_df)
             df = _fetch_ohlcv(symbol, from_date, to_date)
+
     if df.empty:
         raise HTTPException(404, f"No candle data for {symbol}")
     if indicators:

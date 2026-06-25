@@ -13,21 +13,22 @@ from backend.core.patterns import detect_patterns, PATTERNS
 def compute_outlook(df: pd.DataFrame) -> dict:
     """
     Compute trend outlook from an OHLCV DataFrame (full history of a symbol).
-    Score range: –8 to +8.
+    Score range: –8 to +8. Degrades gracefully with fewer bars (minimum 15).
     """
-    if len(df) < 55:
-        return {"error": "Insufficient data (need ≥55 bars)"}
+    if len(df) < 15:
+        return {"error": "Insufficient data (need ≥15 bars)"}
 
     df = df.copy().sort_values("date").reset_index(drop=True)
 
     close  = df["close"].astype(float)
     volume = df["volume"].astype(float) if "volume" in df.columns else None
 
-    # ── Indicators ──────────────────────────────────────────────────────────────
-    rsi_s   = ta.rsi(close, length=14)
-    macd_df = ta.macd(close)
-    sma20_s = ta.sma(close, length=20)
-    sma50_s = ta.sma(close, length=50)
+    # ── Indicators — skip gracefully when insufficient bars ──────────────────────
+    n_bars = len(df)
+    rsi_s   = ta.rsi(close, length=14) if n_bars >= 15 else None
+    macd_df = ta.macd(close)           if n_bars >= 35 else None
+    sma20_s = ta.sma(close, length=20) if n_bars >= 20 else None
+    sma50_s = ta.sma(close, length=50) if n_bars >= 50 else None
 
     def safe(s, idx=-1):
         val = s.iloc[idx] if s is not None else float("nan")
