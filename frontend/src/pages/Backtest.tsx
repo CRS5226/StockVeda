@@ -461,12 +461,36 @@ export default function Backtest() {
   const [saveLabel, setSaveLabel] = useState("");
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [loadingPct, setLoadingPct] = useState(0);
+  const loadingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     store.loadEntryConditions();
     store.loadWatchlists();
     store.loadIndicators();
   }, []);
+
+  // Simulated progress counter while backtest runs
+  useEffect(() => {
+    if (v2Loading) {
+      setLoadingPct(0);
+      const estimatedMs = Math.max(4000, pickedSymbols.length * 600);
+      const tickMs = 120;
+      loadingTimer.current = setInterval(() => {
+        setLoadingPct((p) => {
+          const remaining = 95 - p;
+          return p + remaining * (tickMs / estimatedMs) * 3;
+        });
+      }, tickMs);
+    } else {
+      if (loadingTimer.current) { clearInterval(loadingTimer.current); loadingTimer.current = null; }
+      if (loadingPct > 0) {
+        setLoadingPct(100);
+        setTimeout(() => setLoadingPct(0), 500);
+      }
+    }
+    return () => { if (loadingTimer.current) clearInterval(loadingTimer.current); };
+  }, [v2Loading]);
 
   const canRun = pickedSymbols.length > 0 && strategy.entry_conditions.length > 0 && !v2Loading;
 
@@ -659,20 +683,13 @@ export default function Backtest() {
           </div>
         </div>
 
-        <div>
-          <button onClick={runBacktestV2} disabled={!canRun}
-            className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-            {v2Loading
-              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running on {pickedSymbols.length} stocks…</>
-              : <><Play size={13} /> Run Backtest on {pickedSymbols.length} stock{pickedSymbols.length !== 1 ? "s" : ""}</>
-            }
-          </button>
-          {v2Loading && (
-            <div className="mt-2 w-64 h-0.5 bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-400 rounded-full w-1/2 animate-[pulse_1.2s_ease-in-out_infinite]" />
-            </div>
-          )}
-        </div>
+        <button onClick={runBacktestV2} disabled={!canRun}
+          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+          {v2Loading
+            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running on {pickedSymbols.length} stocks…</>
+            : <><Play size={13} /> Run Backtest on {pickedSymbols.length} stock{pickedSymbols.length !== 1 ? "s" : ""}</>
+          }
+        </button>
 
         {v2Error && (
           <div className="mt-3 flex items-center gap-2 text-sm text-red-500">
@@ -682,11 +699,11 @@ export default function Backtest() {
       </section>
 
       {/* ── Section 3: Results — left panel + right panel ── */}
-      {v2Results && (
+      {(v2Results || v2Loading) && (
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
 
-          {/* Save / Compare toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-wrap">
+          {/* Save / Compare toolbar — only when results exist */}
+          {v2Results && <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-wrap">
             <span className="text-xs font-semibold text-slate-500 mr-1">Results</span>
             {savedRuns.length > 0 && (
               <button onClick={() => { setCompareMode((m) => !m); setActiveRunId(null); }}
@@ -716,10 +733,10 @@ export default function Backtest() {
             {savedRuns.length > 0 && (
               <button onClick={clearSavedRuns} className="text-xs text-slate-400 hover:text-red-400 transition-colors ml-auto">Clear saved</button>
             )}
-          </div>
+          </div>}
 
           {/* Compare table */}
-          {compareMode && savedRuns.length > 0 && (
+          {v2Results && compareMode && savedRuns.length > 0 && (
             <div className="border-b border-slate-100 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -761,20 +778,26 @@ export default function Backtest() {
             <div className="w-52 shrink-0 border-r border-slate-100 flex flex-col">
               <div className="p-3 border-b border-slate-100 bg-slate-50/60">
                 <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Combined Results</div>
-                <div className={`text-base font-bold ${pnlClass(displayResults!.aggregate.total_pnl)}`}>
-                  {displayResults!.aggregate.total_pnl >= 0 ? "+" : ""}₹{fmt(displayResults!.aggregate.total_pnl)}
-                </div>
-                <div className="flex gap-3 mt-1 text-[10px] text-slate-400">
-                  <span>{displayResults!.aggregate.total_trades} trades</span>
-                  <span className={displayResults!.aggregate.win_rate_pct >= 50 ? "text-emerald-500" : "text-red-400"}>
-                    {displayResults!.aggregate.win_rate_pct}% win
-                  </span>
-                </div>
+                {displayResults ? (
+                  <>
+                    <div className={`text-base font-bold ${pnlClass(displayResults.aggregate.total_pnl)}`}>
+                      {displayResults.aggregate.total_pnl >= 0 ? "+" : ""}₹{fmt(displayResults.aggregate.total_pnl)}
+                    </div>
+                    <div className="flex gap-3 mt-1 text-[10px] text-slate-400">
+                      <span>{displayResults.aggregate.total_trades} trades</span>
+                      <span className={displayResults.aggregate.win_rate_pct >= 50 ? "text-emerald-500" : "text-red-400"}>
+                        {displayResults.aggregate.win_rate_pct}% win
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-slate-300 text-sm animate-pulse">—</div>
+                )}
               </div>
 
               <div className="overflow-y-auto flex-1">
                 {symbolsWithResults.map((sym) => {
-                  const symStats = v2Results.per_symbol[sym].stats;
+                  const symStats = displayResults!.per_symbol[sym].stats;
                   const isActive = sym === activeSymbol;
                   return (
                     <button key={sym} onClick={() => setActiveSymbol(sym)}
@@ -860,6 +883,31 @@ export default function Backtest() {
                     </div>
                   )}
                 </>
+              ) : v2Loading ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-5 select-none">
+                  {/* Circular progress ring */}
+                  <div className="relative w-28 h-28">
+                    <svg className="w-28 h-28 -rotate-90" viewBox="0 0 112 112">
+                      <circle cx="56" cy="56" r="46" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                      <circle cx="56" cy="56" r="46" fill="none" stroke="#3b82f6" strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={String(2 * Math.PI * 46)}
+                        strokeDashoffset={String(2 * Math.PI * 46 * (1 - Math.min(loadingPct, 100) / 100))}
+                        style={{ transition: "stroke-dashoffset 0.15s ease" }} />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-2xl font-bold text-slate-700 tabular-nums">{Math.floor(Math.min(loadingPct, 100))}%</span>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-sm font-medium text-slate-600">
+                      Running on {pickedSymbols.length} stock{pickedSymbols.length !== 1 ? "s" : ""}…
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      {strategy.timeframe === "1W" ? "Weekly" : "Daily"} · {activePreset || "Custom strategy"}
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
                   Select a stock from the list to view its chart
