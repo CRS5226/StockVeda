@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -30,6 +30,18 @@ interface StrategyV2 {
   to_date: string;
   capital_per_trade: number;
   timeframe: "1D" | "1W";
+}
+
+export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#ec4899", "#f59e0b"];
+
+export interface AlgoSlot {
+  id: string;
+  label: string;
+  color: string;
+  strategy: StrategyV2;
+  results: BacktestSymbolResult | null;
+  loading: boolean;
+  error: string | null;
 }
 
 export interface SavedRun {
@@ -84,6 +96,19 @@ interface BacktestState {
   syncJobId: string | null;
   syncLoading: boolean;
   savedRuns: SavedRun[];
+
+  // multi-algo mode
+  mode: "multi_stock" | "multi_algo";
+  algoSlots: AlgoSlot[];
+  multiAlgoSymbol: string;
+  activeAlgoId: string | null;
+  setMode: (mode: "multi_stock" | "multi_algo") => void;
+  addAlgoSlot: () => void;
+  removeAlgoSlot: (id: string) => void;
+  updateAlgoSlot: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
+  setActiveAlgo: (id: string) => void;
+  setMultiAlgoSymbol: (sym: string) => void;
+  runAllAlgos: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -172,6 +197,74 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   syncJobId: null,
   syncLoading: false,
   savedRuns: [],
+
+  // multi-algo mode
+  mode: "multi_stock",
+  multiAlgoSymbol: "",
+  activeAlgoId: null,
+  algoSlots: [
+    { id: "1", label: "Algo 1", color: ALGO_COLORS[0], strategy: { ...DEFAULT_STRATEGY }, results: null, loading: false, error: null },
+    { id: "2", label: "Algo 2", color: ALGO_COLORS[1], strategy: { ...DEFAULT_STRATEGY, entry_conditions: [{ left: "rsi_14", operator: "crosses_above", right: "50" }] }, results: null, loading: false, error: null },
+  ],
+
+  setMode: (mode) => set({ mode }),
+  setMultiAlgoSymbol: (sym) => set({ multiAlgoSymbol: sym.toUpperCase().trim() }),
+  setActiveAlgo: (id) => set({ activeAlgoId: id }),
+
+  addAlgoSlot: () => set((s) => {
+    if (s.algoSlots.length >= 5) return s;
+    const idx = s.algoSlots.length;
+    const id  = String(Date.now());
+    return {
+      algoSlots: [...s.algoSlots, {
+        id, label: `Algo ${idx + 1}`, color: ALGO_COLORS[idx % ALGO_COLORS.length],
+        strategy: { ...DEFAULT_STRATEGY }, results: null, loading: false, error: null,
+      }],
+    };
+  }),
+
+  removeAlgoSlot: (id) => set((s) => ({
+    algoSlots: s.algoSlots.length > 1 ? s.algoSlots.filter((a) => a.id !== id) : s.algoSlots,
+    activeAlgoId: s.activeAlgoId === id ? null : s.activeAlgoId,
+  })),
+
+  updateAlgoSlot: (id, patch) => set((s) => ({
+    algoSlots: s.algoSlots.map((a) => a.id === id ? { ...a, ...patch } : a),
+  })),
+
+  runAllAlgos: async () => {
+    const { algoSlots, multiAlgoSymbol, strategy } = get();
+    if (!multiAlgoSymbol) return;
+    // Mark all loading
+    set((s) => ({ algoSlots: s.algoSlots.map((a) => ({ ...a, loading: true, error: null, results: null })) }));
+    const runs = algoSlots.map(async (slot) => {
+      try {
+        const res = await api.runBacktestV2({
+          symbols: [multiAlgoSymbol],
+          from_date: slot.strategy.from_date,
+          to_date: slot.strategy.to_date,
+          entry_conditions: slot.strategy.entry_conditions,
+          exit_conditions: slot.strategy.exit_conditions,
+          target_pct: slot.strategy.target_pct,
+          sl_pct: slot.strategy.sl_pct,
+          max_bars: slot.strategy.max_bars,
+          capital_per_trade: slot.strategy.capital_per_trade,
+          timeframe: slot.strategy.timeframe,
+        });
+        const symResult = res.per_symbol[multiAlgoSymbol] ?? null;
+        set((s) => ({
+          algoSlots: s.algoSlots.map((a) => a.id === slot.id ? { ...a, loading: false, results: symResult } : a),
+        }));
+      } catch (e) {
+        set((s) => ({
+          algoSlots: s.algoSlots.map((a) => a.id === slot.id ? { ...a, loading: false, error: String(e) } : a),
+        }));
+      }
+    });
+    await Promise.all(runs);
+    // Auto-select first algo
+    set((s) => ({ activeAlgoId: s.activeAlgoId ?? s.algoSlots[0]?.id ?? null }));
+  },
 
   addSymbol: (sym) => {
     const upper = sym.toUpperCase().trim();

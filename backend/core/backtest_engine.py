@@ -212,6 +212,7 @@ VALID_INDICATORS = [
     "atr_14", "adx_14", "volume_ratio",
     # Candle patterns (0/1 columns)
     "cdl_hammer", "cdl_bull_engulf", "cdl_inside_bar", "cdl_pin_bar_bull",
+    "cdl_doji", "cdl_shooting_star", "cdl_morning_star", "cdl_evening_star", "cdl_bear_engulf",
 ]
 
 VALID_OPERATORS = ["crosses_above", "crosses_below", "above", "below"]
@@ -284,6 +285,38 @@ def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
     df["cdl_pin_bar_bull"] = (
         (lower_wick >= 2.5 * body.clip(lower=tiny)) &
         (lower_wick >= 0.6 * rng)
+    ).astype(int)
+
+    # Doji: body < 10% of range (open ≈ close — indecision)
+    df["cdl_doji"] = (body < 0.10 * rng).astype(int)
+
+    # Shooting Star: long upper wick, tiny lower wick, small body (bearish rejection at highs)
+    df["cdl_shooting_star"] = (
+        (upper_wick >= 2.0 * body.clip(lower=tiny)) &
+        (lower_wick <= 0.2 * rng) &
+        (body <= 0.4 * rng)
+    ).astype(int)
+
+    # Morning Star: 3-bar bullish reversal
+    _m2_bear  = df["open"].shift(2) > df["close"].shift(2)
+    _m1_small = (df["open"].shift(1) - df["close"].shift(1)).abs() < 0.3 * (df["high"].shift(1) - df["low"].shift(1)).clip(lower=tiny)
+    _m0_bull  = df["close"] > df["open"]
+    _m0_above = df["close"] > (df["open"].shift(2) + df["close"].shift(2)) / 2
+    df["cdl_morning_star"] = (_m2_bear & _m1_small & _m0_bull & _m0_above).astype(int)
+
+    # Evening Star: 3-bar bearish reversal
+    _e2_bull  = df["close"].shift(2) > df["open"].shift(2)
+    _e1_small = (df["open"].shift(1) - df["close"].shift(1)).abs() < 0.3 * (df["high"].shift(1) - df["low"].shift(1)).clip(lower=tiny)
+    _e0_bear  = df["open"] > df["close"]
+    _e0_below = df["close"] < (df["open"].shift(2) + df["close"].shift(2)) / 2
+    df["cdl_evening_star"] = (_e2_bull & _e1_small & _e0_bear & _e0_below).astype(int)
+
+    # Bearish Engulfing: today bearish body fully engulfs yesterday's bullish body
+    df["cdl_bear_engulf"] = (
+        (df["open"] > df["close"]) &
+        (df["close"].shift(1) > df["open"].shift(1)) &
+        (df["open"] > df["close"].shift(1)) &
+        (df["close"] < df["open"].shift(1))
     ).astype(int)
 
     return df

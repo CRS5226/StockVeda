@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
 import { api, ConditionRow } from "../lib/api";
-import { useBacktestStore, SavedRun } from "../store/useBacktestStore";
+import { useBacktestStore, SavedRun, ALGO_COLORS } from "../store/useBacktestStore";
 import BacktestChart from "../components/BacktestChart";
 import { detectPatterns } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
@@ -140,6 +140,9 @@ const INDICATOR_LABELS: Record<string, string> = {
   adx_14: "ADX (14)", volume_ratio: "Volume Ratio",
   cdl_hammer: "Hammer Candle", cdl_bull_engulf: "Bullish Engulfing",
   cdl_inside_bar: "Inside Bar (NR4)", cdl_pin_bar_bull: "Pin Bar (Bull)",
+  cdl_doji: "Doji", cdl_shooting_star: "Shooting Star",
+  cdl_morning_star: "Morning Star", cdl_evening_star: "Evening Star",
+  cdl_bear_engulf: "Bearish Engulfing",
 };
 
 const OPERATOR_LABELS: Record<string, string> = {
@@ -463,6 +466,255 @@ function DataPanel() {
   );
 }
 
+// ── Multi-Algo Panel (Section 1+2 combined for multi-algo mode) ──────────────
+
+function MultiAlgoPanel({
+  symbol, algoSlots, activeAlgoId, indicators, operators,
+  onSymbolChange, onAddAlgo, onRemoveAlgo, onUpdateAlgo, onSetActive, onRunAll,
+  expandedAlgoId, setExpandedAlgoId,
+}: {
+  symbol: string; algoSlots: import("../store/useBacktestStore").AlgoSlot[];
+  activeAlgoId: string | null; indicators: string[]; operators: string[];
+  onSymbolChange: (s: string) => void;
+  onAddAlgo: () => void; onRemoveAlgo: (id: string) => void;
+  onUpdateAlgo: (id: string, patch: Partial<Pick<import("../store/useBacktestStore").AlgoSlot, "label" | "strategy">>) => void;
+  onSetActive: (id: string) => void; onRunAll: () => Promise<void>;
+  expandedAlgoId: string | null; setExpandedAlgoId: (id: string | null) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [suggestions, setSuggestions] = useState<{symbol:string;name:string}[]>([]);
+  const anyLoading = algoSlots.some((a) => a.loading);
+
+  useEffect(() => {
+    if (search.length < 1) { setSuggestions([]); return; }
+    api.searchSymbols(search).then(setSuggestions).catch(() => setSuggestions([]));
+  }, [search]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Stock picker */}
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
+          <span className="text-sm font-semibold text-slate-700">Pick ONE Stock</span>
+          <span className="text-xs text-slate-400 ml-1">— all algos run on this single symbol</span>
+        </div>
+        <div className="relative max-w-sm">
+          <input value={symbol || search}
+            onChange={(e) => { setSearch(e.target.value); if (!e.target.value) onSymbolChange(""); }}
+            placeholder="Search symbol e.g. HDFCBANK…"
+            className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-400 bg-slate-50" />
+          {suggestions.length > 0 && (
+            <div className="absolute z-20 top-full left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+              {suggestions.map((s) => (
+                <button key={s.symbol} onClick={() => { onSymbolChange(s.symbol); setSearch(""); setSuggestions([]); }}
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex justify-between">
+                  <span className="font-semibold text-slate-700">{s.symbol}</span>
+                  <span className="text-slate-400 truncate ml-2">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {symbol && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs font-semibold text-blue-700">{symbol}</span>
+            <button onClick={() => onSymbolChange("")} className="text-slate-400 hover:text-red-400"><X size={12} /></button>
+          </div>
+        )}
+      </section>
+
+      {/* Algo stack */}
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+          <span className="text-sm font-semibold text-slate-700">Strategy Stack</span>
+          <span className="text-xs text-slate-400 ml-1">— up to 5 algos, each with independent conditions</span>
+          {algoSlots.length < 5 && (
+            <button onClick={onAddAlgo}
+              className="ml-auto flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-blue-50 hover:border-blue-300">
+              <Plus size={11} /> Add Algo
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          {algoSlots.map((slot) => {
+            const isExpanded = expandedAlgoId === slot.id;
+            return (
+              <div key={slot.id} className="border border-slate-200 rounded-lg overflow-hidden">
+                {/* Algo header */}
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 cursor-pointer"
+                  onClick={() => setExpandedAlgoId(isExpanded ? null : slot.id)}>
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: slot.color }} />
+                  <input value={slot.label} onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onUpdateAlgo(slot.id, { label: e.target.value })}
+                    className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-28 border-b border-transparent hover:border-slate-300 focus:border-blue-400" />
+                  <span className="text-[10px] text-slate-400">
+                    {slot.strategy.entry_conditions.length} condition{slot.strategy.entry_conditions.length !== 1 ? "s" : ""}
+                    · T{slot.strategy.target_pct}% SL{slot.strategy.sl_pct}%
+                  </span>
+                  <span className="ml-auto flex items-center gap-2">
+                    <ChevronDown size={12} className={`text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                    {algoSlots.length > 1 && (
+                      <button onClick={(e) => { e.stopPropagation(); onRemoveAlgo(slot.id); }}
+                        className="text-slate-300 hover:text-red-400"><X size={12} /></button>
+                    )}
+                  </span>
+                </div>
+
+                {/* Expanded body */}
+                {isExpanded && (
+                  <div className="p-3 space-y-3">
+                    <div>
+                      <div className="text-[10px] font-semibold text-slate-500 uppercase mb-1.5">Entry Conditions</div>
+                      <ConditionBuilder
+                        conditions={slot.strategy.entry_conditions}
+                        onChange={(rows) => onUpdateAlgo(slot.id, { strategy: { ...slot.strategy, entry_conditions: rows } })}
+                        indicators={indicators} operators={operators} />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: "Target %", key: "target_pct" as const, step: "0.5" },
+                        { label: "Stop-Loss %", key: "sl_pct" as const, step: "0.5" },
+                        { label: "Max Hold (days)", key: "max_bars" as const, step: "1" },
+                      ].map(({ label, key, step }) => (
+                        <div key={key}>
+                          <label className="text-[10px] text-slate-500 mb-1 block">{label}</label>
+                          <input type="number" step={step} value={slot.strategy[key]}
+                            onChange={(e) => onUpdateAlgo(slot.id, { strategy: { ...slot.strategy, [key]: parseFloat(e.target.value) } })}
+                            className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <button onClick={onRunAll} disabled={!symbol || anyLoading}
+          className="mt-3 flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+          {anyLoading
+            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />Running algos…</>
+            : <><Play size={13} />Run {algoSlots.length} Algo{algoSlots.length !== 1 ? "s" : ""} on {symbol || "…"}</>
+          }
+        </button>
+      </section>
+    </div>
+  );
+}
+
+// ── Multi-Algo Results ────────────────────────────────────────────────────────
+
+function MultiAlgoResults({
+  algoSlots, activeAlgoId, onSetActive, showPatterns, onTogglePatterns,
+}: {
+  algoSlots: import("../store/useBacktestStore").AlgoSlot[];
+  activeAlgoId: string | null; onSetActive: (id: string) => void;
+  showPatterns: boolean; onTogglePatterns: () => void;
+}) {
+  const slotsWithResults = algoSlots.filter((a) => a.results);
+  if (slotsWithResults.length === 0) return null;
+
+  const activeSlot = algoSlots.find((a) => a.id === activeAlgoId) ?? slotsWithResults[0];
+  const ohlcv = activeSlot?.results?.ohlcv ?? [];
+
+  const algoTradeSets = slotsWithResults.map((slot) => ({
+    label: slot.label,
+    color: slot.color,
+    trades: slot.results!.trades,
+    active: slot.id === (activeAlgoId ?? slotsWithResults[0]?.id),
+  }));
+
+  const patternHits = showPatterns && ohlcv.length ? detectPatterns(ohlcv) : [];
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="flex" style={{ minHeight: 500 }}>
+        {/* Left: algo list */}
+        <div className="w-52 shrink-0 border-r border-slate-100 flex flex-col">
+          <div className="p-3 border-b border-slate-100 bg-slate-50/60">
+            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Algo Comparison</div>
+          </div>
+          <div className="overflow-y-auto flex-1">
+            {slotsWithResults.map((slot) => {
+              const ts = tradeStats(slot.results!.trades);
+              const isActive = slot.id === (activeAlgoId ?? slotsWithResults[0]?.id);
+              return (
+                <button key={slot.id} onClick={() => onSetActive(slot.id)}
+                  className={`w-full text-left px-3 py-2.5 border-b border-slate-50 transition-colors ${
+                    isActive ? "bg-blue-50 border-l-2" : "hover:bg-slate-50"
+                  }`}
+                  style={{ borderLeftColor: isActive ? slot.color : undefined }}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: slot.color }} />
+                    <span className="text-xs font-semibold text-slate-700 truncate">{slot.label}</span>
+                    <span className={`ml-auto text-[10px] font-semibold ${pnlClass(slot.results!.stats.total_pnl)}`}>
+                      {slot.results!.stats.total_pnl >= 0 ? "+" : ""}₹{fmt(slot.results!.stats.total_pnl)}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5 pl-4">
+                    {slot.results!.stats.total_trades} trades · {slot.results!.stats.win_rate_pct}% win
+                    {slot.results!.trades.length > 0 && (
+                      <span className={`ml-1 ${ts.profitFactor >= 1.5 ? "text-emerald-500" : ts.profitFactor >= 1 ? "text-amber-500" : "text-red-400"}`}>
+                        · PF {isFinite(ts.profitFactor) ? ts.profitFactor.toFixed(1) : "∞"}×
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: combined chart */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="px-4 pt-3 pb-1.5 flex items-center gap-3 border-b border-slate-100 flex-wrap">
+            <span className="text-sm font-semibold text-slate-800">Algo Overlay Chart</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {slotsWithResults.map((s) => (
+                <span key={s.id} className="flex items-center gap-1 text-[10px]">
+                  <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />{s.label}
+                </span>
+              ))}
+            </div>
+            <button onClick={onTogglePatterns}
+              className={`ml-auto flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                showPatterns ? "bg-purple-50 border-purple-200 text-purple-600" : "border-slate-200 text-slate-400"
+              }`}>
+              <span className="w-2 h-2 rounded-sm bg-purple-400 inline-block" />Patterns {showPatterns ? "on" : "off"}
+            </button>
+          </div>
+
+          {ohlcv.length > 0 && (
+            <BacktestChart symbol="" ohlcv={ohlcv} algoTrades={algoTradeSets} showPatterns={showPatterns} />
+          )}
+
+          {showPatterns && patternHits.length > 0 && (
+            <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/40">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recent Patterns</div>
+              <div className="space-y-0.5">
+                {patternHits.slice(-5).reverse().map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[10px]">
+                    <span className="w-4 h-4 rounded bg-purple-100 text-purple-600 font-bold flex items-center justify-center shrink-0">{p.label}</span>
+                    <span className="text-slate-400 shrink-0">{p.date}</span>
+                    <span className="text-slate-600 truncate">{p.tip}</span>
+                    <span className={`ml-auto shrink-0 font-semibold ${p.bias === "bullish" ? "text-emerald-500" : p.bias === "bearish" ? "text-red-400" : "text-slate-400"}`}>
+                      {p.bias === "bullish" ? "↑ Bullish" : p.bias === "bearish" ? "↓ Bearish" : "→ Neutral"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -472,7 +724,15 @@ export default function Backtest() {
     addSymbol, removeSymbol, clearSymbols,
     setStrategy, runBacktestV2, setActiveSymbol,
     saveCurrentRun, clearSavedRuns,
+    // multi-algo
+    mode, algoSlots, multiAlgoSymbol, activeAlgoId,
+    setMode, addAlgoSlot, removeAlgoSlot, updateAlgoSlot,
+    setActiveAlgo, setMultiAlgoSymbol, runAllAlgos,
   } = store;
+
+  const [algoSymbolSearch, setAlgoSymbolSearch] = useState("");
+  const [algoSymbolSuggestions, setAlgoSymbolSuggestions] = useState<{symbol:string;name:string}[]>([]);
+  const [expandedAlgoId, setExpandedAlgoId] = useState<string | null>(null);
 
   const [showExitConditions, setShowExitConditions] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>("MACD Cross");
@@ -563,8 +823,28 @@ export default function Backtest() {
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── Section 1: Universe ── */}
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      {/* ── Mode Toggle ── */}
+      <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3">
+        <span className="text-xs font-semibold text-slate-500 mr-1">Backtest Mode</span>
+        {([
+          { key: "multi_stock" as const, icon: "🔀", label: "Multi-Stock", desc: "1 algo · many stocks" },
+          { key: "multi_algo"  as const, icon: "⚡", label: "Multi-Algo",  desc: "many algos · 1 stock" },
+        ]).map((m) => (
+          <button key={m.key} onClick={() => setMode(m.key)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              mode === m.key
+                ? "bg-blue-500 text-white border-blue-500"
+                : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
+            }`}>
+            <span>{m.icon}</span>
+            <span>{m.label}</span>
+            <span className={`text-[10px] ${mode === m.key ? "text-blue-100" : "text-slate-400"}`}>{m.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Section 1: Universe (Multi-Stock mode only) ── */}
+      {mode === "multi_stock" && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
           <span className="text-sm font-semibold text-slate-700">Pick Stocks</span>
@@ -590,10 +870,29 @@ export default function Backtest() {
             No stocks selected — search above or load a watchlist
           </div>
         )}
-      </section>
+      </section>}
 
-      {/* ── Section 2: Strategy ── */}
-      <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-4 transition-opacity ${pickedSymbols.length === 0 ? "opacity-40 pointer-events-none" : ""}`}>
+      {/* ── Multi-Algo mode: stock picker + algo stack ── */}
+      {mode === "multi_algo" && (
+        <MultiAlgoPanel
+          symbol={multiAlgoSymbol}
+          algoSlots={algoSlots}
+          activeAlgoId={activeAlgoId}
+          indicators={indicators}
+          operators={operators}
+          onSymbolChange={setMultiAlgoSymbol}
+          onAddAlgo={addAlgoSlot}
+          onRemoveAlgo={removeAlgoSlot}
+          onUpdateAlgo={updateAlgoSlot}
+          onSetActive={setActiveAlgo}
+          onRunAll={runAllAlgos}
+          expandedAlgoId={expandedAlgoId}
+          setExpandedAlgoId={setExpandedAlgoId}
+        />
+      )}
+
+      {/* ── Section 2: Strategy (Multi-Stock mode only) ── */}
+      {mode === "multi_stock" && <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-4 transition-opacity ${pickedSymbols.length === 0 ? "opacity-40 pointer-events-none" : ""}`}>
         <div className="flex items-center gap-2 mb-4">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
           <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
@@ -774,10 +1073,19 @@ export default function Backtest() {
             <AlertCircle size={14} /> {v2Error.replace("Error: ", "")}
           </div>
         )}
-      </section>
+      </section>}
 
-      {/* ── Section 3: Results — left panel + right panel ── */}
-      {(v2Results || v2Loading) && (
+      {/* ── Multi-Algo Results ── */}
+      {mode === "multi_algo" && <MultiAlgoResults
+        algoSlots={algoSlots}
+        activeAlgoId={activeAlgoId}
+        onSetActive={setActiveAlgo}
+        showPatterns={showPatterns}
+        onTogglePatterns={() => setShowPatterns((v) => !v)}
+      />}
+
+      {/* ── Section 3: Results — left panel + right panel (Multi-Stock mode) ── */}
+      {mode === "multi_stock" && (v2Results || v2Loading) && (
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
 
           {/* Toolbar */}
