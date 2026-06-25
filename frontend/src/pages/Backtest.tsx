@@ -483,12 +483,42 @@ function MultiAlgoPanel({
 }) {
   const [search, setSearch] = useState("");
   const [suggestions, setSuggestions] = useState<{symbol:string;name:string}[]>([]);
+  const [hoverIdx, setHoverIdx] = useState(-1);
+  const [candleStat, setCandleStat] = useState<{candles:number;from_date:string|null;to_date:string|null}|null>(null);
+  const [openPresetId, setOpenPresetId] = useState<string | null>(null);
   const anyLoading = algoSlots.some((a) => a.loading);
 
   useEffect(() => {
-    if (search.length < 1) { setSuggestions([]); return; }
+    if (search.length < 1) { setSuggestions([]); setHoverIdx(-1); return; }
     api.searchSymbols(search).then(setSuggestions).catch(() => setSuggestions([]));
   }, [search]);
+
+  useEffect(() => {
+    if (!symbol) { setCandleStat(null); return; }
+    api.getCandleStats([symbol]).then((stats) => setCandleStat(stats[0] ?? null)).catch(() => {});
+  }, [symbol]);
+
+  // Close preset dropdown when clicking outside
+  useEffect(() => {
+    if (!openPresetId) return;
+    const handler = () => setOpenPresetId(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [openPresetId]);
+
+  const selectSuggestion = (s: {symbol:string}) => {
+    onSymbolChange(s.symbol); setSearch(""); setSuggestions([]); setHoverIdx(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!suggestions.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setHoverIdx((i) => Math.min(i + 1, suggestions.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHoverIdx((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter" && hoverIdx >= 0) { e.preventDefault(); selectSuggestion(suggestions[hoverIdx]); }
+    else if (e.key === "Escape") { setSuggestions([]); setHoverIdx(-1); }
+  };
+
+  const fmtDate = (d: string | null) => d ? d.slice(0, 7).replace("-", "/") : "—";
 
   return (
     <div className="flex flex-col gap-3">
@@ -502,24 +532,38 @@ function MultiAlgoPanel({
         <div className="relative max-w-sm">
           <input value={symbol || search}
             onChange={(e) => { setSearch(e.target.value); if (!e.target.value) onSymbolChange(""); }}
+            onKeyDown={handleKeyDown}
             placeholder="Search symbol e.g. HDFCBANK…"
             className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-400 bg-slate-50" />
           {suggestions.length > 0 && (
             <div className="absolute z-20 top-full left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-              {suggestions.map((s) => (
-                <button key={s.symbol} onClick={() => { onSymbolChange(s.symbol); setSearch(""); setSuggestions([]); }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex justify-between">
-                  <span className="font-semibold text-slate-700">{s.symbol}</span>
+              {suggestions.map((s, i) => (
+                <button key={s.symbol} onClick={() => selectSuggestion(s)}
+                  onMouseEnter={() => setHoverIdx(i)}
+                  className={`w-full text-left px-3 py-2 text-xs flex justify-between transition-colors ${
+                    i === hoverIdx ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50"
+                  }`}>
+                  <span className="font-semibold">{s.symbol}</span>
                   <span className="text-slate-400 truncate ml-2">{s.name}</span>
                 </button>
               ))}
+              <div className="px-3 py-1 text-[10px] text-slate-300 border-t border-slate-100">↑↓ navigate · Enter select · Esc close</div>
             </div>
           )}
         </div>
         {symbol && (
-          <div className="mt-2 flex items-center gap-2">
-            <span className="px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs font-semibold text-blue-700">{symbol}</span>
-            <button onClick={() => onSymbolChange("")} className="text-slate-400 hover:text-red-400"><X size={12} /></button>
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs font-semibold text-blue-700">
+              {symbol}
+              <button onClick={() => onSymbolChange("")} className="text-blue-300 hover:text-red-400"><X size={10} /></button>
+            </span>
+            {candleStat && (
+              <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                <span className="font-semibold text-slate-700">{candleStat.candles.toLocaleString()}</span> candles
+                <span className="text-slate-300 mx-1">·</span>
+                {fmtDate(candleStat.from_date)} → {fmtDate(candleStat.to_date)}
+              </span>
+            )}
           </div>
         )}
       </section>
@@ -550,19 +594,33 @@ function MultiAlgoPanel({
                   <input value={slot.label} onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onUpdateAlgo(slot.id, { label: e.target.value })}
                     className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-24 border-b border-transparent hover:border-slate-300 focus:border-blue-400" />
-                  {/* Preset picker */}
-                  <select
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      const preset = PRESETS.find((p) => p.label === e.target.value);
-                      if (preset) onUpdateAlgo(slot.id, { label: preset.label, strategy: { ...slot.strategy, entry_conditions: preset.conditions } });
-                      e.target.value = "";
-                    }}
-                    defaultValue=""
-                    className="text-[10px] text-slate-500 bg-white border border-slate-200 rounded px-1 py-0.5 outline-none hover:border-blue-300 cursor-pointer max-w-[110px] truncate">
-                    <option value="" disabled>Load preset…</option>
-                    {PRESETS.map((p) => <option key={p.label} value={p.label}>{p.label}</option>)}
-                  </select>
+                  {/* Preset picker — custom popover */}
+                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setOpenPresetId(openPresetId === slot.id ? null : slot.id); }}
+                      className="flex items-center gap-1 text-[10px] text-slate-500 bg-white border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 hover:text-blue-600 transition-colors whitespace-nowrap">
+                      Load preset <ChevronDown size={9} className={`transition-transform ${openPresetId === slot.id ? "rotate-180" : ""}`} />
+                    </button>
+                    {openPresetId === slot.id && (
+                      <div className="absolute z-30 top-full left-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}>
+                        <div className="px-2.5 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100 bg-slate-50">Select preset</div>
+                        <div className="max-h-56 overflow-y-auto">
+                          {PRESETS.map((p) => (
+                            <button key={p.label}
+                              onClick={() => {
+                                onUpdateAlgo(slot.id, { label: p.label, strategy: { ...slot.strategy, entry_conditions: p.conditions } });
+                                setOpenPresetId(null);
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0">
+                              <div className="text-xs font-semibold text-slate-700">{p.label}</div>
+                              <div className="text-[10px] text-slate-400 truncate mt-0.5">{p.tip}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <span className="text-[10px] text-slate-400 hidden sm:inline">
                     {slot.strategy.entry_conditions.length} cond · T{slot.strategy.target_pct}% SL{slot.strategy.sl_pct}%
                   </span>
@@ -621,8 +679,9 @@ function MultiAlgoPanel({
 // ── Multi-Algo Results ────────────────────────────────────────────────────────
 
 function MultiAlgoResults({
-  algoSlots, activeAlgoId, onSetActive, showPatterns, onTogglePatterns,
+  symbol, algoSlots, activeAlgoId, onSetActive, showPatterns, onTogglePatterns,
 }: {
+  symbol: string;
   algoSlots: import("../store/useBacktestStore").AlgoSlot[];
   activeAlgoId: string | null; onSetActive: (id: string) => void;
   showPatterns: boolean; onTogglePatterns: () => void;
@@ -630,14 +689,16 @@ function MultiAlgoResults({
   const slotsWithResults = algoSlots.filter((a) => a.results);
   if (slotsWithResults.length === 0) return null;
 
-  const activeSlot = algoSlots.find((a) => a.id === activeAlgoId) ?? slotsWithResults[0];
+  const activeId = activeAlgoId ?? slotsWithResults[0]?.id;
+  const activeSlot = algoSlots.find((a) => a.id === activeId) ?? slotsWithResults[0];
   const ohlcv = activeSlot?.results?.ohlcv ?? [];
+  const activeTrades = activeSlot?.results?.trades ?? [];
 
   const algoTradeSets = slotsWithResults.map((slot) => ({
     label: slot.label,
     color: slot.color,
     trades: slot.results!.trades,
-    active: slot.id === (activeAlgoId ?? slotsWithResults[0]?.id),
+    active: slot.id === activeId,
   }));
 
   const patternHits = showPatterns && ohlcv.length ? detectPatterns(ohlcv) : [];
@@ -646,32 +707,34 @@ function MultiAlgoResults({
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <div className="flex" style={{ minHeight: 500 }}>
         {/* Left: algo list */}
-        <div className="w-52 shrink-0 border-r border-slate-100 flex flex-col">
+        <div className="w-56 shrink-0 border-r border-slate-100 flex flex-col">
           <div className="p-3 border-b border-slate-100 bg-slate-50/60">
             <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Algo Comparison</div>
+            {symbol && <div className="text-xs font-bold text-slate-700 mt-0.5">{symbol}</div>}
           </div>
           <div className="overflow-y-auto flex-1">
             {slotsWithResults.map((slot) => {
               const ts = tradeStats(slot.results!.trades);
-              const isActive = slot.id === (activeAlgoId ?? slotsWithResults[0]?.id);
+              const isActive = slot.id === activeId;
               return (
                 <button key={slot.id} onClick={() => onSetActive(slot.id)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-slate-50 transition-colors ${
-                    isActive ? "bg-blue-50 border-l-2" : "hover:bg-slate-50"
+                  className={`w-full text-left px-3 py-3 border-b border-slate-50 transition-all ${
+                    isActive ? "bg-white shadow-sm" : "hover:bg-slate-50"
                   }`}
-                  style={{ borderLeftColor: isActive ? slot.color : undefined }}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: slot.color }} />
-                    <span className="text-xs font-semibold text-slate-700 truncate">{slot.label}</span>
-                    <span className={`ml-auto text-[10px] font-semibold ${pnlClass(slot.results!.stats.total_pnl)}`}>
+                  style={{ borderLeft: `3px solid ${isActive ? slot.color : "transparent"}` }}>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{ background: slot.color }} />
+                    <span className="text-xs font-semibold text-slate-700 truncate flex-1">{slot.label}</span>
+                    <span className={`text-[11px] font-bold ${pnlClass(slot.results!.stats.total_pnl)}`}>
                       {slot.results!.stats.total_pnl >= 0 ? "+" : ""}₹{fmt(slot.results!.stats.total_pnl)}
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5 pl-4">
-                    {slot.results!.stats.total_trades} trades · {slot.results!.stats.win_rate_pct}% win
+                  <div className="text-[10px] text-slate-400 mt-1 pl-5 flex flex-wrap gap-x-2">
+                    <span>{slot.results!.stats.total_trades} trades</span>
+                    <span>{slot.results!.stats.win_rate_pct}% win</span>
                     {slot.results!.trades.length > 0 && (
-                      <span className={`ml-1 ${ts.profitFactor >= 1.5 ? "text-emerald-500" : ts.profitFactor >= 1 ? "text-amber-500" : "text-red-400"}`}>
-                        · PF {isFinite(ts.profitFactor) ? ts.profitFactor.toFixed(1) : "∞"}×
+                      <span className={ts.profitFactor >= 1.5 ? "text-emerald-500" : ts.profitFactor >= 1 ? "text-amber-500" : "text-red-400"}>
+                        PF {isFinite(ts.profitFactor) ? ts.profitFactor.toFixed(1) : "∞"}×
                       </span>
                     )}
                   </div>
@@ -683,14 +746,27 @@ function MultiAlgoResults({
 
         {/* Right: combined chart */}
         <div className="flex-1 min-w-0 flex flex-col">
-          <div className="px-4 pt-3 pb-1.5 flex items-center gap-3 border-b border-slate-100 flex-wrap">
-            <span className="text-sm font-semibold text-slate-800">Algo Overlay Chart</span>
-            <div className="flex items-center gap-2 flex-wrap">
-              {slotsWithResults.map((s) => (
-                <span key={s.id} className="flex items-center gap-1 text-[10px]">
-                  <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />{s.label}
-                </span>
-              ))}
+          {/* Chart header */}
+          <div className="px-4 pt-3 pb-2 flex items-center gap-3 border-b border-slate-100 flex-wrap">
+            <div>
+              <span className="text-sm font-bold text-slate-800">{symbol || "Algo Overlay Chart"}</span>
+              {symbol && <span className="text-xs text-slate-400 ml-2">· Algo Overlay</span>}
+            </div>
+            {/* Algo color pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {slotsWithResults.map((s) => {
+                const isActive = s.id === activeId;
+                return (
+                  <button key={s.id} onClick={() => onSetActive(s.id)}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-medium transition-all ${
+                      isActive ? "shadow-sm text-white" : "text-slate-500 border-slate-200 hover:border-slate-300 bg-white"
+                    }`}
+                    style={isActive ? { background: s.color, borderColor: s.color } : {}}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: isActive ? "#fff" : s.color }} />
+                    {s.label}
+                  </button>
+                );
+              })}
             </div>
             <button onClick={onTogglePatterns}
               className={`ml-auto flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-colors ${
@@ -701,7 +777,7 @@ function MultiAlgoResults({
           </div>
 
           {ohlcv.length > 0 && (
-            <BacktestChart symbol="" ohlcv={ohlcv} algoTrades={algoTradeSets} showPatterns={showPatterns} />
+            <BacktestChart symbol={symbol} ohlcv={ohlcv} algoTrades={algoTradeSets} showPatterns={showPatterns} />
           )}
 
           {showPatterns && patternHits.length > 0 && (
@@ -723,6 +799,58 @@ function MultiAlgoResults({
           )}
         </div>
       </div>
+
+      {/* Trade log for active algo */}
+      {activeTrades.length > 0 && (
+        <div className="border-t border-slate-100">
+          <div className="px-4 py-2 flex items-center gap-2 bg-slate-50/60">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: activeSlot?.color }} />
+            <span className="text-xs font-semibold text-slate-700">{activeSlot?.label} — Trade Log</span>
+            <span className="text-[10px] text-slate-400">{activeTrades.length} trades</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/40">
+                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">#</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Entry Date</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Entry ₹</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Target ₹</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Stop ₹</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Exit Date</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Exit ₹</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Reason</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">PnL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeTrades.map((t, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
+                    <td className="px-3 py-1.5 text-slate-600">{t.entry_date.slice(0, 10)}</td>
+                    <td className="px-3 py-1.5 text-right font-medium text-slate-700">₹{fmt(t.entry_price, 2)}</td>
+                    <td className="px-3 py-1.5 text-right text-emerald-600">₹{fmt(t.target_price, 2)}</td>
+                    <td className="px-3 py-1.5 text-right text-red-500">₹{fmt(t.sl_price, 2)}</td>
+                    <td className="px-3 py-1.5 text-slate-600">{t.exit_date.slice(0, 10)}</td>
+                    <td className="px-3 py-1.5 text-right font-medium text-slate-700">₹{fmt(t.exit_price, 2)}</td>
+                    <td className="px-3 py-1.5">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        t.exit_reason === "target" ? "bg-emerald-50 text-emerald-600" :
+                        t.exit_reason === "sl" ? "bg-red-50 text-red-500" : "bg-slate-100 text-slate-400"
+                      }`}>
+                        {t.exit_reason === "target" ? "🎯 Target" : t.exit_reason === "sl" ? "🛑 Stop" : "⏱ Time"}
+                      </span>
+                    </td>
+                    <td className={`px-3 py-1.5 text-right font-bold ${pnlClass(t.pnl)}`}>
+                      {t.pnl >= 0 ? "+" : ""}₹{fmt(t.pnl)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1089,6 +1217,7 @@ export default function Backtest() {
 
       {/* ── Multi-Algo Results ── */}
       {mode === "multi_algo" && <MultiAlgoResults
+        symbol={multiAlgoSymbol}
         algoSlots={algoSlots}
         activeAlgoId={activeAlgoId}
         onSetActive={setActiveAlgo}
