@@ -590,9 +590,9 @@ function MultiAlgoPanel({
           {algoSlots.map((slot) => {
             const isExpanded = expandedAlgoId === slot.id;
             return (
-              <div key={slot.id} className="border border-slate-200 rounded-lg overflow-hidden">
+              <div key={slot.id} className="border border-slate-200 rounded-lg">
                 {/* Algo header */}
-                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 cursor-pointer"
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 cursor-pointer rounded-t-lg"
                   onClick={() => setExpandedAlgoId(isExpanded ? null : slot.id)}>
                   <span className="w-3 h-3 rounded-full shrink-0" style={{ background: slot.color }} />
                   <input value={slot.label} onClick={(e) => e.stopPropagation()}
