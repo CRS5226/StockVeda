@@ -498,12 +498,16 @@ function MultiAlgoPanel({
     api.getCandleStats([symbol]).then((stats) => setCandleStat(stats[0] ?? null)).catch(() => {});
   }, [symbol]);
 
-  // Close preset dropdown when clicking outside
+  const presetDropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!openPresetId) return;
-    const handler = () => setOpenPresetId(null);
-    document.addEventListener("click", handler);
-    return () => document.removeEventListener("click", handler);
+    const handler = (e: MouseEvent) => {
+      if (presetDropdownRef.current && !presetDropdownRef.current.contains(e.target as Node)) {
+        setOpenPresetId(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [openPresetId]);
 
   const selectSuggestion = (s: {symbol:string}) => {
@@ -595,20 +599,20 @@ function MultiAlgoPanel({
                     onChange={(e) => onUpdateAlgo(slot.id, { label: e.target.value })}
                     className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-24 border-b border-transparent hover:border-slate-300 focus:border-blue-400" />
                   {/* Preset picker — custom popover */}
-                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <div ref={openPresetId === slot.id ? presetDropdownRef : undefined} className="relative" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setOpenPresetId(openPresetId === slot.id ? null : slot.id); }}
                       className="flex items-center gap-1 text-[10px] text-slate-500 bg-white border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 hover:text-blue-600 transition-colors whitespace-nowrap">
                       Load preset <ChevronDown size={9} className={`transition-transform ${openPresetId === slot.id ? "rotate-180" : ""}`} />
                     </button>
                     {openPresetId === slot.id && (
-                      <div className="absolute z-30 top-full left-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}>
+                      <div className="absolute z-30 top-full left-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden">
                         <div className="px-2.5 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100 bg-slate-50">Select preset</div>
                         <div className="max-h-56 overflow-y-auto">
                           {PRESETS.map((p) => (
                             <button key={p.label}
-                              onClick={() => {
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
                                 onUpdateAlgo(slot.id, { label: p.label, strategy: { ...slot.strategy, entry_conditions: p.conditions } });
                                 setOpenPresetId(null);
                               }}
