@@ -795,6 +795,72 @@ function MultiAlgoResults({
             <BacktestChart symbol={symbol} ohlcv={ohlcv} algoTrades={algoTradeSets} showPatterns={showPatterns} />
           )}
 
+          {/* No-signals message for active algo */}
+          {ohlcv.length > 0 && activeTrades.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 border-t border-slate-100 bg-slate-50/30">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: activeSlot?.color + "22" }}>
+                <span className="text-base">📭</span>
+              </div>
+              <div className="text-sm font-semibold" style={{ color: activeSlot?.color }}>{activeSlot?.label}</div>
+              <div className="text-xs text-slate-400">No signals generated for {symbol} in this period</div>
+              <div className="text-[10px] text-slate-300 mt-0.5">
+                {activeSlot?.strategy.entry_conditions.length} condition{activeSlot?.strategy.entry_conditions.length !== 1 ? "s" : ""} — none triggered
+              </div>
+            </div>
+          )}
+
+          {/* Trade log — inside right panel so it doesn't bleed under left algo column */}
+          {activeTrades.length > 0 && (
+            <div className="border-t border-slate-100">
+              <div className="px-4 py-2 flex items-center gap-2 bg-slate-50/60">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: activeSlot?.color }} />
+                <span className="text-xs font-semibold text-slate-700">{activeSlot?.label} — Trade Log</span>
+                <span className="text-[10px] text-slate-400">{activeTrades.length} trade{activeTrades.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/40">
+                      <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">#</th>
+                      <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Entry</th>
+                      <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Entry ₹</th>
+                      <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-emerald-500 uppercase">Target ₹</th>
+                      <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-red-400 uppercase">Stop ₹</th>
+                      <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Exit</th>
+                      <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Exit ₹</th>
+                      <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Result</th>
+                      <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">PnL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeTrades.map((t, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
+                        <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{t.entry_date.slice(0, 10)}</td>
+                        <td className="px-3 py-1.5 text-right font-medium text-slate-700">₹{fmt(t.entry_price, 2)}</td>
+                        <td className="px-3 py-1.5 text-right text-emerald-600 font-medium">₹{fmt(t.target_price, 2)}</td>
+                        <td className="px-3 py-1.5 text-right text-red-500 font-medium">₹{fmt(t.sl_price, 2)}</td>
+                        <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{t.exit_date.slice(0, 10)}</td>
+                        <td className="px-3 py-1.5 text-right font-medium text-slate-700">₹{fmt(t.exit_price, 2)}</td>
+                        <td className="px-3 py-1.5">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            t.exit_reason === "target" ? "bg-emerald-50 text-emerald-600" :
+                            t.exit_reason === "sl" ? "bg-red-50 text-red-500" : "bg-slate-100 text-slate-400"
+                          }`}>
+                            {t.exit_reason === "target" ? "🎯 Target" : t.exit_reason === "sl" ? "🛑 Stop" : "⏱ Time"}
+                          </span>
+                        </td>
+                        <td className={`px-3 py-1.5 text-right font-bold ${pnlClass(t.pnl)}`}>
+                          {t.pnl >= 0 ? "+" : ""}₹{fmt(t.pnl)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {showPatterns && patternHits.length > 0 && (
             <div className="px-3 py-2 border-t border-slate-100 bg-slate-50/40">
               <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recent Patterns</div>
@@ -814,58 +880,6 @@ function MultiAlgoResults({
           )}
         </div>
       </div>
-
-      {/* Trade log for active algo */}
-      {activeTrades.length > 0 && (
-        <div className="border-t border-slate-100">
-          <div className="px-4 py-2 flex items-center gap-2 bg-slate-50/60">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: activeSlot?.color }} />
-            <span className="text-xs font-semibold text-slate-700">{activeSlot?.label} — Trade Log</span>
-            <span className="text-[10px] text-slate-400">{activeTrades.length} trades</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/40">
-                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">#</th>
-                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Entry Date</th>
-                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Entry ₹</th>
-                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Target ₹</th>
-                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Stop ₹</th>
-                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Exit Date</th>
-                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Exit ₹</th>
-                  <th className="text-left px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">Reason</th>
-                  <th className="text-right px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase">PnL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeTrades.map((t, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
-                    <td className="px-3 py-1.5 text-slate-600">{t.entry_date.slice(0, 10)}</td>
-                    <td className="px-3 py-1.5 text-right font-medium text-slate-700">₹{fmt(t.entry_price, 2)}</td>
-                    <td className="px-3 py-1.5 text-right text-emerald-600">₹{fmt(t.target_price, 2)}</td>
-                    <td className="px-3 py-1.5 text-right text-red-500">₹{fmt(t.sl_price, 2)}</td>
-                    <td className="px-3 py-1.5 text-slate-600">{t.exit_date.slice(0, 10)}</td>
-                    <td className="px-3 py-1.5 text-right font-medium text-slate-700">₹{fmt(t.exit_price, 2)}</td>
-                    <td className="px-3 py-1.5">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                        t.exit_reason === "target" ? "bg-emerald-50 text-emerald-600" :
-                        t.exit_reason === "sl" ? "bg-red-50 text-red-500" : "bg-slate-100 text-slate-400"
-                      }`}>
-                        {t.exit_reason === "target" ? "🎯 Target" : t.exit_reason === "sl" ? "🛑 Stop" : "⏱ Time"}
-                      </span>
-                    </td>
-                    <td className={`px-3 py-1.5 text-right font-bold ${pnlClass(t.pnl)}`}>
-                      {t.pnl >= 0 ? "+" : ""}₹{fmt(t.pnl)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

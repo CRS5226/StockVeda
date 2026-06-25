@@ -119,9 +119,9 @@ export default function BacktestChart({
     const drawTrades = (
       tradeset: BacktestTradeV2[], color: string, active: boolean, multiAlgo: boolean
     ) => {
-      // In multi-algo mode all markers are size 2 so all algos are equally visible.
-      // In multi-stock mode active=true always, so size 2 as well.
-      const markerSize = 2;
+      // Active algo: size 2 (prominent). Inactive: size 1 (visible but dimmer).
+      // Exit colors are per-algo so inactive markers are still identifiable by color.
+      const markerSize = active ? 2 : 1;
       tradeset.forEach((t) => {
         const entryDate = t.entry_date.slice(0, 10);
         const exitDate  = t.exit_date.slice(0, 10);
