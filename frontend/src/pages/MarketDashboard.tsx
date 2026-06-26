@@ -396,6 +396,7 @@ export default function MarketDashboard() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadPct, setLoadPct] = useState(0);
 
   const [indiaNews, setIndiaNews] = useState<NewsItem[]>([]);
   const [globalNews, setGlobalNews] = useState<NewsItem[]>([]);
@@ -411,17 +412,40 @@ export default function MarketDashboard() {
 
   useEffect(() => {
     let cancelled = false;
+    let timerPct = 0;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    // Animate progress toward a target without overshooting it
+    function crawlTo(target: number, step = 1, intervalMs = 120) {
+      if (timerId) clearInterval(timerId as unknown as number);
+      timerId = setInterval(() => {
+        timerPct = Math.min(timerPct + step, target);
+        setLoadPct(timerPct);
+        if (timerPct >= target) clearInterval(timerId as unknown as number);
+      }, intervalMs) as unknown as ReturnType<typeof setTimeout>;
+    }
+
     async function load() {
       try {
+        crawlTo(20);                             // checking status: 0 → 20%
         const status = await api.dashboardStatus();
         if (cancelled) return;
+        timerPct = 20; setLoadPct(20);
+
         if (!status.populated) {
           setSeeding(true);
+          crawlTo(85, 1, 400);                   // seeding (slow): 20 → 85%
           await api.bootstrap();
           if (cancelled) return;
+          timerPct = 85; setLoadPct(85);
+        } else {
+          timerPct = 35; setLoadPct(35);
         }
+
+        crawlTo(99, 2, 80);                      // fetching dashboard: → 99%
         const d = await api.getDashboard();
         if (cancelled) return;
+        setLoadPct(100);
         setData(d);
         setSeeding(false);
         setLoading(false);
@@ -433,7 +457,10 @@ export default function MarketDashboard() {
       }
     }
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (timerId) clearInterval(timerId as unknown as number);
+    };
   }, []);
 
   useEffect(() => {
@@ -470,7 +497,23 @@ export default function MarketDashboard() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
-        <div className="w-10 h-10 border-[3px] border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+        {/* Spinner + percentage */}
+        <div className="relative w-16 h-16">
+          <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="26" fill="none" stroke="#e2e8f0" strokeWidth="5" />
+            <circle
+              cx="32" cy="32" r="26" fill="none"
+              stroke="#3b82f6" strokeWidth="5"
+              strokeLinecap="round"
+              strokeDasharray={`${2 * Math.PI * 26}`}
+              strokeDashoffset={`${2 * Math.PI * 26 * (1 - loadPct / 100)}`}
+              style={{ transition: "stroke-dashoffset 0.15s ease" }}
+            />
+          </svg>
+          <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold text-slate-700">
+            {loadPct}%
+          </span>
+        </div>
         {seeding ? (
           <>
             <div className="text-slate-600 text-sm font-medium">Setting up for the first time…</div>
@@ -481,6 +524,13 @@ export default function MarketDashboard() {
         ) : (
           <div className="text-slate-500 text-sm">Loading market data…</div>
         )}
+        {/* Progress bar */}
+        <div className="w-48 h-1 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-blue-500 rounded-full"
+            style={{ width: `${loadPct}%`, transition: "width 0.15s ease" }}
+          />
+        </div>
       </div>
     );
   }
