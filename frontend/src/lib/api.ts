@@ -344,6 +344,10 @@ export const api = {
     apiFetch<{ date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number }[]>(
       `/macro/fii-dii?limit=${limit}`
     ),
+  getFnoParticipantOI: (limit = 252) =>
+    apiFetch<{ date: string; participant_type: string; instrument: string; long_oi: number; short_oi: number; net_oi: number }[]>(
+      `/macro/fno-oi?instrument=FUTURE_INDEX&limit=${limit * 2}`
+    ),
 
   dashboardStatus: () =>
     apiFetch<{ populated: boolean; index_rows: number }>("/macro/dashboard/status"),

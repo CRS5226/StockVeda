@@ -147,6 +147,49 @@ function FiiDiiChart({ rows }: { rows: FiiRow[] }) {
   return <div ref={containerRef} className="w-full" />;
 }
 
+// ── FII / DII Index Futures Net Position chart ──────────────────────────────
+
+function FiiDiiFuturesChart({ rows }: { rows: { date: string; fii_net: number; dii_net: number }[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || !rows.length) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#64748b" },
+      grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
+      rightPriceScale: { borderColor: "#f1f5f9" },
+      leftPriceScale: { visible: false },
+      timeScale: { borderColor: "#f1f5f9", timeVisible: true },
+      crosshair: { mode: CrosshairMode.Normal },
+      width: containerRef.current.clientWidth,
+      height: 160,
+    });
+    chartRef.current = chart;
+
+    const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+
+    const fiiS = chart.addLineSeries({ color: "#3b82f6", lineWidth: 2, priceLineVisible: false, title: "FII" });
+    fiiS.setData(sorted.map(r => ({ time: r.date as unknown as Time, value: r.fii_net } as LineData)));
+
+    const diiS = chart.addLineSeries({ color: "#10b981", lineWidth: 2, priceLineVisible: false, title: "DII" });
+    diiS.setData(sorted.map(r => ({ time: r.date as unknown as Time, value: r.dii_net } as LineData)));
+
+    const zero = chart.addLineSeries({ color: "#cbd5e1", lineWidth: 1, lineStyle: 2, priceLineVisible: false });
+    zero.setData(sorted.map(r => ({ time: r.date as unknown as Time, value: 0 } as LineData)));
+
+    chart.timeScale().fitContent();
+
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    ro.observe(containerRef.current);
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+  }, [rows]);
+
+  return <div ref={containerRef} className="w-full" />;
+}
+
 function SectionLabel({ icon: Icon, children }: { icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-2">
@@ -357,6 +400,8 @@ export default function MarketDashboard() {
   const [indiaNews, setIndiaNews] = useState<NewsItem[]>([]);
   const [globalNews, setGlobalNews] = useState<NewsItem[]>([]);
   const [fiiHistory, setFiiHistory] = useState<FiiRow[]>([]);
+  const [fnoHistory, setFnoHistory] = useState<{ date: string; fii_net: number; dii_net: number }[]>([]);
+  const [fiiTab, setFiiTab] = useState<"equity" | "futures">("futures");
 
   // Chart tab: "perf" = normalized % chart, or an index name
   const [chartTab, setChartTab] = useState<string>("perf");
@@ -395,6 +440,17 @@ export default function MarketDashboard() {
     api.getMarketNews().then(setIndiaNews).catch(() => {});
     api.getGlobalNews().then(setGlobalNews).catch(() => {});
     api.getFiiDiiHistory(252).then(rows => setFiiHistory(rows.map(r => ({ date: r.date, fii_net: r.fii_net, dii_net: r.dii_net })))).catch(() => {});
+    api.getFnoParticipantOI(252).then(rows => {
+      // Group by date, pivot FII/DII net_oi
+      const byDate: Record<string, { fii_net: number; dii_net: number }> = {};
+      rows.forEach(r => {
+        const d = r.date.slice(0, 10);
+        if (!byDate[d]) byDate[d] = { fii_net: 0, dii_net: 0 };
+        if (r.participant_type === "FII") byDate[d].fii_net = r.net_oi;
+        if (r.participant_type === "DII") byDate[d].dii_net = r.net_oi;
+      });
+      setFnoHistory(Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date, ...v })));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -601,14 +657,25 @@ export default function MarketDashboard() {
         {/* Header */}
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={14} className="text-blue-500" />
-          <span className="text-sm font-semibold text-slate-700">FII / DII Net Flows (₹ Cr)</span>
-          <div className="flex items-center gap-3 ml-auto text-[11px]">
-            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded-full" />FII Net</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded-full" />DII Net</span>
+          <span className="text-sm font-semibold text-slate-700">FII / DII Activity</span>
+          {/* Tab toggle */}
+          <div className="flex items-center ml-auto bg-slate-100 rounded-lg p-0.5 text-[11px]">
+            <button
+              onClick={() => setFiiTab("futures")}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${fiiTab === "futures" ? "bg-white text-slate-700 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+            >Index Futures</button>
+            <button
+              onClick={() => setFiiTab("equity")}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${fiiTab === "equity" ? "bg-white text-slate-700 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+            >Equity Flows</button>
+          </div>
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded-full" />FII</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded-full" />DII</span>
           </div>
         </div>
 
-        {/* Latest values row — inside the card, above the chart */}
+        {/* Latest equity values row — inside the card, above the chart */}
         {fii_latest && (
           <div className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-slate-100">
             {[
@@ -629,15 +696,29 @@ export default function MarketDashboard() {
         )}
 
         {/* Chart */}
-        {fiiHistory.length > 0 ? (
-          <FiiDiiChart rows={fiiHistory} />
+        {fiiTab === "futures" ? (
+          fnoHistory.length > 0 ? (
+            <>
+              <FiiDiiFuturesChart rows={fnoHistory} />
+              <div className="text-[10px] text-slate-300 mt-1 flex items-center justify-between">
+                <span>Net index futures position (long − short contracts) · NSE FnO archive</span>
+                <span>{fnoHistory.length} days</span>
+              </div>
+            </>
+          ) : (
+            <div className="h-32 flex items-center justify-center text-slate-400 text-sm">Loading futures data…</div>
+          )
         ) : (
-          <div className="h-32 flex items-center justify-center text-slate-400 text-sm">
-            FII/DII data accumulates daily via scheduler
-          </div>
-        )}
-        {fiiHistory.length > 0 && (
-          <div className="text-[10px] text-slate-300 mt-1 text-right">{fiiHistory.length} trading days</div>
+          fiiHistory.length > 0 ? (
+            <>
+              <FiiDiiChart rows={fiiHistory} />
+              <div className="text-[10px] text-slate-300 mt-1 text-right">{fiiHistory.length} trading days</div>
+            </>
+          ) : (
+            <div className="h-32 flex items-center justify-center text-slate-400 text-sm">
+              FII/DII equity flows accumulate daily via scheduler
+            </div>
+          )
         )}
       </section>
 

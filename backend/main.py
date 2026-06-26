@@ -46,6 +46,7 @@ _SYNC_MODULES = {
     "delivery":          "backend.data_sync.sync_bhavcopy",
     "indices":           "backend.data_sync.sync_indices",
     "fno_oi":            "backend.data_sync.sync_fno",
+    "fno_participant":   "backend.data_sync.sync_fno_participant",
     "fno_bhavcopy":      "backend.data_sync.sync_fno_bhavcopy",
     "fii_dii":           "backend.data_sync.sync_fii_dii",
     "corporate_actions": "backend.data_sync.sync_corporate_actions",

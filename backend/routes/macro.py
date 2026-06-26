@@ -44,8 +44,9 @@ def get_dashboard():
     """Single endpoint for the market dashboard — avoids N parallel DB hits."""
     db = get_db()
     today = date.today()
-    from30 = (today - timedelta(days=35)).isoformat()  # a bit extra to ensure 30 trading days
-    from5  = (today - timedelta(days=7)).isoformat()
+    from90  = (today - timedelta(days=130)).isoformat()  # ~90 trading days
+    from30  = from90  # kept for backwards compat, now same
+    from5   = (today - timedelta(days=7)).isoformat()
 
     all_idx = list(dict.fromkeys(HEADLINE_INDICES + SECTOR_INDICES))
     ph = ", ".join("?" * len(all_idx))
