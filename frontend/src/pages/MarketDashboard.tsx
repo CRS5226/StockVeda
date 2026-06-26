@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createChart, type IChartApi, type ISeriesApi,
-  type LineData, type Time, ColorType, CrosshairMode,
+  type LineData, type CandlestickData, type HistogramData,
+  type SeriesMarker, type Time, ColorType, CrosshairMode,
 } from "lightweight-charts";
 import {
   TrendingUp, ArrowUpRight, ArrowDownRight,
@@ -10,6 +11,7 @@ import {
   FlaskConical, Zap, Newspaper,
 } from "lucide-react";
 import { api, type DashboardData, type NewsItem } from "../lib/api";
+import type { PatternHit } from "../lib/candlePatterns";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -30,13 +32,20 @@ function pctBg(p: number) {
 }
 
 const INDEX_SHORT: Record<string, string> = {
-  "NIFTY 50":       "Nifty 50",
-  "NIFTY BANK":     "Bank Nifty",
-  "SENSEX":         "Sensex",
+  "NIFTY 50":         "Nifty 50",
+  "NIFTY BANK":       "Bank Nifty",
+  "SENSEX":           "Sensex",
   "NIFTY MIDCAP 100": "Midcap 100",
 };
 
+const HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100"];
 const INDEX_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#a78bfa"];
+
+const CANDLE_BARS: Record<string, number> = {
+  MS: 3, ES: 3, "3W": 3, "3B": 3,
+  E: 2, BE: 2, P: 2, DC: 2,
+  H: 1, IH: 1, SS: 1, DD: 1, GD: 1, M: 1,
+};
 
 // ── sub-components ─────────────────────────────────────────────────────────
 
@@ -92,24 +101,6 @@ function SectorCard({ s }: { s: { name: string; pct: number } }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, sub, date, color = "text-slate-800" }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; date?: string; color?: string;
-}) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-start gap-3">
-      <div className="p-2 bg-blue-50 rounded-lg shrink-0">
-        <Icon size={14} className="text-blue-500" />
-      </div>
-      <div className="min-w-0">
-        <div className="text-xs text-slate-500 mb-0.5">{label}</div>
-        <div className={`text-base font-bold truncate ${color}`}>{value}</div>
-        {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
-        {date && <div className="text-[10px] text-slate-300 mt-0.5">as of {fmtDate(date)}</div>}
-      </div>
-    </div>
-  );
-}
-
 function SectionLabel({ icon: Icon, children }: { icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-2">
@@ -119,7 +110,7 @@ function SectionLabel({ icon: Icon, children }: { icon: React.ElementType; child
   );
 }
 
-// ── Multi-index TradingView chart ───────────────────────────────────────────
+// ── Multi-index % return chart ──────────────────────────────────────────────
 
 interface IndexSeries { name: string; data: { date: string; close: number }[] }
 
@@ -134,12 +125,12 @@ function IndexMultiChart({ indices }: { indices: IndexSeries[] }) {
     const chart = createChart(containerRef.current, {
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#64748b" },
       grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
-      rightPriceScale: { borderColor: "#f1f5f9", visible: true },
+      rightPriceScale: { borderColor: "#f1f5f9" },
       leftPriceScale: { visible: false },
       timeScale: { borderColor: "#f1f5f9", timeVisible: true },
       crosshair: { mode: CrosshairMode.Normal },
       width: containerRef.current.clientWidth,
-      height: 220,
+      height: 200,
     });
     chartRef.current = chart;
 
@@ -160,54 +151,122 @@ function IndexMultiChart({ indices }: { indices: IndexSeries[] }) {
       );
       seriesRef.current.set(idx.name, series);
     });
-
     chart.timeScale().fitContent();
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     ro.observe(containerRef.current);
-
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; seriesRef.current.clear(); };
   }, [indices]);
 
-  const toggleSeries = (name: string) => {
-    const chart = chartRef.current;
+  const toggle = (name: string) => {
     const s = seriesRef.current.get(name);
-    if (!chart || !s) return;
+    if (!s) return;
     setHidden(prev => {
       const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-        s.applyOptions({ visible: true });
-      } else {
-        next.add(name);
-        s.applyOptions({ visible: false });
-      }
+      if (next.has(name)) { next.delete(name); s.applyOptions({ visible: true }); }
+      else { next.add(name); s.applyOptions({ visible: false }); }
       return next;
     });
   };
 
   return (
     <div>
-      {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
-        {indices.map((idx, i) => {
-          const label = INDEX_SHORT[idx.name] ?? idx.name;
-          const color = INDEX_COLORS[i % INDEX_COLORS.length];
-          const isHidden = hidden.has(idx.name);
-          return (
-            <button
-              key={idx.name}
-              onClick={() => toggleSeries(idx.name)}
-              className={`flex items-center gap-1.5 text-xs font-medium transition-opacity ${isHidden ? "opacity-30" : "opacity-100"}`}
-            >
-              <span className="w-3 h-0.5 inline-block rounded-full" style={{ backgroundColor: color }} />
-              {label}
-            </button>
-          );
-        })}
+        {indices.map((idx, i) => (
+          <button key={idx.name} onClick={() => toggle(idx.name)}
+            className={`flex items-center gap-1.5 text-xs font-medium transition-opacity ${hidden.has(idx.name) ? "opacity-30" : "opacity-100"}`}>
+            <span className="w-3 h-0.5 inline-block rounded-full" style={{ backgroundColor: INDEX_COLORS[i % INDEX_COLORS.length] }} />
+            {INDEX_SHORT[idx.name] ?? idx.name}
+          </button>
+        ))}
       </div>
+      <div ref={containerRef} className="w-full" />
+    </div>
+  );
+}
+
+// ── Index candlestick chart with pattern markers ────────────────────────────
+
+interface OHLCRow { date: string; open: number; high: number; low: number; close: number }
+
+function IndexCandleChart({ ohlcv, patterns, loading }: {
+  ohlcv: OHLCRow[]; patterns: PatternHit[]; loading: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#64748b" },
+      grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
+      rightPriceScale: { borderColor: "#f1f5f9" },
+      timeScale: { borderColor: "#f1f5f9", timeVisible: true },
+      crosshair: { mode: CrosshairMode.Normal },
+      width: containerRef.current.clientWidth,
+      height: 200,
+    });
+    chartRef.current = chart;
+
+    const cs = chart.addCandlestickSeries({
+      upColor: "#22c55e", downColor: "#ef4444",
+      wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+      borderVisible: false,
+    });
+    candleRef.current = cs;
+
+    const vs = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "vol",
+    });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    volRef.current = vs;
+
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    ro.observe(containerRef.current);
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null; volRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!candleRef.current || !volRef.current || !ohlcv.length) return;
+    candleRef.current.setData(
+      ohlcv.map(c => ({ time: c.date as unknown as Time, open: c.open, high: c.high, low: c.low, close: c.close } as CandlestickData))
+    );
+    volRef.current.setData(
+      ohlcv.map(c => ({ time: c.date as unknown as Time, value: 0, color: c.close >= c.open ? "#dcfce7" : "#fee2e2" } as HistogramData))
+    );
+    chartRef.current?.timeScale().fitContent();
+  }, [ohlcv]);
+
+  useEffect(() => {
+    if (!candleRef.current || !ohlcv.length) return;
+    const last10 = new Set(ohlcv.slice(-10).map(r => r.date.slice(0, 10)));
+    const markers: SeriesMarker<Time>[] = patterns
+      .filter(h => last10.has(h.date))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(h => ({
+        time: h.date as unknown as Time,
+        position: h.bias === "bullish" ? "belowBar" : "aboveBar",
+        color: h.bias === "bullish" ? "#22c55e" : "#ef4444",
+        shape: h.bias === "bullish" ? "arrowUp" : "arrowDown",
+        text: h.pattern,
+      }));
+    candleRef.current.setMarkers(markers);
+  }, [ohlcv, patterns]);
+
+  return (
+    <div className="relative">
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+          <div className="w-4 h-4 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+        </div>
+      )}
       <div ref={containerRef} className="w-full" />
     </div>
   );
@@ -227,18 +286,14 @@ function NewsCard({ item }: { item: NewsItem }) {
     } catch { return ""; }
   })();
   return (
-    <a
-      href={item.link}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block border-b border-slate-100 last:border-0 py-2.5 hover:bg-slate-50 px-1 rounded transition-colors group"
-    >
+    <a href={item.link} target="_blank" rel="noopener noreferrer"
+      className="block py-2 hover:bg-slate-50 px-1 rounded transition-colors group border-b border-slate-100 last:border-0">
       <div className="text-xs font-medium text-slate-700 group-hover:text-blue-600 leading-snug line-clamp-2">
         {item.title}
       </div>
-      <div className="flex items-center gap-2 mt-1">
-        {item.source && <span className="text-[10px] text-slate-400">{item.source}</span>}
-        {when && <span className="text-[10px] text-slate-300">{when}</span>}
+      <div className="flex items-center gap-2 mt-0.5">
+        {item.source && <span className="text-[10px] text-slate-400 truncate max-w-[120px]">{item.source}</span>}
+        {when && <span className="text-[10px] text-slate-300 shrink-0">{when}</span>}
       </div>
     </a>
   );
@@ -252,7 +307,15 @@ export default function MarketDashboard() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [news, setNews] = useState<NewsItem[]>([]);
+
+  const [indiaNews, setIndiaNews] = useState<NewsItem[]>([]);
+  const [asiaNews, setAsiaNews] = useState<NewsItem[]>([]);
+
+  // Chart tab: "perf" = normalized % chart, or an index name
+  const [chartTab, setChartTab] = useState<string>("perf");
+  const [indexOHLCV, setIndexOHLCV] = useState<OHLCRow[]>([]);
+  const [indexPatterns, setIndexPatterns] = useState<PatternHit[]>([]);
+  const [indexLoading, setIndexLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,8 +345,23 @@ export default function MarketDashboard() {
   }, []);
 
   useEffect(() => {
-    api.getMarketNews().then(setNews).catch(() => {});
+    api.getMarketNews().then(setIndiaNews).catch(() => {});
+    api.getAsiaNews().then(setAsiaNews).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (chartTab === "perf") return;
+    setIndexOHLCV([]);
+    setIndexPatterns([]);
+    setIndexLoading(true);
+    Promise.all([
+      api.getIndexOHLCV(chartTab, 90),
+      api.getIndexCandlePatterns(chartTab),
+    ]).then(([ohlcv, pats]) => {
+      setIndexOHLCV((ohlcv ?? []).map(r => ({ date: r.date.slice(0, 10), open: r.open, high: r.high, low: r.low, close: r.close })).sort((a, b) => a.date.localeCompare(b.date)));
+      setIndexPatterns(pats ?? []);
+    }).catch(() => {}).finally(() => setIndexLoading(false));
+  }, [chartTab]);
 
   if (loading) {
     return (
@@ -318,6 +396,10 @@ export default function MarketDashboard() {
   const curChange = usdinr?.change_pct ?? 0;
   const vixChange = india_vix?.change_pct ?? 0;
 
+  // Recent patterns for the active index tab (last 10 trading days)
+  const last10 = new Set(indexOHLCV.slice(-10).map(r => r.date.slice(0, 10)));
+  const recentPats = indexPatterns.filter(h => last10.has(h.date));
+
   return (
     <div className="flex flex-col gap-5">
 
@@ -329,37 +411,129 @@ export default function MarketDashboard() {
         </div>
       </section>
 
-      {/* ── Multi-index chart + stat cards ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <BarChart2 size={14} className="text-blue-500" />
-            <span className="text-sm font-semibold text-slate-700">Index Performance — Last 30 days (%)</span>
-          </div>
-          {(indices_hist ?? []).length > 0 ? (
-            <IndexMultiChart indices={indices_hist} />
-          ) : (
-            <div className="h-44 flex items-center justify-center text-slate-400 text-sm">No data</div>
-          )}
+      {/* ── Chart section with tabs ── */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        {/* Tab bar */}
+        <div className="flex items-center gap-0 border-b border-slate-100 px-4 overflow-x-auto">
+          <button
+            onClick={() => setChartTab("perf")}
+            className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors ${
+              chartTab === "perf" ? "border-blue-500 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            Performance %
+          </button>
+          {HEADLINE_INDICES.map(name => (
+            <button key={name}
+              onClick={() => setChartTab(name)}
+              className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                chartTab === name ? "border-blue-500 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              {INDEX_SHORT[name] ?? name}
+            </button>
+          ))}
         </div>
 
-        <div className="flex flex-col gap-3">
-          <StatCard icon={DollarSign} label="USD / INR"
-            value={usdinr ? `₹${usdinr.close.toFixed(2)}` : "—"}
-            sub={usdinr ? `${curChange >= 0 ? "+" : ""}${curChange.toFixed(3)}% today` : undefined}
-            date={usdinr?.date}
-            color={curChange < 0 ? "text-emerald-600" : curChange > 0 ? "text-red-500" : "text-slate-800"} />
-          <StatCard icon={Zap} label="India VIX"
-            value={india_vix ? india_vix.close.toFixed(2) : "—"}
-            sub={india_vix ? `${vixChange >= 0 ? "+" : ""}${vixChange.toFixed(2)}% today` : undefined}
-            date={india_vix?.date}
-            color={india_vix ? (india_vix.close > 20 ? "text-red-500" : india_vix.close > 15 ? "text-amber-500" : "text-emerald-600") : "text-slate-800"} />
-          <StatCard icon={TrendingUp} label="FII Net"
-            value={fii_latest ? `₹${(fii_latest.fii_net / 100).toFixed(0)} Cr` : "—"}
-            sub={fii_latest ? `DII Net: ₹${(fii_latest.dii_net / 100).toFixed(0)} Cr` : undefined}
-            date={fii_latest?.date}
-            color={fii_latest && fii_latest.fii_net >= 0 ? "text-emerald-600" : "text-red-500"} />
+        {/* Chart content */}
+        <div className="p-4">
+          {chartTab === "perf" ? (
+            (indices_hist ?? []).length > 0 ? (
+              <IndexMultiChart indices={indices_hist} />
+            ) : (
+              <div className="h-44 flex items-center justify-center text-slate-400 text-sm">No data</div>
+            )
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Candlestick chart */}
+              <div className="lg:col-span-2">
+                <div className="text-xs text-slate-400 mb-2">
+                  {INDEX_SHORT[chartTab] ?? chartTab} — Last 90 days · patterns marked (last 10 sessions)
+                </div>
+                <IndexCandleChart ohlcv={indexOHLCV} patterns={indexPatterns} loading={indexLoading && !indexOHLCV.length} />
+              </div>
+
+              {/* Pattern sidebar */}
+              <div className="border-l border-slate-100 pl-4 flex flex-col gap-1.5 overflow-y-auto max-h-64">
+                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">
+                  Recent Patterns (last 10 sessions)
+                </div>
+                {indexLoading && !recentPats.length ? (
+                  <div className="text-xs text-slate-400 py-4 text-center">Loading…</div>
+                ) : recentPats.length === 0 ? (
+                  <div className="text-xs text-slate-400 py-4 text-center">No patterns in last 10 sessions</div>
+                ) : (
+                  recentPats.map((h, i) => {
+                    const bars = CANDLE_BARS[h.pattern] ?? 1;
+                    const bull = h.bias === "bullish";
+                    return (
+                      <div key={i} className={`rounded-lg px-2.5 py-1.5 border text-xs ${bull ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-100"}`}>
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className={`font-semibold ${bull ? "text-emerald-700" : "text-red-600"}`}>{h.pattern}</span>
+                          <span className="text-[10px] text-slate-400 font-medium">{bars}-bar</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 leading-tight truncate">{h.tip}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{h.date}</div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* ── Compact stat strip ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {usdinr && (
+          <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-sm flex items-center gap-2.5">
+            <DollarSign size={13} className="text-blue-400 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-400">USD / INR</div>
+              <div className={`text-sm font-bold ${curChange < 0 ? "text-emerald-600" : curChange > 0 ? "text-red-500" : "text-slate-800"}`}>
+                ₹{usdinr.close.toFixed(2)}
+              </div>
+              <div className="text-[10px] text-slate-400">{curChange >= 0 ? "+" : ""}{curChange.toFixed(3)}%</div>
+            </div>
+          </div>
+        )}
+        {india_vix && (
+          <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-sm flex items-center gap-2.5">
+            <Zap size={13} className="text-blue-400 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-400">India VIX</div>
+              <div className={`text-sm font-bold ${india_vix.close > 20 ? "text-red-500" : india_vix.close > 15 ? "text-amber-500" : "text-emerald-600"}`}>
+                {india_vix.close.toFixed(2)}
+              </div>
+              <div className="text-[10px] text-slate-400">{vixChange >= 0 ? "+" : ""}{vixChange.toFixed(2)}%</div>
+            </div>
+          </div>
+        )}
+        {fii_latest && (
+          <>
+            <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-sm flex items-center gap-2.5">
+              <TrendingUp size={13} className="text-blue-400 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[10px] text-slate-400">FII Net</div>
+                <div className={`text-sm font-bold ${fii_latest.fii_net >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  ₹{(fii_latest.fii_net / 100).toFixed(0)} Cr
+                </div>
+                <div className="text-[10px] text-slate-400">{fii_latest.date}</div>
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 shadow-sm flex items-center gap-2.5">
+              <Activity size={13} className="text-blue-400 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[10px] text-slate-400">DII Net</div>
+                <div className={`text-sm font-bold ${fii_latest.dii_net >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  ₹{(fii_latest.dii_net / 100).toFixed(0)} Cr
+                </div>
+                <div className="text-[10px] text-slate-400">{fii_latest.date}</div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Sector Performance grid ── */}
@@ -374,49 +548,58 @@ export default function MarketDashboard() {
         )}
       </section>
 
-      {/* ── Market News ── */}
+      {/* ── News: India + Asia-Pacific ── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
-            <Newspaper size={14} className="text-blue-500" />
-            <span className="text-sm font-semibold text-slate-700">Market News</span>
+            <Newspaper size={13} className="text-blue-500" />
+            <span className="text-sm font-semibold text-slate-700">India Market News</span>
           </div>
-          {news.length > 0 ? (
-            <div className="divide-y divide-slate-100">
-              {news.slice(0, 8).map((item, i) => <NewsCard key={i} item={item} />)}
-            </div>
+          {indiaNews.length > 0 ? (
+            <div>{indiaNews.slice(0, 7).map((item, i) => <NewsCard key={i} item={item} />)}</div>
           ) : (
-            <div className="py-6 text-center text-sm text-slate-400">Loading news…</div>
+            <div className="py-6 text-center text-sm text-slate-400">Loading…</div>
           )}
         </div>
-
-        {/* ── FII / DII detail ── */}
-        {fii_latest && (
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Globe size={14} className="text-blue-500" />
-              <span className="text-sm font-semibold text-slate-700">FII / DII Flows — {fii_latest.date}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "FII Buy",  val: fii_latest.fii_buy,  up: true  },
-                { label: "FII Sell", val: fii_latest.fii_sell, up: false },
-                { label: "FII Net",  val: fii_latest.fii_net,  up: fii_latest.fii_net  >= 0 },
-                { label: "DII Buy",  val: fii_latest.dii_buy,  up: true  },
-                { label: "DII Sell", val: fii_latest.dii_sell, up: false },
-                { label: "DII Net",  val: fii_latest.dii_net,  up: fii_latest.dii_net  >= 0 },
-              ].map(({ label, val, up }) => (
-                <div key={label} className="text-center bg-slate-50 rounded-lg p-2">
-                  <div className="text-xs text-slate-400 mb-1">{label}</div>
-                  <div className={`text-sm font-bold ${up ? "text-emerald-600" : "text-red-500"}`}>
-                    ₹{(val / 100).toFixed(0)} Cr
-                  </div>
-                </div>
-              ))}
-            </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <Globe size={13} className="text-blue-500" />
+            <span className="text-sm font-semibold text-slate-700">Asia-Pacific News</span>
           </div>
-        )}
+          {asiaNews.length > 0 ? (
+            <div>{asiaNews.slice(0, 7).map((item, i) => <NewsCard key={i} item={item} />)}</div>
+          ) : (
+            <div className="py-6 text-center text-sm text-slate-400">Loading…</div>
+          )}
+        </div>
       </section>
+
+      {/* ── FII / DII detail ── */}
+      {fii_latest && (
+        <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Globe size={14} className="text-blue-500" />
+            <span className="text-sm font-semibold text-slate-700">FII / DII Flows — {fii_latest.date}</span>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            {[
+              { label: "FII Buy",  val: fii_latest.fii_buy,  up: true  },
+              { label: "FII Sell", val: fii_latest.fii_sell, up: false },
+              { label: "FII Net",  val: fii_latest.fii_net,  up: fii_latest.fii_net  >= 0 },
+              { label: "DII Buy",  val: fii_latest.dii_buy,  up: true  },
+              { label: "DII Sell", val: fii_latest.dii_sell, up: false },
+              { label: "DII Net",  val: fii_latest.dii_net,  up: fii_latest.dii_net  >= 0 },
+            ].map(({ label, val, up }) => (
+              <div key={label} className="text-center bg-slate-50 rounded-lg py-2 px-1">
+                <div className="text-[10px] text-slate-400 mb-0.5">{label}</div>
+                <div className={`text-xs font-bold ${up ? "text-emerald-600" : "text-red-500"}`}>
+                  ₹{(val / 100).toFixed(0)} Cr
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── US Markets + US Sectors ── */}
       <section>

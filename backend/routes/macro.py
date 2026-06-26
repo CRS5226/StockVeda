@@ -390,16 +390,10 @@ def get_market_breadth(
     return df_to_records(df)
 
 
-@router.get("/market-news")
-def get_market_news():
-    """Indian market news from Google News RSS — always live, no DB caching."""
+def _fetch_rss(url: str, limit: int = 12) -> list[dict]:
+    """Shared RSS fetcher for news endpoints."""
     import httpx
     from lxml import etree
-
-    url = (
-        "https://news.google.com/rss/search"
-        "?q=Indian+stock+market+NSE+Nifty&hl=en-IN&gl=IN&ceid=IN:en"
-    )
     try:
         with httpx.Client(timeout=8, follow_redirects=True) as client:
             resp = client.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -407,7 +401,7 @@ def get_market_news():
             return []
         root = etree.fromstring(resp.content)
         result = []
-        for item in root.findall(".//item")[:12]:
+        for item in root.findall(".//item")[:limit]:
             def _t(tag: str) -> str:
                 el = item.find(tag)
                 return (el.text or "").strip() if el is not None else ""
@@ -420,6 +414,24 @@ def get_market_news():
         return result
     except Exception:
         return []
+
+
+@router.get("/market-news")
+def get_market_news():
+    """Indian market news from Google News RSS."""
+    return _fetch_rss(
+        "https://news.google.com/rss/search"
+        "?q=Indian+stock+market+NSE+Nifty+BSE&hl=en-IN&gl=IN&ceid=IN:en"
+    )
+
+
+@router.get("/asia-news")
+def get_asia_news():
+    """Asia-Pacific market news from Google News RSS."""
+    return _fetch_rss(
+        "https://news.google.com/rss/search"
+        "?q=Asia+Pacific+stock+market+Japan+China+Nikkei+Hang+Seng&hl=en-IN&gl=IN&ceid=IN:en"
+    )
 
 
 @router.get("/mf-nav")

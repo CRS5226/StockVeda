@@ -333,6 +333,13 @@ export const api = {
 
   getDashboard: () => apiFetch<DashboardData>("/macro/dashboard"),
   getMarketNews: () => apiFetch<NewsItem[]>("/macro/market-news"),
+  getAsiaNews: () => apiFetch<NewsItem[]>("/macro/asia-news"),
+  getIndexOHLCV: (indexName: string, limit = 90) =>
+    apiFetch<{ date: string; index_name: string; open: number; high: number; low: number; close: number }[]>(
+      `/macro/indices?index_name=${encodeURIComponent(indexName)}&limit=${limit}`
+    ),
+  getIndexCandlePatterns: (indexName: string) =>
+    apiFetch<import("./candlePatterns").PatternHit[]>(`/api/v1/candle-patterns/index/${encodeURIComponent(indexName)}`),
 
   dashboardStatus: () =>
     apiFetch<{ populated: boolean; index_rows: number }>("/macro/dashboard/status"),

@@ -15,6 +15,27 @@ def _fetch_ohlcv(symbol: str) -> pd.DataFrame:
     ).df()
 
 
+@router.get("/candle-patterns/index/{index_name}")
+def get_index_candle_patterns(index_name: str, limit: int = Query(500, ge=1, le=5000)):
+    """Return TA-Lib candle pattern hits for a market index."""
+    db = get_db()
+    df = db.execute(
+        "SELECT date, open, high, low, close FROM index_ohlcv WHERE index_name = ? ORDER BY date",
+        [index_name.upper()],
+    ).df()
+    if df.empty:
+        df = db.execute(
+            "SELECT date, open, high, low, close FROM index_ohlcv WHERE UPPER(index_name) = ? ORDER BY date",
+            [index_name.upper()],
+        ).df()
+    if df.empty:
+        raise HTTPException(404, f"No OHLCV data for index {index_name}")
+    df["volume"] = 0
+    if len(df) > limit:
+        df = df.iloc[-limit:].reset_index(drop=True)
+    return detect_patterns(df)
+
+
 @router.get("/candle-patterns/{symbol}")
 def get_candle_patterns(symbol: str, limit: int = Query(500, ge=1, le=5000)):
     """Return TA-Lib candle pattern hits for a symbol (most recent `limit` bars)."""
