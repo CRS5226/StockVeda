@@ -13,6 +13,8 @@ import {
 import { api, type DashboardData, type NewsItem } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 
+type FiiRow = { date: string; fii_net: number; dii_net: number };
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function fmtNum(n: number, dec = 2) {
@@ -99,6 +101,50 @@ function SectorCard({ s }: { s: { name: string; pct: number } }) {
       </div>
     </div>
   );
+}
+
+// ── FII / DII net flow chart ────────────────────────────────────────────────
+
+function FiiDiiChart({ rows }: { rows: FiiRow[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || !rows.length) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#64748b" },
+      grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
+      rightPriceScale: { borderColor: "#f1f5f9" },
+      leftPriceScale: { visible: false },
+      timeScale: { borderColor: "#f1f5f9", timeVisible: true },
+      crosshair: { mode: CrosshairMode.Normal },
+      width: containerRef.current.clientWidth,
+      height: 160,
+    });
+    chartRef.current = chart;
+
+    const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+
+    const fiiS = chart.addLineSeries({ color: "#3b82f6", lineWidth: 2, priceLineVisible: false, title: "FII Net" });
+    fiiS.setData(sorted.map(r => ({ time: r.date.slice(0, 10) as Time, value: r.fii_net / 100 } as LineData)));
+
+    const diiS = chart.addLineSeries({ color: "#10b981", lineWidth: 2, priceLineVisible: false, title: "DII Net" });
+    diiS.setData(sorted.map(r => ({ time: r.date.slice(0, 10) as Time, value: r.dii_net / 100 } as LineData)));
+
+    // Zero baseline
+    const zero = chart.addLineSeries({ color: "#cbd5e1", lineWidth: 1, lineStyle: 2, priceLineVisible: false });
+    zero.setData(sorted.map(r => ({ time: r.date.slice(0, 10) as Time, value: 0 } as LineData)));
+
+    chart.timeScale().fitContent();
+
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    ro.observe(containerRef.current);
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+  }, [rows]);
+
+  return <div ref={containerRef} className="w-full" />;
 }
 
 function SectionLabel({ icon: Icon, children }: { icon: React.ElementType; children: React.ReactNode }) {
@@ -310,6 +356,7 @@ export default function MarketDashboard() {
 
   const [indiaNews, setIndiaNews] = useState<NewsItem[]>([]);
   const [globalNews, setGlobalNews] = useState<NewsItem[]>([]);
+  const [fiiHistory, setFiiHistory] = useState<FiiRow[]>([]);
 
   // Chart tab: "perf" = normalized % chart, or an index name
   const [chartTab, setChartTab] = useState<string>("perf");
@@ -347,6 +394,7 @@ export default function MarketDashboard() {
   useEffect(() => {
     api.getMarketNews().then(setIndiaNews).catch(() => {});
     api.getGlobalNews().then(setGlobalNews).catch(() => {});
+    api.getFiiDiiHistory(252).then(rows => setFiiHistory(rows.map(r => ({ date: r.date, fii_net: r.fii_net, dii_net: r.dii_net })))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -548,6 +596,28 @@ export default function MarketDashboard() {
         )}
       </section>
 
+      {/* ── FII / DII Net Flow Chart ── */}
+      <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp size={14} className="text-blue-500" />
+          <span className="text-sm font-semibold text-slate-700">FII / DII Net Flows (₹ Cr)</span>
+          <div className="flex items-center gap-3 ml-auto text-[11px]">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded-full" />FII Net</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded-full" />DII Net</span>
+          </div>
+        </div>
+        {fiiHistory.length > 0 ? (
+          <FiiDiiChart rows={fiiHistory} />
+        ) : (
+          <div className="h-32 flex items-center justify-center text-slate-400 text-sm">
+            FII/DII data accumulates daily via scheduler
+          </div>
+        )}
+        {fiiHistory.length > 0 && (
+          <div className="text-[10px] text-slate-300 mt-1 text-right">{fiiHistory.length} trading days</div>
+        )}
+      </section>
+
       {/* ── News: India Corporate + Global Markets ── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
@@ -576,31 +646,24 @@ export default function MarketDashboard() {
         </div>
       </section>
 
-      {/* ── FII / DII detail ── */}
+      {/* ── FII / DII latest detail (inline, compact) ── */}
       {fii_latest && (
-        <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Globe size={14} className="text-blue-500" />
-            <span className="text-sm font-semibold text-slate-700">FII / DII Flows — {fii_latest.date}</span>
-          </div>
-          <div className="grid grid-cols-6 gap-2">
-            {[
-              { label: "FII Buy",  val: fii_latest.fii_buy,  up: true  },
-              { label: "FII Sell", val: fii_latest.fii_sell, up: false },
-              { label: "FII Net",  val: fii_latest.fii_net,  up: fii_latest.fii_net  >= 0 },
-              { label: "DII Buy",  val: fii_latest.dii_buy,  up: true  },
-              { label: "DII Sell", val: fii_latest.dii_sell, up: false },
-              { label: "DII Net",  val: fii_latest.dii_net,  up: fii_latest.dii_net  >= 0 },
-            ].map(({ label, val, up }) => (
-              <div key={label} className="text-center bg-slate-50 rounded-lg py-2 px-1">
-                <div className="text-[10px] text-slate-400 mb-0.5">{label}</div>
-                <div className={`text-xs font-bold ${up ? "text-emerald-600" : "text-red-500"}`}>
-                  ₹{(val / 100).toFixed(0)} Cr
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <div className="flex flex-wrap gap-2 text-xs">
+          {[
+            { label: "FII Buy",  val: fii_latest.fii_buy,  up: true  },
+            { label: "FII Sell", val: fii_latest.fii_sell, up: false },
+            { label: "FII Net",  val: fii_latest.fii_net,  up: fii_latest.fii_net  >= 0 },
+            { label: "DII Buy",  val: fii_latest.dii_buy,  up: true  },
+            { label: "DII Sell", val: fii_latest.dii_sell, up: false },
+            { label: "DII Net",  val: fii_latest.dii_net,  up: fii_latest.dii_net  >= 0 },
+          ].map(({ label, val, up }) => (
+            <div key={label} className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+              <span className="text-slate-400">{label}</span>
+              <span className={`font-semibold ${up ? "text-emerald-600" : "text-red-500"}`}>₹{(val / 100).toFixed(0)} Cr</span>
+            </div>
+          ))}
+          <div className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-300">{fii_latest.date}</div>
+        </div>
       )}
 
       {/* ── US Markets + US Sectors ── */}

@@ -334,12 +334,16 @@ export const api = {
   getDashboard: () => apiFetch<DashboardData>("/macro/dashboard"),
   getMarketNews: () => apiFetch<NewsItem[]>("/macro/market-news"),
   getGlobalNews: () => apiFetch<NewsItem[]>("/macro/global-news"),
-  getIndexOHLCV: (indexName: string, limit = 90) =>
+  getIndexOHLCV: (indexName: string, limit = 252) =>
     apiFetch<{ date: string; index_name: string; open: number; high: number; low: number; close: number }[]>(
       `/macro/indices?index_name=${encodeURIComponent(indexName)}&limit=${limit}`
     ),
   getIndexCandlePatterns: (indexName: string) =>
-    apiFetch<import("./candlePatterns").PatternHit[]>(`/api/v1/candle-patterns/index/${encodeURIComponent(indexName)}`),
+    apiFetch<import("./candlePatterns").PatternHit[]>(`/v1/candle-patterns/index/${encodeURIComponent(indexName)}`),
+  getFiiDiiHistory: (limit = 252) =>
+    apiFetch<{ date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number }[]>(
+      `/macro/fii-dii?limit=${limit}`
+    ),
 
   dashboardStatus: () =>
     apiFetch<{ populated: boolean; index_rows: number }>("/macro/dashboard/status"),
