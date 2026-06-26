@@ -59,11 +59,15 @@ def get_dashboard():
         ) WHERE rn <= 2 ORDER BY index_name, date DESC
     """, all_idx).fetchall()
 
-    # Nifty 50 history for line chart
-    rows_hist = db.execute("""
-        SELECT date, close FROM index_ohlcv
-        WHERE index_name = 'NIFTY 50' AND date >= ? ORDER BY date
-    """, [from30]).fetchall()
+    # History for all 4 headline indices (last 30 trading days each)
+    ph4 = ", ".join("?" * len(HEADLINE_INDICES))
+    rows_idx_hist = db.execute(f"""
+        SELECT date, index_name, close FROM index_ohlcv
+        WHERE index_name IN ({ph4}) AND date >= ? ORDER BY index_name, date
+    """, HEADLINE_INDICES + [from30]).fetchall()
+
+    # Nifty 50 history (kept for backwards compat)
+    rows_hist = [(d, c) for d, n, c in rows_idx_hist if n == "NIFTY 50"]
 
     # Latest FII/DII row
     rows_fii = db.execute(
@@ -157,6 +161,12 @@ def get_dashboard():
 
     nifty_hist = [{"date": str(d), "close": c} for d, c in rows_hist]
 
+    # Multi-index history grouped by name
+    _idx_groups: dict[str, list] = {}
+    for d, n, c in rows_idx_hist:
+        _idx_groups.setdefault(n, []).append({"date": str(d), "close": c})
+    indices_hist = [{"name": n, "data": _idx_groups[n]} for n in HEADLINE_INDICES if n in _idx_groups]
+
     fii_latest = None
     if rows_fii:
         fii_latest = dict(zip(fii_cols, rows_fii))
@@ -173,6 +183,7 @@ def get_dashboard():
         "headline":       headline,
         "sector_perf":    sector_perf,
         "nifty_hist":     nifty_hist,
+        "indices_hist":   indices_hist,
         "fii_latest":     fii_latest,
         "usdinr":         usdinr,
         "india_vix":      india_vix_live,
@@ -377,6 +388,38 @@ def get_market_breadth(
     sql += f" ORDER BY date DESC LIMIT {limit}"
     df = db.execute(sql, params).df()
     return df_to_records(df)
+
+
+@router.get("/market-news")
+def get_market_news():
+    """Indian market news from Google News RSS — always live, no DB caching."""
+    import httpx
+    from lxml import etree
+
+    url = (
+        "https://news.google.com/rss/search"
+        "?q=Indian+stock+market+NSE+Nifty&hl=en-IN&gl=IN&ceid=IN:en"
+    )
+    try:
+        with httpx.Client(timeout=8, follow_redirects=True) as client:
+            resp = client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        if not resp.is_success:
+            return []
+        root = etree.fromstring(resp.content)
+        result = []
+        for item in root.findall(".//item")[:12]:
+            def _t(tag: str) -> str:
+                el = item.find(tag)
+                return (el.text or "").strip() if el is not None else ""
+            result.append({
+                "title":        _t("title"),
+                "link":         _t("link") or _t("guid"),
+                "source":       _t("source"),
+                "published_at": _t("pubDate"),
+            })
+        return result
+    except Exception:
+        return []
 
 
 @router.get("/mf-nav")

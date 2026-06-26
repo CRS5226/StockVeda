@@ -143,6 +143,7 @@ export interface DashboardData {
   headline: { name: string; close: number; prev: number; change: number; change_pct: number; date?: string }[];
   sector_perf: { name: string; pct: number }[];
   nifty_hist: { date: string; close: number }[];
+  indices_hist: { name: string; data: { date: string; close: number }[] }[];
   fii_latest: { date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number } | null;
   usdinr: { close: number; change_pct?: number; date?: string } | null;
   india_vix: { close: number; change_pct?: number; date?: string } | null;
@@ -150,6 +151,8 @@ export interface DashboardData {
   us_sectors: { name: string; close: number; change: number; change_pct: number; date?: string }[];
   global_markets: { name: string; close: number; change: number; change_pct: number; region: string; date?: string }[];
 }
+
+export interface NewsItem { title: string; link: string; source: string; published_at: string }
 
 // ── API functions ──────────────────────────────────────────────────────────
 
@@ -329,6 +332,7 @@ export const api = {
   syncStatus: () => apiFetch<Record<string, unknown>[]>("/sync/status"),
 
   getDashboard: () => apiFetch<DashboardData>("/macro/dashboard"),
+  getMarketNews: () => apiFetch<NewsItem[]>("/macro/market-news"),
 
   dashboardStatus: () =>
     apiFetch<{ populated: boolean; index_rows: number }>("/macro/dashboard/status"),
