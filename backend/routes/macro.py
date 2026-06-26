@@ -392,9 +392,10 @@ def get_market_breadth(
 
 
 def _fetch_rss(url: str, limit: int = 12) -> list[dict]:
-    """Shared RSS fetcher for news endpoints."""
+    """Shared RSS fetcher for news endpoints. Returns items sorted newest-first."""
     import httpx
     from lxml import etree
+    from email.utils import parsedate_to_datetime
     try:
         with httpx.Client(timeout=8, follow_redirects=True) as client:
             resp = client.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -402,17 +403,26 @@ def _fetch_rss(url: str, limit: int = 12) -> list[dict]:
             return []
         root = etree.fromstring(resp.content)
         result = []
-        for item in root.findall(".//item")[:limit]:
+        for item in root.findall(".//item")[:limit * 2]:  # fetch more, sort, then trim
             def _t(tag: str) -> str:
                 el = item.find(tag)
                 return (el.text or "").strip() if el is not None else ""
+            pub = _t("pubDate")
+            try:
+                ts = parsedate_to_datetime(pub).timestamp() if pub else 0
+            except Exception:
+                ts = 0
             result.append({
                 "title":        _t("title"),
                 "link":         _t("link") or _t("guid"),
                 "source":       _t("source"),
-                "published_at": _t("pubDate"),
+                "published_at": pub,
+                "_ts":          ts,
             })
-        return result
+        result.sort(key=lambda x: x["_ts"], reverse=True)
+        for r in result:
+            del r["_ts"]
+        return result[:limit]
     except Exception:
         return []
 
@@ -423,7 +433,7 @@ def get_market_news():
     return _fetch_rss(
         "https://news.google.com/rss/search"
         "?q=India+company+deal+merger+acquisition+quarterly+results+earnings+corporate+NSE+BSE"
-        "&hl=en-IN&gl=IN&ceid=IN:en"
+        "&hl=en-IN&gl=IN&ceid=IN:en&tbs=qdr:w"
     )
 
 
@@ -433,7 +443,7 @@ def get_global_news():
     return _fetch_rss(
         "https://news.google.com/rss/search"
         "?q=US+stock+market+Wall+Street+Japan+Nikkei+China+Hong+Kong+Asia+Pacific+Fed+S%26P"
-        "&hl=en-IN&gl=IN&ceid=IN:en",
+        "&hl=en-IN&gl=IN&ceid=IN:en&tbs=qdr:w",
         limit=14,
     )
 
