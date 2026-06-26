@@ -552,7 +552,7 @@ export default function MarketDashboard() {
               {/* Candlestick chart */}
               <div className="lg:col-span-2">
                 <div className="text-xs text-slate-400 mb-2">
-                  {INDEX_SHORT[chartTab] ?? chartTab} — Last 90 days · patterns marked (last 10 sessions)
+                  {INDEX_SHORT[chartTab] ?? chartTab} — Last 1 year · patterns marked (last 10 sessions)
                 </div>
                 <IndexCandleChart ohlcv={indexOHLCV} patterns={indexPatterns} loading={indexLoading && !indexOHLCV.length} />
               </div>
