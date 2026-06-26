@@ -309,7 +309,7 @@ export default function MarketDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const [indiaNews, setIndiaNews] = useState<NewsItem[]>([]);
-  const [asiaNews, setAsiaNews] = useState<NewsItem[]>([]);
+  const [globalNews, setGlobalNews] = useState<NewsItem[]>([]);
 
   // Chart tab: "perf" = normalized % chart, or an index name
   const [chartTab, setChartTab] = useState<string>("perf");
@@ -346,7 +346,7 @@ export default function MarketDashboard() {
 
   useEffect(() => {
     api.getMarketNews().then(setIndiaNews).catch(() => {});
-    api.getAsiaNews().then(setAsiaNews).catch(() => {});
+    api.getGlobalNews().then(setGlobalNews).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -548,12 +548,13 @@ export default function MarketDashboard() {
         )}
       </section>
 
-      {/* ── News: India + Asia-Pacific ── */}
+      {/* ── News: India Corporate + Global Markets ── */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
             <Newspaper size={13} className="text-blue-500" />
-            <span className="text-sm font-semibold text-slate-700">India Market News</span>
+            <span className="text-sm font-semibold text-slate-700">India Corporate News</span>
+            <span className="text-[10px] text-slate-400 ml-auto">deals · earnings · M&amp;A</span>
           </div>
           {indiaNews.length > 0 ? (
             <div>{indiaNews.slice(0, 7).map((item, i) => <NewsCard key={i} item={item} />)}</div>
@@ -564,10 +565,11 @@ export default function MarketDashboard() {
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
             <Globe size={13} className="text-blue-500" />
-            <span className="text-sm font-semibold text-slate-700">Asia-Pacific News</span>
+            <span className="text-sm font-semibold text-slate-700">Global Markets News</span>
+            <span className="text-[10px] text-slate-400 ml-auto">US · Asia · Pacific</span>
           </div>
-          {asiaNews.length > 0 ? (
-            <div>{asiaNews.slice(0, 7).map((item, i) => <NewsCard key={i} item={item} />)}</div>
+          {globalNews.length > 0 ? (
+            <div>{globalNews.slice(0, 7).map((item, i) => <NewsCard key={i} item={item} />)}</div>
           ) : (
             <div className="py-6 text-center text-sm text-slate-400">Loading…</div>
           )}
@@ -602,14 +604,17 @@ export default function MarketDashboard() {
       )}
 
       {/* ── US Markets + US Sectors ── */}
-      <section>
-        <SectionLabel icon={Globe}>US Markets</SectionLabel>
+      <section className="bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100 rounded-2xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Globe size={15} className="text-blue-500" />
+          <span className="text-sm font-bold text-blue-700 uppercase tracking-wide">US Markets</span>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
           {us_markets.map((m) => <MktTile key={m.name} {...m} />)}
         </div>
         {us_sectors.length > 0 && (
           <>
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2 ml-0.5">US Sectors (ETF %)</div>
+            <div className="text-[11px] font-bold text-blue-500 uppercase tracking-wide mb-2 ml-0.5">US Sectors (ETF %)</div>
             <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
               {us_sectors.map((s) => (
                 <div key={s.name} className={`border rounded-lg p-2 transition-colors ${pctBg(s.change_pct)}`}>
@@ -626,8 +631,11 @@ export default function MarketDashboard() {
 
       {/* ── Asia-Pacific + Europe ── */}
       {global_markets.length > 0 && (
-        <section>
-          <SectionLabel icon={Globe}>Asia-Pacific &amp; Europe</SectionLabel>
+        <section className="bg-gradient-to-br from-violet-50 to-slate-50 border border-violet-100 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Globe size={15} className="text-violet-500" />
+            <span className="text-sm font-bold text-violet-700 uppercase tracking-wide">Asia-Pacific &amp; Europe</span>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {global_markets.map((m) => <MktTile key={m.name} {...m} />)}
           </div>

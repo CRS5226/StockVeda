@@ -418,19 +418,22 @@ def _fetch_rss(url: str, limit: int = 12) -> list[dict]:
 
 @router.get("/market-news")
 def get_market_news():
-    """Indian market news from Google News RSS."""
+    """Indian corporate news — deals, earnings, M&A, company performance (not index headlines)."""
     return _fetch_rss(
         "https://news.google.com/rss/search"
-        "?q=Indian+stock+market+NSE+Nifty+BSE&hl=en-IN&gl=IN&ceid=IN:en"
+        "?q=India+company+deal+merger+acquisition+quarterly+results+earnings+corporate+NSE+BSE"
+        "&hl=en-IN&gl=IN&ceid=IN:en"
     )
 
 
-@router.get("/asia-news")
-def get_asia_news():
-    """Asia-Pacific market news from Google News RSS."""
+@router.get("/global-news")
+def get_global_news():
+    """Asia-Pacific + US market news from Google News RSS."""
     return _fetch_rss(
         "https://news.google.com/rss/search"
-        "?q=Asia+Pacific+stock+market+Japan+China+Nikkei+Hang+Seng&hl=en-IN&gl=IN&ceid=IN:en"
+        "?q=US+stock+market+Wall+Street+Japan+Nikkei+China+Hong+Kong+Asia+Pacific+Fed+S%26P"
+        "&hl=en-IN&gl=IN&ceid=IN:en",
+        limit=14,
     )
 
 
