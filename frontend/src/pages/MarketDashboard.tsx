@@ -459,7 +459,7 @@ export default function MarketDashboard() {
     setIndexPatterns([]);
     setIndexLoading(true);
     Promise.all([
-      api.getIndexOHLCV(chartTab, 90),
+      api.getIndexOHLCV(chartTab, 252),
       api.getIndexCandlePatterns(chartTab),
     ]).then(([ohlcv, pats]) => {
       setIndexOHLCV((ohlcv ?? []).map(r => ({ date: r.date.slice(0, 10), open: r.open, high: r.high, low: r.low, close: r.close })).sort((a, b) => a.date.localeCompare(b.date)));
