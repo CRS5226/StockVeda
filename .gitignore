@@ -10,3 +10,5 @@ node_modules/
 dist/
 .DS_Store
 data/sources/source_status.json
+backend/db/*.db
+logs/
