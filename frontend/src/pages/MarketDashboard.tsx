@@ -596,16 +596,39 @@ export default function MarketDashboard() {
         )}
       </section>
 
-      {/* ── FII / DII Net Flow Chart ── */}
+      {/* ── FII / DII Net Flow Chart + latest values ── */}
       <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        {/* Header */}
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={14} className="text-blue-500" />
           <span className="text-sm font-semibold text-slate-700">FII / DII Net Flows (₹ Cr)</span>
           <div className="flex items-center gap-3 ml-auto text-[11px]">
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded-full" />FII Net</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded-full" />DII Net</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded-full" />FII Net</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded-full" />DII Net</span>
           </div>
         </div>
+
+        {/* Latest values row — inside the card, above the chart */}
+        {fii_latest && (
+          <div className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-slate-100">
+            {[
+              { label: "FII Buy",  val: fii_latest.fii_buy,  color: "text-slate-700" },
+              { label: "FII Sell", val: fii_latest.fii_sell, color: "text-slate-700" },
+              { label: "FII Net",  val: fii_latest.fii_net,  color: fii_latest.fii_net  >= 0 ? "text-emerald-600" : "text-red-500" },
+              { label: "DII Buy",  val: fii_latest.dii_buy,  color: "text-slate-700" },
+              { label: "DII Sell", val: fii_latest.dii_sell, color: "text-slate-700" },
+              { label: "DII Net",  val: fii_latest.dii_net,  color: fii_latest.dii_net  >= 0 ? "text-emerald-600" : "text-red-500" },
+            ].map(({ label, val, color }) => (
+              <div key={label} className="bg-slate-50 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 text-xs">
+                <span className="text-slate-400">{label}</span>
+                <span className={`font-semibold ${color}`}>₹{(val / 100).toFixed(0)} Cr</span>
+              </div>
+            ))}
+            <div className="bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-400 ml-auto">{fii_latest.date}</div>
+          </div>
+        )}
+
+        {/* Chart */}
         {fiiHistory.length > 0 ? (
           <FiiDiiChart rows={fiiHistory} />
         ) : (
@@ -645,26 +668,6 @@ export default function MarketDashboard() {
           )}
         </div>
       </section>
-
-      {/* ── FII / DII latest detail (inline, compact) ── */}
-      {fii_latest && (
-        <div className="flex flex-wrap gap-2 text-xs">
-          {[
-            { label: "FII Buy",  val: fii_latest.fii_buy,  up: true  },
-            { label: "FII Sell", val: fii_latest.fii_sell, up: false },
-            { label: "FII Net",  val: fii_latest.fii_net,  up: fii_latest.fii_net  >= 0 },
-            { label: "DII Buy",  val: fii_latest.dii_buy,  up: true  },
-            { label: "DII Sell", val: fii_latest.dii_sell, up: false },
-            { label: "DII Net",  val: fii_latest.dii_net,  up: fii_latest.dii_net  >= 0 },
-          ].map(({ label, val, up }) => (
-            <div key={label} className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
-              <span className="text-slate-400">{label}</span>
-              <span className={`font-semibold ${up ? "text-emerald-600" : "text-red-500"}`}>₹{(val / 100).toFixed(0)} Cr</span>
-            </div>
-          ))}
-          <div className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-300">{fii_latest.date}</div>
-        </div>
-      )}
 
       {/* ── US Markets + US Sectors ── */}
       <section className="bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100 rounded-2xl p-4">
