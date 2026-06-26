@@ -69,12 +69,18 @@ export default function Navbar() {
     const sources = ["indices", "bhavcopy", "fii_dii", "currency", "fno_participant"];
     try {
       await Promise.all(sources.map((s) => api.triggerSync(s)));
-      setSyncMsg("Sync queued");
+      setSyncMsg("Syncing… dashboard will update shortly");
+      // Navigate to dashboard then dispatch refresh after a short delay
+      // (syncs are queued server-side, ~5-15s to complete)
+      navigate("/");
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("sv:dash-refresh"));
+      }, 8000);
     } catch {
       setSyncMsg("Sync failed");
     } finally {
       setSyncing(false);
-      setTimeout(() => setSyncMsg(null), 3000);
+      setTimeout(() => setSyncMsg(null), 10000);
     }
   };
 

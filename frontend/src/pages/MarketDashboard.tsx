@@ -15,6 +15,19 @@ import type { PatternHit } from "../lib/candlePatterns";
 
 type FiiRow = { date: string; fii_net: number; dii_net: number };
 
+// ── Module-level cache — survives React navigation, cleared only on sync ───
+interface DashSnapshot {
+  data: DashboardData;
+  fiiHistory: FiiRow[];
+  fnoHistory: FiiRow[];
+  indiaNews: NewsItem[];
+  globalNews: NewsItem[];
+}
+let _snap: DashSnapshot | null = null;
+
+// Navbar dispatches 'sv:dash-refresh' after a sync completes
+export function invalidateDashboardCache() { _snap = null; }
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function fmtNum(n: number, dec = 2) {
@@ -392,16 +405,19 @@ function NewsCard({ item }: { item: NewsItem }) {
 
 export default function MarketDashboard() {
   const navigate = useNavigate();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  // Hydrate from cache instantly — no loading flash on navigation back
+  const [data, setData] = useState<DashboardData | null>(_snap?.data ?? null);
+  const [loading, setLoading] = useState(_snap === null);
+  const [refreshing, setRefreshing] = useState(false); // subtle background refresh indicator
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadPct, setLoadPct] = useState(0);
 
-  const [indiaNews, setIndiaNews] = useState<NewsItem[]>([]);
-  const [globalNews, setGlobalNews] = useState<NewsItem[]>([]);
-  const [fiiHistory, setFiiHistory] = useState<FiiRow[]>([]);
-  const [fnoHistory, setFnoHistory] = useState<{ date: string; fii_net: number; dii_net: number }[]>([]);
+  const [indiaNews, setIndiaNews] = useState<NewsItem[]>(_snap?.indiaNews ?? []);
+  const [globalNews, setGlobalNews] = useState<NewsItem[]>(_snap?.globalNews ?? []);
+  const [fiiHistory, setFiiHistory] = useState<FiiRow[]>(_snap?.fiiHistory ?? []);
+  const [fnoHistory, setFnoHistory] = useState<FiiRow[]>(_snap?.fnoHistory ?? []);
   const [fiiTab, setFiiTab] = useState<"equity" | "futures">("futures");
 
   // Chart tab: "perf" = normalized % chart, or an index name
@@ -410,74 +426,98 @@ export default function MarketDashboard() {
   const [indexPatterns, setIndexPatterns] = useState<PatternHit[]>([]);
   const [indexLoading, setIndexLoading] = useState(false);
 
-  useEffect(() => {
+  // Fetch all data, store in cache, update state
+  const fetchAll = async (background = false) => {
     let cancelled = false;
     let timerPct = 0;
     let timerId: ReturnType<typeof setTimeout> | null = null;
 
-    // Animate progress toward a target without overshooting it
     function crawlTo(target: number, step = 1, intervalMs = 120) {
       if (timerId) clearInterval(timerId as unknown as number);
       timerId = setInterval(() => {
         timerPct = Math.min(timerPct + step, target);
-        setLoadPct(timerPct);
+        if (!background) setLoadPct(timerPct);
         if (timerPct >= target) clearInterval(timerId as unknown as number);
       }, intervalMs) as unknown as ReturnType<typeof setTimeout>;
     }
 
-    async function load() {
-      try {
-        crawlTo(20);                             // checking status: 0 → 20%
-        const status = await api.dashboardStatus();
-        if (cancelled) return;
-        timerPct = 20; setLoadPct(20);
+    try {
+      if (!background) crawlTo(20);
+      const status = await api.dashboardStatus();
+      if (cancelled) return;
 
-        if (!status.populated) {
-          setSeeding(true);
-          crawlTo(85, 1, 400);                   // seeding (slow): 20 → 85%
-          await api.bootstrap();
-          if (cancelled) return;
-          timerPct = 85; setLoadPct(85);
-        } else {
-          timerPct = 35; setLoadPct(35);
-        }
+      if (!status.populated) {
+        setSeeding(true);
+        if (!background) { timerPct = 20; crawlTo(85, 1, 400); }
+        await api.bootstrap();
+        if (cancelled) return;
+        if (!background) { timerPct = 85; setLoadPct(85); }
+      } else if (!background) {
+        timerPct = 35; setLoadPct(35);
+      }
 
-        crawlTo(99, 2, 80);                      // fetching dashboard: → 99%
-        const d = await api.getDashboard();
-        if (cancelled) return;
-        setLoadPct(100);
-        setData(d);
-        setSeeding(false);
-        setLoading(false);
-      } catch (e) {
-        if (cancelled) return;
+      if (!background) crawlTo(99, 2, 80);
+
+      // Fetch all data in parallel
+      const [dash, indNews, glbNews, fiiRows, fnoRows] = await Promise.all([
+        api.getDashboard(),
+        api.getMarketNews().catch(() => [] as NewsItem[]),
+        api.getGlobalNews().catch(() => [] as NewsItem[]),
+        api.getFiiDiiHistory(252).catch(() => []),
+        api.getFnoParticipantOI(252).catch(() => []),
+      ]);
+      if (cancelled) return;
+
+      const fiiHist = fiiRows.map(r => ({ date: r.date, fii_net: r.fii_net, dii_net: r.dii_net }));
+      const byDate: Record<string, FiiRow> = {};
+      fnoRows.forEach(r => {
+        const d = r.date.slice(0, 10);
+        if (!byDate[d]) byDate[d] = { date: d, fii_net: 0, dii_net: 0 };
+        if (r.participant_type === "FII") byDate[d].fii_net = r.net_oi;
+        if (r.participant_type === "DII") byDate[d].dii_net = r.net_oi;
+      });
+      const fnoHist = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+
+      // Save to module cache
+      _snap = { data: dash, fiiHistory: fiiHist, fnoHistory: fnoHist, indiaNews: indNews, globalNews: glbNews };
+
+      setData(dash);
+      setIndiaNews(indNews);
+      setGlobalNews(glbNews);
+      setFiiHistory(fiiHist);
+      setFnoHistory(fnoHist);
+      if (!background) setLoadPct(100);
+      setSeeding(false);
+      setLoading(false);
+      setRefreshing(false);
+    } catch (e) {
+      if (cancelled) return;
+      if (!background) {
         setError(e instanceof Error ? e.message : String(e));
         setSeeding(false);
         setLoading(false);
       }
+      setRefreshing(false);
     }
-    load();
-    return () => {
-      cancelled = true;
-      if (timerId) clearInterval(timerId as unknown as number);
-    };
+
+    return () => { cancelled = true; if (timerId) clearInterval(timerId as unknown as number); };
+  };
+
+  // First mount: fetch only if no cache
+  useEffect(() => {
+    if (_snap !== null) return; // already cached — instant render
+    fetchAll(false);
   }, []);
 
+  // Listen for sync → refresh event dispatched by Navbar
   useEffect(() => {
-    api.getMarketNews().then(setIndiaNews).catch(() => {});
-    api.getGlobalNews().then(setGlobalNews).catch(() => {});
-    api.getFiiDiiHistory(252).then(rows => setFiiHistory(rows.map(r => ({ date: r.date, fii_net: r.fii_net, dii_net: r.dii_net })))).catch(() => {});
-    api.getFnoParticipantOI(252).then(rows => {
-      // Group by date, pivot FII/DII net_oi
-      const byDate: Record<string, { fii_net: number; dii_net: number }> = {};
-      rows.forEach(r => {
-        const d = r.date.slice(0, 10);
-        if (!byDate[d]) byDate[d] = { fii_net: 0, dii_net: 0 };
-        if (r.participant_type === "FII") byDate[d].fii_net = r.net_oi;
-        if (r.participant_type === "DII") byDate[d].dii_net = r.net_oi;
-      });
-      setFnoHistory(Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date, ...v })));
-    }).catch(() => {});
+    const onRefresh = () => {
+      _snap = null;
+      setRefreshing(true);
+      fetchAll(true);
+    };
+    window.addEventListener("sv:dash-refresh", onRefresh);
+    return () => window.removeEventListener("sv:dash-refresh", onRefresh);
   }, []);
 
   useEffect(() => {
@@ -556,6 +596,13 @@ export default function MarketDashboard() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Subtle background-refresh indicator */}
+      {refreshing && (
+        <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 self-start">
+          <div className="w-3 h-3 border-[2px] border-slate-200 border-t-blue-400 rounded-full animate-spin" />
+          Refreshing data…
+        </div>
+      )}
 
       {/* ── Indian Headline Indices ── */}
       <section>
