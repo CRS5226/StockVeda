@@ -219,8 +219,8 @@ class MatrixAlgoIn(BaseModel):
 
 
 class MatrixRequest(BaseModel):
-    symbols: list[str] = Field(..., min_length=1, max_length=8)
-    algos: list[MatrixAlgoIn] = Field(..., min_length=1, max_length=4)
+    symbols: list[str] = Field(..., min_length=1, max_length=15)
+    algos: list[MatrixAlgoIn] = Field(..., min_length=1, max_length=5)
     from_date: str
     to_date: str
     capital_per_trade: float = Field(10_000.0, gt=0)
@@ -273,7 +273,7 @@ def run_matrix(req: MatrixRequest):
     pairs = [(sym, algo_id, label, params) for sym in ohlcv for algo_id, label, params in algo_params]
     matrix: dict[str, dict[str, dict]] = {sym: {} for sym in ohlcv}
 
-    with ThreadPoolExecutor(max_workers=min(len(pairs), 8)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(pairs), 16)) as pool:
         futures = {
             pool.submit(run_pair, sym, ohlcv[sym], params): (sym, algo_id)
             for sym, algo_id, label, params in pairs
