@@ -117,6 +117,7 @@ interface BacktestState {
   matrixResults: MatrixResponse | null;
   matrixLoading: boolean;
   matrixError: string | null;
+  matrixProgress: { done: number; total: number } | null;
   addMatrixAlgo: () => void;
   removeMatrixAlgo: (id: string) => void;
   updateMatrixAlgo: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
@@ -227,6 +228,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   matrixResults: null,
   matrixLoading: false,
   matrixError: null,
+  matrixProgress: null,
 
   setMode: (mode) => set({ mode }),
   setMultiAlgoSymbol: (sym) => set({ multiAlgoSymbol: sym.toUpperCase().trim() }),
@@ -328,28 +330,52 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   runMatrix: async () => {
     const { pickedSymbols, matrixAlgos, strategy } = get();
     if (!pickedSymbols.length || !matrixAlgos.length) return;
-    set({ matrixLoading: true, matrixError: null, matrixResults: null });
+    set({ matrixLoading: true, matrixError: null, matrixResults: null, matrixProgress: null });
     try {
+      const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
       const algos = matrixAlgos.map((slot) => ({
-        id: slot.id,
-        label: slot.label,
+        id: slot.id, label: slot.label,
         entry_conditions: slot.strategy.entry_conditions,
         exit_conditions: slot.strategy.exit_conditions,
         target_pct: slot.strategy.target_pct,
         sl_pct: slot.strategy.sl_pct,
         max_bars: slot.strategy.max_bars,
       }));
-      const res = await api.runBacktestMatrix({
-        symbols: pickedSymbols,
-        algos,
-        from_date: strategy.from_date,
-        to_date: strategy.to_date,
-        capital_per_trade: strategy.capital_per_trade,
-        timeframe: strategy.timeframe,
+      const res = await fetch(`${BASE}/backtest/run-matrix-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: pickedSymbols, algos,
+          from_date: strategy.from_date, to_date: strategy.to_date,
+          capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
+        }),
       });
-      set({ matrixResults: res, matrixLoading: false });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        const msg = Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail ?? res.statusText);
+        throw new Error(String(msg));
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.result) {
+            set({ matrixResults: data.result, matrixLoading: false, matrixProgress: null });
+          } else {
+            set({ matrixProgress: { done: data.done, total: data.total } });
+          }
+        }
+      }
     } catch (e) {
-      set({ matrixLoading: false, matrixError: String(e) });
+      set({ matrixLoading: false, matrixError: String(e), matrixProgress: null });
     }
   },
 

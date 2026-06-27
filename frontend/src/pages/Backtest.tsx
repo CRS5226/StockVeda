@@ -937,7 +937,7 @@ export default function Backtest() {
     setMode, addAlgoSlot, addCustomAlgoSlot, removeAlgoSlot, updateAlgoSlot,
     setActiveAlgo, setMultiAlgoSymbol, runAllAlgos,
     // matrix
-    matrixAlgos, matrixResults, matrixLoading, matrixError,
+    matrixAlgos, matrixResults, matrixLoading, matrixError, matrixProgress,
     addMatrixAlgo, removeMatrixAlgo, updateMatrixAlgo, runMatrix,
   } = store;
 
@@ -1460,10 +1460,28 @@ export default function Backtest() {
             disabled={pickedSymbols.length === 0 || matrixAlgos.every((a) => a.strategy.entry_conditions.length === 0) || matrixLoading}
             className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
             {matrixLoading
-              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running {pickedSymbols.length} × {matrixAlgos.length} combinations…</>
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> {matrixProgress ? `Running… ${matrixProgress.done}/${matrixProgress.total}` : "Starting…"}</>
               : <><Play size={13} /> Run Matrix · {pickedSymbols.length} stocks × {matrixAlgos.length} algo{matrixAlgos.length !== 1 ? "s" : ""}</>
             }
           </button>
+
+          {matrixLoading && (
+            <div className="mt-3 w-full max-w-sm">
+              <div className="flex justify-between text-xs text-slate-500 mb-1">
+                <span>{matrixProgress ? `${matrixProgress.done} / ${matrixProgress.total} combinations` : "Fetching data…"}</span>
+                <span className="font-semibold text-blue-500">
+                  {matrixProgress ? `${Math.round(matrixProgress.done / matrixProgress.total * 100)}%` : "0%"}
+                </span>
+              </div>
+              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: matrixProgress ? `${(matrixProgress.done / matrixProgress.total) * 100}%` : "0%" }}
+                />
+              </div>
+            </div>
+          )}
+
           {matrixError && (
             <div className="mt-3 flex items-center gap-2 text-sm text-red-500">
               <AlertCircle size={14} /> {matrixError.replace("Error: ", "")}
