@@ -1373,11 +1373,11 @@ export default function Backtest() {
                 </div>
 
                 <div className="mb-3">
-                  <div className="text-xs text-slate-400 mb-1.5 font-medium">Quick presets:</div>
+                  <div className="text-[10px] text-slate-400 mb-1.5">Load a strategy template into this slot →</div>
                   <div className="flex flex-wrap gap-1.5">
                     {PRESETS.slice(0, 7).map((p) => (
-                      <button key={p.label} title={p.tip}
-                        onClick={() => updateMatrixAlgo(algo.id, { strategy: { ...algo.strategy, entry_conditions: p.conditions } })}
+                      <button key={p.label} title={`Load "${p.label}" conditions into this algo slot`}
+                        onClick={() => updateMatrixAlgo(algo.id, { label: p.label, strategy: { ...algo.strategy, entry_conditions: p.conditions } })}
                         className="px-2 py-0.5 text-xs border rounded-full bg-slate-100 text-slate-600 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-all">
                         {p.label}
                       </button>
