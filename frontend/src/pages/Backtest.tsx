@@ -2100,7 +2100,7 @@ export default function Backtest() {
                       : <div className="flex items-center justify-center h-full text-slate-400 text-sm">No chart data</div>
                     }
                   </div>
-                  <div className="flex-1 overflow-auto">
+                  <div className="flex-1 min-h-0 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-white border-b border-slate-100 z-10">
                         <tr className="text-slate-400 font-semibold">
