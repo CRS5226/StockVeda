@@ -124,6 +124,26 @@ export interface BacktestV2Response {
   per_symbol: Record<string, BacktestSymbolResult>;
 }
 export interface EntryCondition { id: string; label: string; has_threshold: boolean }
+export interface MatrixAlgoInput {
+  id: string; label: string;
+  entry_conditions: ConditionRow[]; exit_conditions: ConditionRow[];
+  target_pct: number; sl_pct: number; max_bars: number;
+}
+export interface MatrixComboResult {
+  trades: BacktestTradeV2[];
+  stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
+  ohlcv: { date: string; open: number; high: number; low: number; close: number }[];
+}
+export interface MatrixResponse {
+  matrix: Record<string, Record<string, MatrixComboResult>>;
+  per_algo: Record<string, { label: string; total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number }>;
+  per_symbol: Record<string, { total_trades: number; win_rate_pct: number; total_pnl: number }>;
+  aggregate: {
+    total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number;
+    best_combo:  { symbol: string; algo_id: string; win_rate_pct: number; total_pnl: number } | null;
+    worst_combo: { symbol: string; algo_id: string; win_rate_pct: number; total_pnl: number } | null;
+  };
+}
 export interface ConditionRow { left: string; operator: string; right: string }
 export interface Strategy {
   name: string; description: string;
@@ -294,6 +314,16 @@ export const api = {
     timeframe?: string;
   }) =>
     apiFetch<BacktestV2Response>("/backtest/run-v2", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+
+  runBacktestMatrix: (params: {
+    symbols: string[]; algos: MatrixAlgoInput[];
+    from_date: string; to_date: string; capital_per_trade: number; timeframe?: string;
+  }) =>
+    apiFetch<MatrixResponse>("/backtest/run-matrix", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),

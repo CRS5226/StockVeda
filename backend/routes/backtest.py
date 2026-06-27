@@ -4,6 +4,7 @@ Backtest route — run strategy simulations on historical OHLCV data.
 
 from datetime import date
 from typing import Optional, Literal
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from backend.db.connection import get_db
@@ -203,3 +204,145 @@ def run_v2(req: BacktestV2Request):
     }
 
     return {"aggregate": aggregate, "per_symbol": per_symbol}
+
+
+# ── Matrix backtest (M algos × N stocks) ──────────────────────────────────
+
+class MatrixAlgoIn(BaseModel):
+    id: str
+    label: str
+    entry_conditions: list[ConditionRowIn]
+    exit_conditions: list[ConditionRowIn] = []
+    target_pct: float = 15.0
+    sl_pct: float = 7.0
+    max_bars: int = Field(30, ge=1, le=252)
+
+
+class MatrixRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1, max_length=8)
+    algos: list[MatrixAlgoIn] = Field(..., min_length=1, max_length=4)
+    from_date: str
+    to_date: str
+    capital_per_trade: float = Field(10_000.0, gt=0)
+    timeframe: str = "1D"
+
+
+@router.post("/run-matrix")
+def run_matrix(req: MatrixRequest):
+    # Pre-fetch all OHLCV data on the main thread (DuckDB is thread-local)
+    db = get_db()
+    ohlcv: dict[str, pd.DataFrame] = {}
+    for sym in req.symbols:
+        s = sym.upper()
+        df = db.execute(
+            """SELECT date, open, high, low, close, volume FROM stock_ohlcv
+               WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
+            [s, req.from_date, req.to_date],
+        ).df()
+        if len(df) >= 30:
+            ohlcv[s] = df
+
+    if not ohlcv:
+        raise HTTPException(400, "No data found for any symbol in the given date range. Sync data first via the Screener.")
+
+    # Build BacktestParamsV2 per algo
+    algo_params: list[tuple[str, str, BacktestParamsV2]] = []
+    for algo in req.algos:
+        if not algo.entry_conditions:
+            raise HTTPException(400, f"Algo '{algo.label}' has no entry conditions")
+        entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in algo.entry_conditions]
+        exit_rows  = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in algo.exit_conditions]
+        params = BacktestParamsV2(
+            entry_conditions=entry_rows,
+            exit_conditions=exit_rows,
+            target_pct=algo.target_pct,
+            sl_pct=algo.sl_pct,
+            max_bars=algo.max_bars,
+            capital_per_trade=req.capital_per_trade,
+            timeframe=req.timeframe,
+        )
+        algo_params.append((algo.id, algo.label, params))
+
+    # Run all (symbol, algo) pairs in parallel — pure computation, no DB access
+    def run_pair(sym: str, df: pd.DataFrame, params: BacktestParamsV2) -> dict:
+        try:
+            return run_backtest_v2(df, params)
+        except Exception:
+            return {"trades": [], "stats": {"total_trades": 0, "win_rate_pct": 0.0, "total_pnl": 0.0, "avg_pnl_pct": 0.0}, "ohlcv": []}
+
+    pairs = [(sym, algo_id, label, params) for sym in ohlcv for algo_id, label, params in algo_params]
+    matrix: dict[str, dict[str, dict]] = {sym: {} for sym in ohlcv}
+
+    with ThreadPoolExecutor(max_workers=min(len(pairs), 8)) as pool:
+        futures = {
+            pool.submit(run_pair, sym, ohlcv[sym], params): (sym, algo_id)
+            for sym, algo_id, label, params in pairs
+        }
+        for future in as_completed(futures):
+            sym, algo_id = futures[future]
+            matrix[sym][algo_id] = future.result()
+
+    # Aggregate stats
+    algo_label_map = {algo_id: label for algo_id, label, _ in algo_params}
+
+    per_algo: dict = {}
+    for algo_id, label, _ in algo_params:
+        trades = [t for sym in matrix for t in matrix[sym].get(algo_id, {}).get("trades", [])]
+        total = len(trades)
+        winners = [t for t in trades if t["pnl"] > 0]
+        per_algo[algo_id] = {
+            "label": label,
+            "total_trades": total,
+            "win_rate_pct": round(len(winners) / total * 100, 1) if total else 0.0,
+            "total_pnl": round(sum(t["pnl"] for t in trades), 2),
+            "avg_pnl_pct": round(sum(t["pnl_pct"] for t in trades) / total, 2) if total else 0.0,
+        }
+
+    per_symbol: dict = {}
+    for sym in matrix:
+        trades = [t for algo_id in matrix[sym] for t in matrix[sym][algo_id].get("trades", [])]
+        total = len(trades)
+        winners = [t for t in trades if t["pnl"] > 0]
+        per_symbol[sym] = {
+            "total_trades": total,
+            "win_rate_pct": round(len(winners) / total * 100, 1) if total else 0.0,
+            "total_pnl": round(sum(t["pnl"] for t in trades), 2),
+        }
+
+    all_trades = [t for sym in matrix for algo_id in matrix[sym] for t in matrix[sym][algo_id].get("trades", [])]
+    total_all = len(all_trades)
+    winners_all = [t for t in all_trades if t["pnl"] > 0]
+
+    def _wr(trades: list) -> float:
+        return round(len([t for t in trades if t["pnl"] > 0]) / len(trades) * 100, 1) if trades else 0.0
+
+    combos_with_trades = {
+        (sym, algo_id): {
+            "trades": matrix[sym].get(algo_id, {}).get("trades", []),
+            "pnl": sum(t["pnl"] for t in matrix[sym].get(algo_id, {}).get("trades", [])),
+        }
+        for sym in matrix for algo_id in algo_label_map
+        if matrix[sym].get(algo_id, {}).get("trades")
+    }
+
+    best_key  = max(combos_with_trades, key=lambda k: combos_with_trades[k]["pnl"]) if combos_with_trades else None
+    worst_key = min(combos_with_trades, key=lambda k: combos_with_trades[k]["pnl"]) if combos_with_trades else None
+
+    aggregate = {
+        "total_trades": total_all,
+        "win_rate_pct": round(len(winners_all) / total_all * 100, 1) if total_all else 0.0,
+        "total_pnl": round(sum(t["pnl"] for t in all_trades), 2),
+        "avg_pnl_pct": round(sum(t["pnl_pct"] for t in all_trades) / total_all, 2) if total_all else 0.0,
+        "best_combo": {
+            "symbol": best_key[0], "algo_id": best_key[1],
+            "win_rate_pct": _wr(combos_with_trades[best_key]["trades"]),
+            "total_pnl": round(combos_with_trades[best_key]["pnl"], 2),
+        } if best_key else None,
+        "worst_combo": {
+            "symbol": worst_key[0], "algo_id": worst_key[1],
+            "win_rate_pct": _wr(combos_with_trades[worst_key]["trades"]),
+            "total_pnl": round(combos_with_trades[worst_key]["pnl"], 2),
+        } if worst_key else None,
+    }
+
+    return {"matrix": matrix, "per_algo": per_algo, "per_symbol": per_symbol, "aggregate": aggregate}

@@ -936,6 +936,9 @@ export default function Backtest() {
     mode, algoSlots, multiAlgoSymbol, activeAlgoId,
     setMode, addAlgoSlot, addCustomAlgoSlot, removeAlgoSlot, updateAlgoSlot,
     setActiveAlgo, setMultiAlgoSymbol, runAllAlgos,
+    // matrix
+    matrixAlgos, matrixResults, matrixLoading, matrixError,
+    addMatrixAlgo, removeMatrixAlgo, updateMatrixAlgo, runMatrix,
   } = store;
 
   const [algoSymbolSearch, setAlgoSymbolSearch] = useState("");
@@ -958,6 +961,10 @@ export default function Backtest() {
   const loadingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showCustomSave, setShowCustomSave] = useState(false);
   const [customSaveLabel, setCustomSaveLabel] = useState("");
+  const [matrixView, setMatrixView] = useState<"heatmap" | "table" | "compare">("heatmap");
+  const [matrixMetric, setMatrixMetric] = useState<"win_rate" | "pnl" | "trades">("win_rate");
+  const [selectedCell, setSelectedCell] = useState<{ symbol: string; algoId: string } | null>(null);
+  const [matrixExpandedAlgoId, setMatrixExpandedAlgoId] = useState<string | null>(matrixAlgos[0]?.id ?? null);
   const [patternCache, setPatternCache] = useState<Record<string, PatternHit[]>>({});
   const [outlookCache, setOutlookCache] = useState<Record<string, Record<string, unknown> | null>>({});
   const [outlookLoading, setOutlookLoading] = useState<Record<string, boolean>>({});
@@ -1066,6 +1073,7 @@ export default function Backtest() {
         {([
           { key: "multi_stock" as const, icon: "🔀", label: "Multi-Stock", desc: "1 algo · many stocks" },
           { key: "multi_algo"  as const, icon: "⚡", label: "Multi-Algo",  desc: "many algos · 1 stock" },
+          { key: "matrix"      as const, icon: "✦",  label: "Matrix",      desc: "M algos · N stocks" },
         ]).map((m) => (
           <button key={m.key} onClick={() => setMode(m.key)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
@@ -1080,8 +1088,8 @@ export default function Backtest() {
         ))}
       </div>
 
-      {/* ── Section 1: Universe (Multi-Stock mode only) ── */}
-      {mode === "multi_stock" && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      {/* ── Section 1: Universe (Multi-Stock and Matrix modes) ── */}
+      {(mode === "multi_stock" || mode === "matrix") && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
           <span className="text-sm font-semibold text-slate-700">Pick Stocks</span>
@@ -1312,6 +1320,157 @@ export default function Backtest() {
           </div>
         )}
       </section>}
+
+      {/* ── Matrix: Algo Builder + Shared Settings ── */}
+      {mode === "matrix" && (
+        <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-4 transition-opacity ${pickedSymbols.length === 0 ? "opacity-40 pointer-events-none" : ""}`}>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+            <span className="text-sm font-semibold text-slate-700">Define Algos</span>
+            <span className="text-xs text-slate-400 ml-1">— up to 4 algos, each with its own entry conditions</span>
+          </div>
+
+          {/* Algo tab buttons */}
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            {matrixAlgos.map((algo) => (
+              <button key={algo.id}
+                onClick={() => setMatrixExpandedAlgoId(matrixExpandedAlgoId === algo.id ? null : algo.id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                  matrixExpandedAlgoId === algo.id
+                    ? "border-blue-400 bg-blue-50 text-blue-700"
+                    : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
+                }`}>
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: algo.color }} />
+                {algo.label}
+              </button>
+            ))}
+            {matrixAlgos.length < 4 && (
+              <button onClick={addMatrixAlgo}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-slate-300 text-xs text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors">
+                <Plus size={12} /> Add Algo
+              </button>
+            )}
+          </div>
+
+          {/* Expanded algo card */}
+          {matrixExpandedAlgoId && (() => {
+            const algo = matrixAlgos.find((a) => a.id === matrixExpandedAlgoId);
+            if (!algo) return null;
+            return (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: algo.color }} />
+                  <input value={algo.label}
+                    onChange={(e) => updateMatrixAlgo(algo.id, { label: e.target.value })}
+                    className="flex-1 text-sm font-semibold bg-transparent border-b border-slate-300 focus:border-blue-400 outline-none py-0.5"
+                    placeholder="Algo name…" />
+                  {matrixAlgos.length > 1 && (
+                    <button onClick={() => { removeMatrixAlgo(algo.id); setMatrixExpandedAlgoId(matrixAlgos.find(a => a.id !== algo.id)?.id ?? null); }}
+                      className="text-slate-300 hover:text-red-400 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="mb-3">
+                  <div className="text-xs text-slate-400 mb-1.5 font-medium">Quick presets:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRESETS.slice(0, 7).map((p) => (
+                      <button key={p.label} title={p.tip}
+                        onClick={() => updateMatrixAlgo(algo.id, { strategy: { ...algo.strategy, entry_conditions: p.conditions } })}
+                        className="px-2 py-0.5 text-xs border rounded-full bg-slate-100 text-slate-600 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-all">
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <div className="text-xs text-slate-500 font-semibold mb-2">Entry Conditions</div>
+                  {indicators.length > 0 ? (
+                    <ConditionBuilder
+                      conditions={algo.strategy.entry_conditions.length ? algo.strategy.entry_conditions : [{ left: "close", operator: "crosses_above", right: "sma_50" }]}
+                      onChange={(rows) => updateMatrixAlgo(algo.id, { strategy: { ...algo.strategy, entry_conditions: rows } })}
+                      indicators={indicators}
+                      operators={operators}
+                    />
+                  ) : <div className="text-xs text-slate-400 animate-pulse">Loading indicators…</div>}
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-200">
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Target %</label>
+                    <input type="number" step="0.5" value={algo.strategy.target_pct}
+                      onChange={(e) => updateMatrixAlgo(algo.id, { strategy: { ...algo.strategy, target_pct: parseFloat(e.target.value) } })}
+                      className="w-full text-xs px-2 py-1.5 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">SL %</label>
+                    <input type="number" step="0.5" value={algo.strategy.sl_pct}
+                      onChange={(e) => updateMatrixAlgo(algo.id, { strategy: { ...algo.strategy, sl_pct: parseFloat(e.target.value) } })}
+                      className="w-full text-xs px-2 py-1.5 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Max Hold (days)</label>
+                    <input type="number" value={algo.strategy.max_bars}
+                      onChange={(e) => updateMatrixAlgo(algo.id, { strategy: { ...algo.strategy, max_bars: parseInt(e.target.value) } })}
+                      className="w-full text-xs px-2 py-1.5 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Shared date / capital / timeframe */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">From Date</label>
+              <input type="date" value={strategy.from_date}
+                onChange={(e) => setStrategy({ from_date: e.target.value })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">To Date</label>
+              <input type="date" value={strategy.to_date}
+                onChange={(e) => setStrategy({ to_date: e.target.value })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Position Size (₹)</label>
+              <input type="number" value={strategy.capital_per_trade}
+                onChange={(e) => setStrategy({ capital_per_trade: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Timeframe</label>
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
+                {(["1D", "1W"] as const).map((tf) => (
+                  <button key={tf} onClick={() => setStrategy({ timeframe: tf })}
+                    className={`flex-1 font-medium transition-colors ${
+                      strategy.timeframe === tf ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
+                    }`}>
+                    {tf === "1D" ? "Daily" : "Weekly"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <button onClick={runMatrix}
+            disabled={pickedSymbols.length === 0 || matrixAlgos.every((a) => a.strategy.entry_conditions.length === 0) || matrixLoading}
+            className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+            {matrixLoading
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running {pickedSymbols.length} × {matrixAlgos.length} combinations…</>
+              : <><Play size={13} /> Run Matrix · {pickedSymbols.length} stocks × {matrixAlgos.length} algo{matrixAlgos.length !== 1 ? "s" : ""}</>
+            }
+          </button>
+          {matrixError && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-red-500">
+              <AlertCircle size={14} /> {matrixError.replace("Error: ", "")}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── Multi-Algo Results ── */}
       {mode === "multi_algo" && <MultiAlgoResults
@@ -1629,6 +1788,325 @@ export default function Backtest() {
               </div>
             </div>
 
+          </div>
+        </section>
+      )}
+
+      {/* ── Matrix Results ── */}
+      {mode === "matrix" && matrixResults && (
+        <section className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          {/* Summary bar */}
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-semibold text-slate-700">
+              {matrixAlgos.length} algo{matrixAlgos.length !== 1 ? "s" : ""} × {Object.keys(matrixResults.matrix).length} stocks
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="text-slate-600">{matrixResults.aggregate.total_trades} trades</span>
+            <span className={matrixResults.aggregate.win_rate_pct >= 55 ? "font-semibold text-emerald-600" : "font-semibold text-red-500"}>
+              {matrixResults.aggregate.win_rate_pct}% win
+            </span>
+            <span className={`font-semibold ${pnlClass(matrixResults.aggregate.total_pnl)}`}>
+              ₹{fmt(matrixResults.aggregate.total_pnl)}
+            </span>
+            {matrixResults.aggregate.best_combo && (
+              <span className="text-xs text-slate-500 hidden lg:inline">
+                Best: <span className="text-emerald-600 font-semibold">
+                  {matrixResults.aggregate.best_combo.symbol} + {matrixAlgos.find((a) => a.id === matrixResults.aggregate.best_combo!.algo_id)?.label}
+                </span> ({matrixResults.aggregate.best_combo.win_rate_pct}% win, ₹{fmt(matrixResults.aggregate.best_combo.total_pnl)})
+              </span>
+            )}
+            {matrixResults.aggregate.worst_combo && (
+              <span className="text-xs text-slate-500 hidden lg:inline">
+                · Worst: <span className="text-red-500 font-semibold">
+                  {matrixResults.aggregate.worst_combo.symbol} + {matrixAlgos.find((a) => a.id === matrixResults.aggregate.worst_combo!.algo_id)?.label}
+                </span> ({matrixResults.aggregate.worst_combo.win_rate_pct}% win)
+              </span>
+            )}
+          </div>
+
+          {/* View tabs + metric selector */}
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-100 flex-wrap">
+            <div className="flex gap-1">
+              {([
+                { key: "heatmap" as const, label: "Heatmap" },
+                { key: "table"   as const, label: "Ranked Table" },
+                { key: "compare" as const, label: "Algo Compare" },
+              ]).map((v) => (
+                <button key={v.key} onClick={() => setMatrixView(v.key)}
+                  className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${
+                    matrixView === v.key ? "bg-blue-500 text-white" : "text-slate-500 hover:bg-slate-100"
+                  }`}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            {matrixView === "heatmap" && (
+              <div className="ml-auto flex gap-1">
+                {([
+                  { key: "win_rate" as const, label: "Win %" },
+                  { key: "pnl"      as const, label: "PnL ₹" },
+                  { key: "trades"   as const, label: "Trades" },
+                ]).map((m) => (
+                  <button key={m.key} onClick={() => setMatrixMetric(m.key)}
+                    className={`px-2.5 py-0.5 text-xs rounded-full border font-medium transition-colors ${
+                      matrixMetric === m.key
+                        ? "bg-slate-700 text-white border-slate-700"
+                        : "border-slate-200 text-slate-500 hover:border-slate-400"
+                    }`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Main content area */}
+          <div className={`flex ${selectedCell ? "divide-x divide-slate-100" : ""}`}>
+            <div className={`${selectedCell ? "flex-1 min-w-0" : "w-full"} overflow-auto`}>
+
+              {/* Heatmap View */}
+              {matrixView === "heatmap" && (() => {
+                const syms = Object.keys(matrixResults.matrix);
+                const getCellValue = (sym: string, algoId: string): number | null => {
+                  const stats = matrixResults.matrix[sym]?.[algoId]?.stats;
+                  if (!stats || stats.total_trades === 0) return null;
+                  return matrixMetric === "win_rate" ? stats.win_rate_pct
+                       : matrixMetric === "pnl"      ? stats.total_pnl
+                       : stats.total_trades;
+                };
+                const cellColor = (sym: string, algoId: string) => {
+                  const stats = matrixResults.matrix[sym]?.[algoId]?.stats;
+                  if (!stats || stats.total_trades === 0) return "bg-slate-50 text-slate-300 cursor-default";
+                  const wr = stats.win_rate_pct;
+                  if (wr >= 70) return "bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+                  if (wr >= 55) return "bg-amber-50 text-amber-700 hover:bg-amber-100";
+                  return "bg-red-50 text-red-600 hover:bg-red-100";
+                };
+                return (
+                  <div className="p-4 overflow-x-auto">
+                    <table className="border-collapse text-sm">
+                      <thead>
+                        <tr>
+                          <th className="w-32 pr-4 pb-2 text-left text-xs text-slate-400 font-medium">Stock ↓ Algo →</th>
+                          {matrixAlgos.map((algo) => (
+                            <th key={algo.id} className="px-3 pb-2 text-center min-w-28">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: algo.color }} />
+                                <span className="text-xs font-semibold text-slate-600 truncate max-w-24">{algo.label}</span>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {syms.map((sym) => (
+                          <tr key={sym}>
+                            <td className="pr-4 py-1.5 text-xs font-semibold text-slate-700">{sym}</td>
+                            {matrixAlgos.map((algo) => {
+                              const val = getCellValue(sym, algo.id);
+                              const sel = selectedCell?.symbol === sym && selectedCell?.algoId === algo.id;
+                              return (
+                                <td key={algo.id} className="px-2 py-1.5">
+                                  <button
+                                    onClick={() => val !== null && setSelectedCell(sel ? null : { symbol: sym, algoId: algo.id })}
+                                    className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition-all ${cellColor(sym, algo.id)} ${
+                                      sel ? "ring-2 ring-blue-500 ring-offset-1" : ""
+                                    }`}>
+                                    {val === null ? "—"
+                                      : matrixMetric === "pnl"      ? `₹${fmt(val)}`
+                                      : matrixMetric === "win_rate" ? `${val}%`
+                                      : String(val)
+                                    }
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="mt-3 flex gap-4 text-[10px] text-slate-400">
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" /> ≥ 70% win</span>
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 inline-block" /> 55–70%</span>
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 inline-block" /> &lt; 55%</span>
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-100 inline-block" /> no trades</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Ranked Table View */}
+              {matrixView === "table" && (() => {
+                const rows: { sym: string; algoId: string; algoLabel: string; algoColor: string; trades: number; winRate: number; pnl: number; avgPct: number }[] = [];
+                for (const sym of Object.keys(matrixResults.matrix)) {
+                  for (const algo of matrixAlgos) {
+                    const stats = matrixResults.matrix[sym]?.[algo.id]?.stats;
+                    if (stats && stats.total_trades > 0) {
+                      rows.push({ sym, algoId: algo.id, algoLabel: algo.label, algoColor: algo.color,
+                        trades: stats.total_trades, winRate: stats.win_rate_pct, pnl: stats.total_pnl, avgPct: stats.avg_pnl_pct });
+                    }
+                  }
+                }
+                rows.sort((a, b) => b.pnl - a.pnl);
+                return (
+                  <div className="overflow-auto max-h-[500px]">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100">
+                        <tr className="text-slate-400 font-semibold">
+                          <th className="text-left px-4 py-2">#</th>
+                          <th className="text-left px-4 py-2">Algo</th>
+                          <th className="text-left px-4 py-2">Stock</th>
+                          <th className="text-right px-4 py-2">Trades</th>
+                          <th className="text-right px-4 py-2">Win %</th>
+                          <th className="text-right px-4 py-2">Total PnL</th>
+                          <th className="text-right px-4 py-2">Avg %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, i) => {
+                          const sel = selectedCell?.symbol === r.sym && selectedCell?.algoId === r.algoId;
+                          return (
+                            <tr key={`${r.sym}-${r.algoId}`}
+                              onClick={() => setSelectedCell(sel ? null : { symbol: r.sym, algoId: r.algoId })}
+                              className={`border-b border-slate-50 cursor-pointer transition-colors ${sel ? "bg-blue-50" : "hover:bg-slate-50"}`}>
+                              <td className="px-4 py-2 text-slate-400">{i + 1}</td>
+                              <td className="px-4 py-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: r.algoColor }} />
+                                  <span className="font-medium text-slate-700">{r.algoLabel}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 font-semibold text-slate-700">{r.sym}</td>
+                              <td className="px-4 py-2 text-right text-slate-600">{r.trades}</td>
+                              <td className={`px-4 py-2 text-right font-semibold ${r.winRate >= 55 ? "text-emerald-600" : "text-red-500"}`}>{r.winRate}%</td>
+                              <td className={`px-4 py-2 text-right font-semibold ${pnlClass(r.pnl)}`}>₹{fmt(r.pnl)}</td>
+                              <td className={`px-4 py-2 text-right ${pnlClass(r.avgPct)}`}>{r.avgPct > 0 ? "+" : ""}{r.avgPct.toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+
+              {/* Algo Compare View */}
+              {matrixView === "compare" && (
+                <div className="p-4 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 font-semibold">
+                        <th className="text-left px-3 py-2">Algo</th>
+                        <th className="text-right px-3 py-2">Stocks</th>
+                        <th className="text-right px-3 py-2">Trades</th>
+                        <th className="text-right px-3 py-2">Win %</th>
+                        <th className="text-right px-3 py-2">Total PnL</th>
+                        <th className="text-right px-3 py-2">Avg %</th>
+                        <th className="text-left px-3 py-2">Best Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matrixAlgos.map((algo) => {
+                        const agg = matrixResults.per_algo[algo.id];
+                        if (!agg) return null;
+                        const symPnls = Object.keys(matrixResults.matrix)
+                          .map((sym) => ({
+                            sym,
+                            pnl: matrixResults.matrix[sym]?.[algo.id]?.stats?.total_pnl ?? 0,
+                            wr: matrixResults.matrix[sym]?.[algo.id]?.stats?.win_rate_pct ?? 0,
+                            trades: matrixResults.matrix[sym]?.[algo.id]?.stats?.total_trades ?? 0,
+                          }))
+                          .filter((x) => x.trades > 0);
+                        const best = symPnls.length ? symPnls.reduce((a, b) => b.pnl > a.pnl ? b : a) : null;
+                        return (
+                          <tr key={algo.id} className="border-b border-slate-50">
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: algo.color }} />
+                                <span className="font-semibold text-slate-700">{algo.label}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-slate-600">{symPnls.length}</td>
+                            <td className="px-3 py-2.5 text-right text-slate-600">{agg.total_trades}</td>
+                            <td className={`px-3 py-2.5 text-right font-semibold ${agg.win_rate_pct >= 55 ? "text-emerald-600" : "text-red-500"}`}>{agg.win_rate_pct}%</td>
+                            <td className={`px-3 py-2.5 text-right font-semibold ${pnlClass(agg.total_pnl)}`}>₹{fmt(agg.total_pnl)}</td>
+                            <td className={`px-3 py-2.5 text-right ${pnlClass(agg.avg_pnl_pct)}`}>{agg.avg_pnl_pct > 0 ? "+" : ""}{agg.avg_pnl_pct.toFixed(1)}%</td>
+                            <td className="px-3 py-2.5">
+                              {best ? (
+                                <button onClick={() => { setSelectedCell({ symbol: best.sym, algoId: algo.id }); setMatrixView("heatmap"); }}
+                                  className="text-blue-600 hover:underline font-medium">
+                                  {best.sym} ({best.wr}% win)
+                                </button>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Drill-down Panel */}
+            {selectedCell && (() => {
+              const { symbol, algoId } = selectedCell;
+              const algo = matrixAlgos.find((a) => a.id === algoId);
+              const combo = matrixResults.matrix[symbol]?.[algoId];
+              if (!combo || !algo) return null;
+              const { trades, stats, ohlcv } = combo;
+              return (
+                <div className="w-[460px] shrink-0 flex flex-col max-h-[640px]">
+                  <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-2 shrink-0">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: algo.color }} />
+                    <span className="font-semibold text-sm text-slate-700">{symbol}</span>
+                    <span className="text-slate-400 text-xs">·</span>
+                    <span className="text-sm text-slate-600 truncate">{algo.label}</span>
+                    <button onClick={() => setSelectedCell(null)} className="ml-auto text-slate-300 hover:text-slate-500 shrink-0">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <div className="flex gap-4 px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs shrink-0">
+                    <span className="text-slate-500">{stats.total_trades} trades</span>
+                    <span className={stats.win_rate_pct >= 55 ? "text-emerald-600 font-semibold" : "text-red-500 font-semibold"}>
+                      {stats.win_rate_pct}% win
+                    </span>
+                    <span className={`font-semibold ${pnlClass(stats.total_pnl)}`}>₹{fmt(stats.total_pnl)}</span>
+                    <span className={pnlClass(stats.avg_pnl_pct)}>avg {stats.avg_pnl_pct > 0 ? "+" : ""}{stats.avg_pnl_pct.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-52 shrink-0 border-b border-slate-100">
+                    {ohlcv.length > 0
+                      ? <BacktestChart symbol={symbol} ohlcv={ohlcv} trades={trades} />
+                      : <div className="flex items-center justify-center h-full text-slate-400 text-sm">No chart data</div>
+                    }
+                  </div>
+                  <div className="flex-1 overflow-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-white border-b border-slate-100 z-10">
+                        <tr className="text-slate-400 font-semibold">
+                          <th className="text-left px-3 py-2">Entry</th>
+                          <th className="text-left px-3 py-2">Exit</th>
+                          <th className="text-right px-3 py-2">PnL</th>
+                          <th className="px-3 py-2">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trades.map((t, i) => (
+                          <tr key={i} className="border-b border-slate-50">
+                            <td className="px-3 py-1.5 text-slate-600">{t.entry_date.slice(0, 10)}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{t.exit_date.slice(0, 10)}</td>
+                            <td className={`px-3 py-1.5 text-right font-semibold ${pnlClass(t.pnl)}`}>
+                              {t.pnl >= 0 ? "+" : ""}₹{fmt(t.pnl)}
+                            </td>
+                            <td className="px-3 py-1.5 text-center"><ReasonChip reason={t.exit_reason} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </section>
       )}

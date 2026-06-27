@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -99,11 +99,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo";
+  mode: "multi_stock" | "multi_algo" | "matrix";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -111,6 +111,16 @@ interface BacktestState {
   setActiveAlgo: (id: string) => void;
   setMultiAlgoSymbol: (sym: string) => void;
   runAllAlgos: () => Promise<void>;
+
+  // matrix mode
+  matrixAlgos: AlgoSlot[];
+  matrixResults: MatrixResponse | null;
+  matrixLoading: boolean;
+  matrixError: string | null;
+  addMatrixAlgo: () => void;
+  removeMatrixAlgo: (id: string) => void;
+  updateMatrixAlgo: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
+  runMatrix: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -209,6 +219,15 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     { id: "2", label: "Algo 2", color: ALGO_COLORS[1], strategy: { ...DEFAULT_STRATEGY, entry_conditions: [{ left: "rsi_14", operator: "crosses_above", right: "50" }] }, results: null, loading: false, error: null },
   ],
 
+  // matrix mode
+  matrixAlgos: [
+    { id: "m1", label: "MACD Cross", color: ALGO_COLORS[0], strategy: { ...DEFAULT_STRATEGY }, results: null, loading: false, error: null },
+    { id: "m2", label: "RSI Bounce", color: ALGO_COLORS[1], strategy: { ...DEFAULT_STRATEGY, entry_conditions: [{ left: "rsi_14", operator: "crosses_above", right: "30" }] }, results: null, loading: false, error: null },
+  ],
+  matrixResults: null,
+  matrixLoading: false,
+  matrixError: null,
+
   setMode: (mode) => set({ mode }),
   setMultiAlgoSymbol: (sym) => set({ multiAlgoSymbol: sym.toUpperCase().trim() }),
   setActiveAlgo: (id) => set({ activeAlgoId: id }),
@@ -282,6 +301,56 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     await Promise.all(runs);
     // Auto-select first algo
     set((s) => ({ activeAlgoId: s.activeAlgoId ?? s.algoSlots[0]?.id ?? null }));
+  },
+
+  addMatrixAlgo: () => set((s) => {
+    if (s.matrixAlgos.length >= 4) return s;
+    const usedColors = new Set(s.matrixAlgos.map((a) => a.color));
+    const color = ALGO_COLORS.find((c) => !usedColors.has(c)) ?? ALGO_COLORS[s.matrixAlgos.length % ALGO_COLORS.length];
+    const id = `m${Date.now()}`;
+    const num = s.matrixAlgos.length + 1;
+    return {
+      matrixAlgos: [...s.matrixAlgos, {
+        id, label: `Algo ${num}`, color,
+        strategy: { ...DEFAULT_STRATEGY }, results: null, loading: false, error: null,
+      }],
+    };
+  }),
+
+  removeMatrixAlgo: (id) => set((s) => ({
+    matrixAlgos: s.matrixAlgos.length > 1 ? s.matrixAlgos.filter((a) => a.id !== id) : s.matrixAlgos,
+  })),
+
+  updateMatrixAlgo: (id, patch) => set((s) => ({
+    matrixAlgos: s.matrixAlgos.map((a) => a.id === id ? { ...a, ...patch } : a),
+  })),
+
+  runMatrix: async () => {
+    const { pickedSymbols, matrixAlgos, strategy } = get();
+    if (!pickedSymbols.length || !matrixAlgos.length) return;
+    set({ matrixLoading: true, matrixError: null, matrixResults: null });
+    try {
+      const algos = matrixAlgos.map((slot) => ({
+        id: slot.id,
+        label: slot.label,
+        entry_conditions: slot.strategy.entry_conditions,
+        exit_conditions: slot.strategy.exit_conditions,
+        target_pct: slot.strategy.target_pct,
+        sl_pct: slot.strategy.sl_pct,
+        max_bars: slot.strategy.max_bars,
+      }));
+      const res = await api.runBacktestMatrix({
+        symbols: pickedSymbols,
+        algos,
+        from_date: strategy.from_date,
+        to_date: strategy.to_date,
+        capital_per_trade: strategy.capital_per_trade,
+        timeframe: strategy.timeframe,
+      });
+      set({ matrixResults: res, matrixLoading: false });
+    } catch (e) {
+      set({ matrixLoading: false, matrixError: String(e) });
+    }
   },
 
   addSymbol: (sym) => {
