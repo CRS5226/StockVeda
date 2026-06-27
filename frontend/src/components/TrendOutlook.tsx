@@ -1,16 +1,21 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
+export interface PatternStat {
+  pattern: string; label: string; name: string; occurrences: number;
+  up5d_pct: number; up10d_pct: number; up20d_pct: number; avg_move5d: number;
+  ctx_occurrences: number;
+  ctx_up5d_pct: number | null; ctx_up10d_pct: number | null; ctx_up20d_pct: number | null;
+  ctx_avg_move5d: number | null; ctx_label: string | null;
+}
+
 export interface OutlookData {
   score: number;
   label: string;
   components: Record<string, number>;
   indicators: { rsi: number; macd_hist: number | null; sma20_diff_pct: number | null; close: number };
   recent_patterns: string[];
-  pattern_stats: {
-    pattern: string; label: string; name: string; occurrences: number;
-    up5d_pct: number; up10d_pct: number; up20d_pct: number; avg_move5d: number;
-  }[];
+  pattern_stats: PatternStat[];
 }
 
 interface Props {
@@ -92,22 +97,38 @@ function Body({ symbol, data }: { symbol: string; data: OutlookData }) {
         <div>
           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Historical Win Rate</div>
           <div className="space-y-2">
-            {data.pattern_stats.map((ps) => (
-              <div key={ps.pattern} className="bg-slate-50 rounded-lg px-2.5 py-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-semibold text-slate-700">{ps.name}</span>
-                  <span className="text-[9px] text-slate-400">{ps.occurrences} occurrences</span>
+            {data.pattern_stats.map((ps) => {
+              const useCtx = ps.ctx_occurrences >= 3 && ps.ctx_up5d_pct != null;
+              const pct5  = useCtx ? ps.ctx_up5d_pct!  : ps.up5d_pct;
+              const pct10 = useCtx ? ps.ctx_up10d_pct! : ps.up10d_pct;
+              const pct20 = useCtx ? ps.ctx_up20d_pct! : ps.up20d_pct;
+              const avg5  = useCtx ? ps.ctx_avg_move5d! : ps.avg_move5d;
+              return (
+                <div key={ps.pattern} className="bg-slate-50 rounded-lg px-2.5 py-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold text-slate-700">{ps.name}</span>
+                    <span className="text-[9px] text-slate-400">
+                      {useCtx
+                        ? <>{ps.ctx_occurrences} in {ps.ctx_label} <span className="text-slate-300">/ {ps.occurrences}</span></>
+                        : <>{ps.occurrences} occurrences</>}
+                    </span>
+                  </div>
+                  {useCtx && (
+                    <div className="text-[9px] text-blue-400 mb-1">
+                      context-matched · same trend &amp; RSI zone
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-1 text-center">
+                    <div><div className="text-[9px] text-slate-400">5d</div><WinPct pct={pct5} /></div>
+                    <div><div className="text-[9px] text-slate-400">10d</div><WinPct pct={pct10} /></div>
+                    <div><div className="text-[9px] text-slate-400">20d</div><WinPct pct={pct20} /></div>
+                  </div>
+                  <div className={`text-center text-[10px] font-semibold mt-1 ${avg5 >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    avg {avg5 >= 0 ? "+" : ""}{avg5}% in 5d
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1 text-center">
-                  <div><div className="text-[9px] text-slate-400">5d</div><WinPct pct={ps.up5d_pct} /></div>
-                  <div><div className="text-[9px] text-slate-400">10d</div><WinPct pct={ps.up10d_pct} /></div>
-                  <div><div className="text-[9px] text-slate-400">20d</div><WinPct pct={ps.up20d_pct} /></div>
-                </div>
-                <div className={`text-center text-[10px] font-semibold mt-1 ${ps.avg_move5d >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                  avg {ps.avg_move5d >= 0 ? "+" : ""}{ps.avg_move5d}% in 5d
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="text-[9px] text-slate-300 mt-1.5">Based on {symbol}'s own historical data · not a guarantee</div>
         </div>

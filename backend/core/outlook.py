@@ -108,6 +108,29 @@ def compute_outlook(df: pd.DataFrame) -> dict:
     l_arr = df["low"].values.astype(float)
     c_arr = df["close"].values.astype(float)
 
+    # Pre-compute indicator arrays for context-matching
+    sma200_arr = ta.sma(close, length=200).values if n_bars >= 200 else None
+    rsi_arr    = rsi_s.values if rsi_s is not None else None
+
+    # Current context: SMA200 trend + RSI half (above/below 50)
+    def _current_sma200_up() -> bool | None:
+        if sma200_arr is None: return None
+        v = sma200_arr[-1]
+        return bool(c_arr[-1] > v) if not np.isnan(v) else None
+
+    def _current_rsi_low() -> bool | None:
+        if rsi_arr is None: return None
+        v = rsi_arr[-1]
+        return bool(v < 50) if not np.isnan(v) else None
+
+    ctx_trend_up = _current_sma200_up()   # True=uptrend, False=downtrend, None=unknown
+    ctx_rsi_low  = _current_rsi_low()      # True=RSI<50, False=RSI>=50, None=unknown
+    ctx_label = (
+        "uptrend" if ctx_trend_up is True
+        else "downtrend" if ctx_trend_up is False
+        else None
+    )
+
     for func_name in recent_pattern_funcs:
         try:
             result = getattr(talib, func_name)(o_arr, h_arr, l_arr, c_arr)
@@ -123,14 +146,44 @@ def compute_outlook(df: pd.DataFrame) -> dict:
 
         up5 = up10 = up20 = 0
         move5_sum = 0.0
+        ctx_up5 = ctx_up10 = ctx_up20 = 0
+        ctx_move5 = 0.0
+        ctx_count = 0
+
         for idx in occurrences:
             base = c_arr[idx]
             if base == 0:
                 continue
-            if c_arr[idx + 5]  > base: up5  += 1
-            if c_arr[idx + 10] > base: up10 += 1
-            if c_arr[idx + 20] > base: up20 += 1
-            move5_sum += (c_arr[idx + 5] - base) / base * 100
+            f5  = c_arr[idx + 5]  > base
+            f10 = c_arr[idx + 10] > base
+            f20 = c_arr[idx + 20] > base
+            m5  = (c_arr[idx + 5] - base) / base * 100
+
+            # All-occurrences tallies
+            if f5:  up5  += 1
+            if f10: up10 += 1
+            if f20: up20 += 1
+            move5_sum += m5
+
+            # Context match: SMA200 trend and RSI half must both agree with current
+            trend_match = True
+            if ctx_trend_up is not None and sma200_arr is not None and idx >= 199:
+                v = sma200_arr[idx]
+                if not np.isnan(v):
+                    trend_match = (c_arr[idx] > v) == ctx_trend_up
+
+            rsi_match = True
+            if ctx_rsi_low is not None and rsi_arr is not None and idx >= 14:
+                rv = rsi_arr[idx]
+                if not np.isnan(rv):
+                    rsi_match = (rv < 50) == ctx_rsi_low
+
+            if trend_match and rsi_match:
+                ctx_count += 1
+                if f5:  ctx_up5  += 1
+                if f10: ctx_up10 += 1
+                if f20: ctx_up20 += 1
+                ctx_move5 += m5
 
         n = len(occurrences)
         meta = next((p for p in PATTERNS if p[0] == func_name), None)
@@ -146,6 +199,13 @@ def compute_outlook(df: pd.DataFrame) -> dict:
             "up10d_pct":  round(up10 / n * 100),
             "up20d_pct":  round(up20 / n * 100),
             "avg_move5d": round(move5_sum / n, 2),
+            # Context-filtered (same SMA200 trend + RSI half as current)
+            "ctx_occurrences": ctx_count,
+            "ctx_up5d_pct":   round(ctx_up5  / ctx_count * 100) if ctx_count >= 3 else None,
+            "ctx_up10d_pct":  round(ctx_up10 / ctx_count * 100) if ctx_count >= 3 else None,
+            "ctx_up20d_pct":  round(ctx_up20 / ctx_count * 100) if ctx_count >= 3 else None,
+            "ctx_avg_move5d": round(ctx_move5 / ctx_count, 2)   if ctx_count >= 3 else None,
+            "ctx_label":      ctx_label,
         })
 
     return {
