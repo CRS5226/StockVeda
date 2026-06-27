@@ -468,10 +468,10 @@ export default function Screener() {
                   : "Fetch data in Step 2, then add filters and run the screen"}
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[calc(100vh-220px)]">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-slate-400 border-b border-slate-100 bg-slate-50 sticky top-0">
+                    <tr className="text-slate-400 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
                       {["Symbol", "Close", "RSI", "SMA50%", "P/E", "D/E", "Promoter%", "FII%", "Delivery%"].map((h) => (
                         <th key={h} className={`py-2 px-3 font-semibold ${h === "Symbol" ? "text-left" : "text-right"}`}>{h}</th>
                       ))}
