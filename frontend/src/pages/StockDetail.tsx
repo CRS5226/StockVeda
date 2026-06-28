@@ -77,7 +77,6 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "shareholding", label: "Shareholding", icon: Users },
   { id: "corp", label: "Corp Actions", icon: Building2 },
   { id: "news", label: "News", icon: Newspaper },
-  { id: "backtest", label: "Backtest", icon: FlaskConical },
 ];
 
 export default function StockDetail() {

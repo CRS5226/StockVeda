@@ -81,9 +81,9 @@ def compute_outlook(df: pd.DataFrame) -> dict:
             recent_v = float(volume.iloc[-3:].mean())
             vol_score = 0.5 if (avg_v > 0 and recent_v > avg_v) else -0.5
 
-    # Recent patterns (last 5 trading dates)
+    # Recent patterns (last 10 trading dates — matches the UI display window)
     all_hits = detect_patterns(df)
-    recent_dates = sorted(set(df["date"].astype(str).str[:10]))[-5:]
+    recent_dates = sorted(set(df["date"].astype(str).str[:10]))[-10:]
     recent_hits  = [h for h in all_hits if h["date"] in recent_dates]
     bull_cnt = sum(1 for h in recent_hits if h["bias"] == "bullish")
     bear_cnt = sum(1 for h in recent_hits if h["bias"] == "bearish")
