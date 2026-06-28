@@ -2,7 +2,7 @@
 Stock routes: OHLCV, fundamentals, delivery, shareholding, corporate actions, insider trades.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
@@ -410,6 +410,27 @@ def get_ratios(symbol: str):
         except Exception:
             pass
 
+        # Dividend yield — prefer NSE corporate_actions over Yahoo Finance
+        # (Yahoo often returns 0 / stale for Indian stocks)
+        div_yield_pct = _f("trailingAnnualDividendYield", 100)
+        div_per_share = _f("lastDividendValue")
+        try:
+            db = get_db()
+            cutoff = (date.today() - timedelta(days=548)).isoformat()  # 18 months
+            nse_div = db.execute("""
+                SELECT value FROM corporate_actions
+                WHERE symbol = ? AND action_type = 'DIVIDEND'
+                  AND ex_date >= ? AND value IS NOT NULL
+                ORDER BY ex_date DESC LIMIT 1
+            """, [sym, cutoff]).fetchone()
+            if nse_div and nse_div[0]:
+                div_per_share = round(float(nse_div[0]), 2)
+                cur_price = info.get("currentPrice") or info.get("regularMarketPrice")
+                if cur_price and float(cur_price) > 0:
+                    div_yield_pct = round(div_per_share / float(cur_price) * 100, 2)
+        except Exception:
+            pass  # fall back to Yahoo value
+
         return {
             "symbol":                  sym,
             "market_cap_cr":           _f("marketCap", 1 / 1e7),
@@ -423,8 +444,8 @@ def get_ratios(symbol: str):
             "operating_margin_pct":    _f("operatingMargins", 100),
             "eps_trailing":            _f("trailingEps"),
             "eps_forward":             _f("forwardEps"),
-            "div_yield_pct":           _f("trailingAnnualDividendYield", 100),
-            "div_per_share":           _f("lastDividendValue"),
+            "div_yield_pct":           div_yield_pct,
+            "div_per_share":           div_per_share,
             "payout_ratio_pct":        _f("payoutRatio", 100),
             "face_value":              _f("faceValue"),
             "beta":                    _f("beta"),
