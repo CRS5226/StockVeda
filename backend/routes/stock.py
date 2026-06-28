@@ -532,6 +532,67 @@ def get_ratios(symbol: str):
         except Exception:
             pass
 
+        # Debt/Equity, P/S, FCF, Sales CAGR 3Y, Profit CAGR 3Y
+        debt_to_equity = None
+        # Sanity-check Yahoo's pre-computed ratios — dual-listed stocks (INFY, WIPRO, HCL)
+        # have USD financials but INR market cap, producing absurd values (P/S 209, EV/EBITDA 951)
+        _ps_raw = _f("priceToSalesTrailing12Months")
+        price_to_sales = _ps_raw if (_ps_raw and 0 < _ps_raw < 80) else None
+        fcf_cr         = None
+        sales_cagr_3y  = None
+        profit_cagr_3y = None
+        try:
+            db = get_db()
+            # D/E from fundamentals (consistent units within a stock)
+            de_row = db.execute("""
+                SELECT total_debt, total_equity FROM stock_fundamentals
+                WHERE symbol = ? AND period_type = 'A'
+                  AND total_debt IS NOT NULL AND total_equity IS NOT NULL AND total_equity > 0
+                ORDER BY period DESC LIMIT 1
+            """, [sym]).fetchone()
+            if de_row:
+                debt_to_equity = round(de_row[0] / de_row[1], 2)
+
+            # FCF — prefer Yahoo's freeCashflow; fall back to CFO − Capex from fundamentals
+            # Sanity: FCF yield must be between 0.1% and 50% of market cap
+            # (filters dual-listed stocks where Yahoo gives USD FCF but INR market cap)
+            mc_val = info.get("marketCap") or 0
+            yf_fcf = info.get("freeCashflow")
+            if yf_fcf and yf_fcf != 0:
+                fcf_candidate = round(float(yf_fcf) / 1e7, 2)
+                mc_cr = mc_val / 1e7
+                if mc_cr > 0 and 0.001 < abs(fcf_candidate) / mc_cr < 0.5:
+                    fcf_cr = fcf_candidate
+            if fcf_cr is None:
+                cf_row = db.execute("""
+                    SELECT cfo, capex FROM stock_fundamentals
+                    WHERE symbol = ? AND period_type = 'A'
+                      AND cfo IS NOT NULL AND capex IS NOT NULL
+                    ORDER BY period DESC LIMIT 1
+                """, [sym]).fetchone()
+                if cf_row:
+                    candidate = round((cf_row[0] - abs(cf_row[1])) / 1e7, 2)
+                    mc_cr = mc_val / 1e7
+                    if mc_cr > 0 and 0.001 < abs(candidate) / mc_cr < 0.5:
+                        fcf_cr = candidate
+
+            # 3-year CAGR (revenue + PAT, in consistent units so ratio is unit-free)
+            cagr_rows = db.execute("""
+                SELECT period, revenue, pat FROM stock_fundamentals
+                WHERE symbol = ? AND period_type = 'A' AND revenue IS NOT NULL AND pat IS NOT NULL
+                ORDER BY period DESC LIMIT 4
+            """, [sym]).fetchall()
+            if len(cagr_rows) >= 4:
+                newest, oldest = cagr_rows[0], cagr_rows[3]
+                rev_new, rev_old = newest[1], oldest[1]
+                pat_new, pat_old = newest[2], oldest[2]
+                if rev_old and rev_old > 0 and rev_new and rev_new > 0:
+                    sales_cagr_3y = round(((rev_new / rev_old) ** (1/3) - 1) * 100, 1)
+                if pat_old and pat_old > 0 and pat_new and pat_new > 0:
+                    profit_cagr_3y = round(((pat_new / pat_old) ** (1/3) - 1) * 100, 1)
+        except Exception:
+            pass
+
         # EPS beat/miss — last 4 quarters actual vs estimate
         eps_history = None
         try:
@@ -575,6 +636,12 @@ def get_ratios(symbol: str):
             "peg_ratio":               peg_ratio,
             "div_streak":              div_streak,
             "eps_history":             eps_history,
+            "ev_to_ebitda":            _f("enterpriseToEbitda") if (_f("enterpriseToEbitda") and 0 < _f("enterpriseToEbitda") < 200) else None,
+            "debt_to_equity":          debt_to_equity,
+            "price_to_sales":          price_to_sales,
+            "fcf_cr":                  fcf_cr,
+            "sales_cagr_3y":           sales_cagr_3y,
+            "profit_cagr_3y":          profit_cagr_3y,
             "beta":                    _f("beta"),
             "52w_high":                _f("fiftyTwoWeekHigh"),
             "52w_low":                 _f("fiftyTwoWeekLow"),

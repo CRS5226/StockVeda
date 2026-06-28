@@ -61,6 +61,8 @@ export interface StockRatios {
   eps_trailing?: number; eps_forward?: number;
   div_yield_pct?: number; div_per_share?: number; payout_ratio_pct?: number; face_value?: number; roce_pct?: number;
   peg_ratio?: number; div_streak?: number; eps_history?: EpsHistoryItem[];
+  ev_to_ebitda?: number; debt_to_equity?: number; price_to_sales?: number;
+  fcf_cr?: number; sales_cagr_3y?: number; profit_cagr_3y?: number;
   beta?: number; "52w_high"?: number; "52w_low"?: number;
   avg_volume?: number; shares_outstanding?: number;
   revenue_growth_pct?: number; earnings_growth_pct?: number;

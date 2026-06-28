@@ -343,6 +343,29 @@ export default function StockDetail() {
               <MetricCard label="Face Value" value={ratios?.face_value != null ? `₹${ratios.face_value}` : "—"} />
               <MetricCard label="PEG Ratio" value={ratios?.peg_ratio != null ? fmt(ratios.peg_ratio) : "—"}
                 up={ratios?.peg_ratio != null ? ratios.peg_ratio < 1 : undefined} />
+              {ratios?.ev_to_ebitda != null && (
+                <MetricCard label="EV/EBITDA" value={fmt(ratios.ev_to_ebitda)}
+                  up={ratios.ev_to_ebitda < 15} />
+              )}
+              {ratios?.debt_to_equity != null && (
+                <MetricCard label="Debt/Equity" value={fmt(ratios.debt_to_equity)}
+                  up={ratios.debt_to_equity < 1} />
+              )}
+              {ratios?.price_to_sales != null && (
+                <MetricCard label="P/S Ratio" value={fmt(ratios.price_to_sales)} />
+              )}
+              {ratios?.fcf_cr != null && (
+                <MetricCard label="Free CF" value={fmtCr(ratios.fcf_cr * 1e7)}
+                  up={ratios.fcf_cr > 0} />
+              )}
+              {ratios?.sales_cagr_3y != null && (
+                <MetricCard label="Sales CAGR 3Y" value={`${fmt(ratios.sales_cagr_3y)}%`}
+                  up={ratios.sales_cagr_3y > 10} />
+              )}
+              {ratios?.profit_cagr_3y != null && (
+                <MetricCard label="PAT CAGR 3Y" value={`${fmt(ratios.profit_cagr_3y)}%`}
+                  up={ratios.profit_cagr_3y > 10} />
+              )}
               {ratios?.div_streak != null && ratios.div_streak > 0 && (
                 <MetricCard label="Div Streak" value={`${ratios.div_streak} yrs ↑`}
                   up={ratios.div_streak >= 3} />
