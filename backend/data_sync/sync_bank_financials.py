@@ -69,8 +69,11 @@ def _parse_banking_xbrl(xml_text: str, symbol: str) -> list[dict]:
                     ctx_period[ctx_id] = ptype
                     break
 
-    # Parse by context
-    rows: dict[tuple, dict] = {}
+    # Ratio fields where 0.0 means "not reported" (consolidated XBRL placeholder)
+    RATIO_COLS = {"gnpa_pct", "net_npa_pct", "crar_pct", "cet1_pct", "roa"}
+
+    # Parse by context — one row per period type
+    rows: dict[str, dict] = {}
     for el in root.iter():
         tag = el.tag.split("}")[-1] if "}" in el.tag else el.tag
         col = XBRL_TAGS.get(tag)
@@ -90,19 +93,20 @@ def _parse_banking_xbrl(xml_text: str, symbol: str) -> list[dict]:
             val = float(el.text.strip())
         except ValueError:
             continue
-        key = (ptype, "consolidated" if "Consolidat" in ctx or "FourD" not in ctx else "standalone")
-        if key not in rows:
-            rows[key] = {"period_type": ptype, "is_consolidated": "Consolidat" in ctx}
-        if col in rows[key]:
+        # Skip explicit 0.0 for ratio fields — consolidated XBRLs use 0 as placeholder
+        if col in RATIO_COLS and val == 0.0:
+            continue
+        if ptype not in rows:
+            rows[ptype] = {"period_type": ptype}
+        if col in rows[ptype]:
             continue  # first wins for duplicates
-        rows[key][col] = val
+        rows[ptype][col] = val
 
     result = []
     for row in rows.values():
-        # Compute NII if not directly in XBRL
         if "interest_earned" in row and "interest_expended" in row:
             row["nii"] = row["interest_earned"] - row["interest_expended"]
-        # gnpa_pct / net_npa_pct are stored as decimals (0.0357) — convert to %
+        # Ratio values in XBRL are decimals (0.0357 → 3.57%) — convert to %
         for col in ["gnpa_pct", "net_npa_pct", "crar_pct", "cet1_pct", "roa"]:
             if col in row and row[col] is not None and row[col] < 2:
                 row[col] = round(row[col] * 100, 2)
@@ -119,8 +123,8 @@ def _fetch_and_parse(symbol: str, xbrl_url: str, period_end: date, is_cons: bool
         rows = _parse_banking_xbrl(r.text, symbol)
         for row in rows:
             row["period"] = period_end
-            if "is_consolidated" not in row:
-                row["is_consolidated"] = is_cons
+            # is_cons comes from the NSE API metadata (more reliable than parsing context names)
+            row["is_consolidated"] = is_cons
         return rows
     except Exception:
         return []
@@ -148,7 +152,7 @@ def sync_symbol(symbol: str, client=None) -> int:
             period_end = datetime.strptime(e["toDate"], "%d-%b-%Y").date()
         except (KeyError, ValueError):
             continue
-        is_cons = "Consolidated" in e.get("consolidated", "")
+        is_cons = e.get("consolidated", "").strip() == "Consolidated"
         key = (period_end, is_cons)
         if key in seen:
             continue
