@@ -229,6 +229,50 @@ def get_shareholding(symbol: str):
     return df_to_records(df)
 
 
+@router.get("/bank-financials/{symbol}")
+def get_bank_financials(symbol: str, consolidated: bool = True):
+    sym = symbol.upper()
+    db = get_db()
+    try:
+        df = db.execute("""
+            SELECT period, period_type, is_consolidated,
+                   interest_earned/1e7 as interest_earned_cr,
+                   interest_expended/1e7 as interest_expended_cr,
+                   nii/1e7 as nii_cr, other_income/1e7 as other_income_cr,
+                   total_income/1e7 as total_income_cr,
+                   operating_expenses/1e7 as operating_expenses_cr,
+                   ppop/1e7 as ppop_cr, provisions/1e7 as provisions_cr,
+                   pbt/1e7 as pbt_cr, tax/1e7 as tax_cr, pat/1e7 as pat_cr,
+                   eps, gnpa/1e7 as gnpa_cr, net_npa/1e7 as net_npa_cr,
+                   gnpa_pct, net_npa_pct, crar_pct, cet1_pct, roa
+            FROM bank_financials
+            WHERE symbol = ? AND period_type = 'Q' AND is_consolidated = ?
+            ORDER BY period DESC LIMIT 12
+        """, [sym, consolidated]).df()
+    except Exception:
+        raise HTTPException(404, f"No bank financials for {symbol}")
+
+    if df.empty:
+        # Try lazy sync then retry
+        try:
+            from backend.data_sync.sync_bank_financials import sync_symbol
+            sync_symbol(sym)
+            df = db.execute("""
+                SELECT period, period_type, is_consolidated,
+                       nii/1e7 as nii_cr, pat/1e7 as pat_cr, eps,
+                       gnpa_pct, net_npa_pct, crar_pct, roa
+                FROM bank_financials
+                WHERE symbol = ? AND period_type = 'Q' AND is_consolidated = ?
+                ORDER BY period DESC LIMIT 12
+            """, [sym, consolidated]).df()
+        except Exception:
+            pass
+
+    if df.empty:
+        raise HTTPException(404, f"No bank financials for {symbol}")
+    return df_to_records(df)
+
+
 @router.get("/corporate-actions/{symbol}")
 def get_corporate_actions(symbol: str):
     db = get_db()

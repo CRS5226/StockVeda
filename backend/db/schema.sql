@@ -94,6 +94,36 @@ CREATE TABLE IF NOT EXISTS stock_fundamentals (
     PRIMARY KEY (symbol, period, period_type, is_consolidated)
 );
 
+CREATE TABLE IF NOT EXISTS bank_financials (
+    symbol VARCHAR,
+    period DATE,
+    period_type VARCHAR,      -- 'Q' quarterly, 'YTD' year-to-date (Apr–Dec etc.)
+    is_consolidated BOOLEAN,
+    -- Income (INR full rupees)
+    interest_earned DOUBLE,
+    interest_expended DOUBLE,
+    nii DOUBLE,
+    other_income DOUBLE,
+    total_income DOUBLE,
+    operating_expenses DOUBLE,
+    ppop DOUBLE,
+    provisions DOUBLE,
+    pbt DOUBLE,
+    tax DOUBLE,
+    pat DOUBLE,
+    eps DOUBLE,
+    -- Asset quality
+    gnpa DOUBLE,
+    net_npa DOUBLE,
+    gnpa_pct DOUBLE,
+    net_npa_pct DOUBLE,
+    -- Capital & returns
+    crar_pct DOUBLE,
+    cet1_pct DOUBLE,
+    roa DOUBLE,
+    PRIMARY KEY (symbol, period, period_type, is_consolidated)
+);
+
 CREATE TABLE IF NOT EXISTS shareholding (
     symbol VARCHAR,
     period DATE,

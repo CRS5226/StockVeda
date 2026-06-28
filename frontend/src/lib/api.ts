@@ -68,6 +68,16 @@ export interface SectorComparePoint { date: string; pct: number }
 export interface SectorCompareData {
   stock: SectorComparePoint[]; sector: SectorComparePoint[]; sector_name: string;
 }
+export interface BankFinancial {
+  period: string; period_type: string; is_consolidated: boolean;
+  nii_cr?: number; interest_earned_cr?: number; interest_expended_cr?: number;
+  other_income_cr?: number; total_income_cr?: number;
+  operating_expenses_cr?: number; ppop_cr?: number; provisions_cr?: number;
+  pbt_cr?: number; pat_cr?: number; eps?: number;
+  gnpa_cr?: number; net_npa_cr?: number;
+  gnpa_pct?: number; net_npa_pct?: number;
+  crar_pct?: number; cet1_pct?: number; roa?: number;
+}
 export interface NewsItem { title: string; link: string; source: string; published_at: string }
 export interface Holder {
   Holder: string; Shares: number; "Date Reported": string;
@@ -211,6 +221,9 @@ export const api = {
 
   getShareholding: (symbol: string) =>
     apiFetch<Shareholding[]>(`/stock/shareholding/${symbol}`),
+
+  getBankFinancials: (symbol: string, consolidated = false) =>
+    apiFetch<BankFinancial[]>(`/stock/bank-financials/${symbol}?consolidated=${consolidated}`),
 
   getRatios: (symbol: string) =>
     apiFetch<StockRatios>(`/stock/ratios/${symbol}`),

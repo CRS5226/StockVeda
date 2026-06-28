@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useStockStore } from "../store/useStockStore";
 import { useBacktestStore } from "../store/useBacktestStore";
-import { api, type StockRatios, type SectorCompareData, type NewsItem, type Holder } from "../lib/api";
+import { api, type StockRatios, type SectorCompareData, type NewsItem, type Holder, type BankFinancial } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import CandleChart from "../components/CandleChart";
 import BacktestResults from "../components/BacktestResults";
@@ -97,6 +97,7 @@ export default function StockDetail() {
   const [syncingTab, setSyncingTab] = useState<Tab | null>(null);
   const [prefetching, setPrefetching] = useState(false);
   const [ratios, setRatios] = useState<StockRatios | null>(null);
+  const [bankFinancials, setBankFinancials] = useState<BankFinancial[] | null>(null);
   const [sectorCompare, setSectorCompare] = useState<SectorCompareData | null>(null);
   const [sectorRange, setSectorRange] = useState<SectorRange>("1Y");
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
@@ -137,6 +138,9 @@ export default function StockDetail() {
 
     // Fetch live ratios from yfinance info (non-blocking)
     api.getRatios(sym).then(setRatios).catch(() => {});
+
+    // Fetch bank financials (GNPA, NPA, NII etc.) — only for banking stocks
+    api.getBankFinancials(sym).then(setBankFinancials).catch(() => {});
 
     // Sector comparison and institutional holders (non-blocking)
     api.getSectorCompare(sym, 252).then(setSectorCompare).catch(() => {});
@@ -338,6 +342,32 @@ export default function StockDetail() {
                 up={ratios?.roce_pct != null ? ratios.roce_pct > 10 : undefined} />
               <MetricCard label="Face Value" value={ratios?.face_value != null ? `₹${ratios.face_value}` : "—"} />
             </div>
+
+            {/* Bank KPIs — GNPA, NPA, NII, CRAR (only when data available) */}
+            {bankFinancials && bankFinancials.length > 0 && (() => {
+              const latest = bankFinancials[0];
+              return (
+                <div className="mt-3 pt-3 border-t border-slate-100">
+                  <div className="text-xs text-slate-400 font-medium mb-2">
+                    Bank KPIs — Q{latest.period?.slice(0, 7)}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <MetricCard label="GNPA %" value={latest.gnpa_pct != null ? `${fmt(latest.gnpa_pct)}%` : "—"}
+                      up={latest.gnpa_pct != null ? latest.gnpa_pct < 3 : undefined} />
+                    <MetricCard label="Net NPA %" value={latest.net_npa_pct != null ? `${fmt(latest.net_npa_pct)}%` : "—"}
+                      up={latest.net_npa_pct != null ? latest.net_npa_pct < 1 : undefined} />
+                    <MetricCard label="NII" value={latest.nii_cr != null ? `₹${fmt(latest.nii_cr)}Cr` : "—"}
+                      up={latest.nii_cr != null ? latest.nii_cr > 0 : undefined} />
+                    <MetricCard label="PPOP" value={latest.ppop_cr != null ? `₹${fmt(latest.ppop_cr)}Cr` : "—"}
+                      up={latest.ppop_cr != null ? latest.ppop_cr > 0 : undefined} />
+                    <MetricCard label="CRAR %" value={latest.crar_pct != null ? `${fmt(latest.crar_pct)}%` : "—"}
+                      up={latest.crar_pct != null ? latest.crar_pct > 12 : undefined} />
+                    <MetricCard label="ROA" value={latest.roa != null ? `${fmt(latest.roa)}%` : "—"}
+                      up={latest.roa != null ? latest.roa > 1 : undefined} />
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* 52-Week Range Gauge */}
             {ratios?.["52w_high"] != null && ratios?.["52w_low"] != null && last && (
