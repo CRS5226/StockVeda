@@ -193,6 +193,16 @@ export interface DashboardData {
 
 export interface NewsItem { title: string; link: string; source: string; published_at: string }
 
+export interface TopCorrelatedItem {
+  symbol: string; company_name: string | null;
+  correlation: number; days_overlap: number;
+}
+export interface CorrelationMatrix { symbols: string[]; matrix: (number | null)[][]; }
+export interface CommonHolderPair {
+  symbol1: string; symbol2: string;
+  overlap_score: number; fii_overlap: number; mf_overlap: number;
+}
+
 // ── API functions ──────────────────────────────────────────────────────────
 
 export const api = {
@@ -201,6 +211,15 @@ export const api = {
 
   searchSymbols: (q: string) =>
     apiFetch<{ symbol: string; name: string }[]>(`/stock/search?q=${encodeURIComponent(q)}`),
+
+  getTopCorrelated: (symbol: string, days = 90, top = 15) =>
+    apiFetch<TopCorrelatedItem[]>(`/stock/top-correlated/${symbol}?days=${days}&top=${top}`),
+
+  getCorrelationMatrix: (symbols: string[], days = 90) =>
+    apiFetch<CorrelationMatrix>(`/stock/correlation-matrix?symbols=${symbols.join(",")}&days=${days}`),
+
+  getCommonHolders: (symbols: string[]) =>
+    apiFetch<CommonHolderPair[]>(`/stock/common-holders?symbols=${symbols.join(",")}`),
 
   getStockInfo: (symbol: string) =>
     apiFetch<{ symbol: string; company_name: string | null; series: string | null; isin: string | null }>(`/stock/info/${symbol}`),

@@ -4,6 +4,7 @@ import MarketDashboard from "./pages/MarketDashboard";
 import StockDetail from "./pages/StockDetail";
 import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
+import Graph from "./pages/Graph";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/stock/:symbol" element={<StockDetail />} />
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
+          <Route path="/graph" element={<Graph />} />
         </Routes>
       </main>
     </div>

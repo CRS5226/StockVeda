@@ -799,3 +799,103 @@ def get_institutional_holders(symbol: str):
         return df.where(pd.notna(df), None).to_dict(orient="records")
     except Exception:
         return []
+
+
+# ── Graph: correlation + common-holders ─────────────────────────────────────
+
+@router.get("/top-correlated/{symbol}")
+def get_top_correlated(symbol: str, days: int = 90, top: int = 15):
+    sym = symbol.upper()
+    db  = get_db()
+    min_rows = int(days * 0.55)  # ~55% of calendar days = ~80% of trading days
+    start_date  = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
+    # Fetch 7 extra days before the window so LAG() has a prior value on the first window date
+    pre_date    = (pd.Timestamp.now() - pd.Timedelta(days=days + 7)).date()
+    rows = db.execute("""
+        WITH target_raw AS (
+            SELECT date, close / LAG(close) OVER (ORDER BY date) - 1 AS ret
+            FROM stock_ohlcv WHERE symbol = ? AND date >= ?
+        ),
+        target_ret AS (SELECT date, ret FROM target_raw WHERE date >= ? AND ret IS NOT NULL),
+        universe AS (
+            SELECT symbol FROM stock_ohlcv
+            WHERE date >= ? AND symbol != ?
+            GROUP BY symbol HAVING COUNT(*) >= ?
+            ORDER BY COUNT(*) DESC LIMIT 500
+        ),
+        cand_raw AS (
+            SELECT o.date, o.symbol,
+                   o.close / LAG(o.close) OVER (PARTITION BY o.symbol ORDER BY o.date) - 1 AS ret
+            FROM stock_ohlcv o JOIN universe u ON u.symbol = o.symbol
+            WHERE o.date >= ?
+        ),
+        cand_ret AS (SELECT date, symbol, ret FROM cand_raw WHERE date >= ? AND ret IS NOT NULL)
+        SELECT c.symbol, n.company_name,
+               ROUND(corr(t.ret, c.ret), 4) AS correlation,
+               COUNT(*) AS days_overlap
+        FROM target_ret t JOIN cand_ret c USING (date)
+        LEFT JOIN nse_symbols n ON n.symbol = c.symbol
+        GROUP BY c.symbol, n.company_name
+        HAVING days_overlap >= ? AND corr(t.ret, c.ret) IS NOT NULL
+        ORDER BY ABS(corr(t.ret, c.ret)) DESC
+        LIMIT ?
+    """, [sym, pre_date, start_date, start_date, sym, min_rows, pre_date, start_date, min_rows, top]).fetchall()
+    return [{"symbol": r[0], "company_name": r[1], "correlation": r[2], "days_overlap": r[3]}
+            for r in rows]
+
+
+@router.get("/correlation-matrix")
+def get_correlation_matrix(symbols: str, days: int = 252):
+    syms = [s.strip().upper() for s in symbols.split(",")][:12]
+    if not syms:
+        return {"symbols": [], "matrix": []}
+    db  = get_db()
+    placeholders = ",".join("?" * len(syms))
+    start_date = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
+    pre_date   = (pd.Timestamp.now() - pd.Timedelta(days=days + 7)).date()
+    raw = db.execute(f"""
+        SELECT symbol, date,
+               close / LAG(close) OVER (PARTITION BY symbol ORDER BY date) - 1 AS ret
+        FROM stock_ohlcv
+        WHERE symbol IN ({placeholders}) AND date >= ?
+    """, syms + [pre_date]).df()
+    df = raw[raw["date"] >= pd.Timestamp(start_date)]
+    if df.empty:
+        return {"symbols": syms, "matrix": [[None]*len(syms)]*len(syms)}
+    wide    = df.dropna(subset=["ret"]).pivot_table(index="date", columns="symbol", values="ret")
+    present = [s for s in syms if s in wide.columns]
+    corr    = wide[present].corr(method="pearson").round(4)
+    def _safe(v):
+        import math
+        return None if (v is None or (isinstance(v, float) and math.isnan(v))) else float(v)
+    matrix  = [[_safe(corr.loc[r, c]) if (r in corr.index and c in corr.columns) else None
+                for c in present] for r in present]
+    return {"symbols": present, "matrix": matrix}
+
+
+@router.get("/common-holders")
+def get_common_holders(symbols: str):
+    syms = [s.strip().upper() for s in symbols.split(",")][:12]
+    if len(syms) < 2:
+        return []
+    db = get_db()
+    rows = db.execute("""
+        SELECT symbol, fii_pct, mf_pct
+        FROM shareholding
+        WHERE symbol IN ({})
+          AND period = (SELECT MAX(period) FROM shareholding s2 WHERE s2.symbol = shareholding.symbol)
+    """.format(",".join("?" * len(syms))), syms).fetchall()
+    data = {r[0]: {"fii": r[1] or 0.0, "mf": r[2] or 0.0} for r in rows}
+    pairs = []
+    for i, s1 in enumerate(syms):
+        for s2 in syms[i + 1:]:
+            if s1 in data and s2 in data:
+                fii_ov = round(min(data[s1]["fii"], data[s2]["fii"]), 2)
+                mf_ov  = round(min(data[s1]["mf"],  data[s2]["mf"]),  2)
+                pairs.append({
+                    "symbol1": s1, "symbol2": s2,
+                    "overlap_score": round(0.5 * fii_ov + 0.5 * mf_ov, 2),
+                    "fii_overlap": fii_ov, "mf_overlap": mf_ov,
+                })
+    pairs.sort(key=lambda x: -x["overlap_score"])
+    return pairs
