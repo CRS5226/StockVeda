@@ -2,7 +2,7 @@
 Macro routes: indices, FII/DII flows, FnO OI, currency, macro monthly/quarterly, market breadth.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
@@ -391,61 +391,81 @@ def get_market_breadth(
     return df_to_records(df)
 
 
-def _fetch_rss(url: str, limit: int = 12) -> list[dict]:
-    """Shared RSS fetcher for news endpoints. Returns items sorted newest-first."""
+_RSS_BASE = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&tbs=qdr:w&q="
+
+
+def _fetch_rss_multi(queries: list[str], limit: int = 15, max_age_days: int = 7) -> list[dict]:
+    """
+    Fetch multiple Google News RSS queries in sequence, merge, deduplicate by title,
+    hard-filter to max_age_days, and return newest-first.
+    """
     import httpx
     from lxml import etree
     from email.utils import parsedate_to_datetime
-    try:
-        with httpx.Client(timeout=8, follow_redirects=True) as client:
-            resp = client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        if not resp.is_success:
-            return []
-        root = etree.fromstring(resp.content)
-        result = []
-        for item in root.findall(".//item")[:limit * 2]:  # fetch more, sort, then trim
-            def _t(tag: str) -> str:
-                el = item.find(tag)
-                return (el.text or "").strip() if el is not None else ""
-            pub = _t("pubDate")
+
+    cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).timestamp()
+    seen: set[str] = set()
+    all_items: list[dict] = []
+
+    with httpx.Client(timeout=10, follow_redirects=True) as client:
+        for q in queries:
             try:
-                ts = parsedate_to_datetime(pub).timestamp() if pub else 0
+                resp = client.get(_RSS_BASE + q, headers={"User-Agent": "Mozilla/5.0"})
+                if not resp.is_success:
+                    continue
+                root = etree.fromstring(resp.content)
+                for item in root.findall(".//item")[:25]:
+                    def _t(tag: str, _item=item) -> str:
+                        el = _item.find(tag)
+                        return (el.text or "").strip() if el is not None else ""
+                    pub = _t("pubDate")
+                    try:
+                        ts = parsedate_to_datetime(pub).timestamp() if pub else 0
+                    except Exception:
+                        ts = 0
+                    if ts < cutoff_ts:   # older than max_age_days — skip
+                        continue
+                    title = _t("title")
+                    dedup_key = title[:50].lower()
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    all_items.append({
+                        "title":        title,
+                        "link":         _t("link") or _t("guid"),
+                        "source":       _t("source"),
+                        "published_at": pub,
+                        "_ts":          ts,
+                    })
             except Exception:
-                ts = 0
-            result.append({
-                "title":        _t("title"),
-                "link":         _t("link") or _t("guid"),
-                "source":       _t("source"),
-                "published_at": pub,
-                "_ts":          ts,
-            })
-        result.sort(key=lambda x: x["_ts"], reverse=True)
-        for r in result:
-            del r["_ts"]
-        return result[:limit]
-    except Exception:
-        return []
+                continue
+
+    all_items.sort(key=lambda x: x["_ts"], reverse=True)
+    for r in all_items:
+        del r["_ts"]
+    return all_items[:limit]
 
 
 @router.get("/market-news")
 def get_market_news():
-    """Indian corporate news — deals, earnings, M&A, company performance (not index headlines)."""
-    return _fetch_rss(
-        "https://news.google.com/rss/search"
-        "?q=India+company+deal+merger+acquisition+quarterly+results+earnings+corporate+NSE+BSE"
-        "&hl=en-IN&gl=IN&ceid=IN:en&tbs=qdr:w"
-    )
+    """Indian market & corporate news — last 7 days only, pulled from multiple RSS queries."""
+    return _fetch_rss_multi([
+        "Nifty+Sensex+NSE+BSE+India+stock+market+today",
+        "India+stock+market+RBI+FII+DII+news",
+        "India+company+earnings+results+quarterly+NSE+BSE",
+        "India+IPO+merger+acquisition+corporate+deal",
+    ], limit=20)
 
 
 @router.get("/global-news")
 def get_global_news():
-    """Asia-Pacific + US market news from Google News RSS."""
-    return _fetch_rss(
-        "https://news.google.com/rss/search"
-        "?q=US+stock+market+Wall+Street+Japan+Nikkei+China+Hong+Kong+Asia+Pacific+Fed+S%26P"
-        "&hl=en-IN&gl=IN&ceid=IN:en&tbs=qdr:w",
-        limit=14,
-    )
+    """Asia-Pacific + US market news — last 7 days only, from multiple RSS queries."""
+    return _fetch_rss_multi([
+        "US+stock+market+Wall+Street+Fed+interest+rate+today",
+        "S%26P+500+Nasdaq+Dow+Jones+market+news",
+        "Asia+markets+Japan+Nikkei+China+Hong+Kong+today",
+        "global+economy+inflation+recession+interest+rate",
+    ], limit=20)
 
 
 @router.get("/mf-nav")
