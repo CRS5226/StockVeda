@@ -146,8 +146,12 @@ def compute_outlook(df: pd.DataFrame) -> dict:
 
         up5 = up10 = up20 = 0
         move5_sum = 0.0
+        win_moves5: list[float] = []
+        loss_moves5: list[float] = []
         ctx_up5 = ctx_up10 = ctx_up20 = 0
         ctx_move5 = 0.0
+        ctx_win_moves5: list[float] = []
+        ctx_loss_moves5: list[float] = []
         ctx_count = 0
 
         for idx in occurrences:
@@ -160,7 +164,8 @@ def compute_outlook(df: pd.DataFrame) -> dict:
             m5  = (c_arr[idx + 5] - base) / base * 100
 
             # All-occurrences tallies
-            if f5:  up5  += 1
+            if f5:  up5  += 1; win_moves5.append(m5)
+            else:               loss_moves5.append(m5)
             if f10: up10 += 1
             if f20: up20 += 1
             move5_sum += m5
@@ -180,7 +185,8 @@ def compute_outlook(df: pd.DataFrame) -> dict:
 
             if trend_match and rsi_match:
                 ctx_count += 1
-                if f5:  ctx_up5  += 1
+                if f5:  ctx_up5 += 1; ctx_win_moves5.append(m5)
+                else:                  ctx_loss_moves5.append(m5)
                 if f10: ctx_up10 += 1
                 if f20: ctx_up20 += 1
                 ctx_move5 += m5
@@ -189,23 +195,33 @@ def compute_outlook(df: pd.DataFrame) -> dict:
         meta = next((p for p in PATTERNS if p[0] == func_name), None)
         pat_label = meta[1] if meta else func_name
         pat_name  = meta[2].split(" — ")[0] if meta else func_name
+        # Tuple: (func, label, name, bull_bias, bear_bias)
+        # bearish-only pattern → bull_bias is None, bear_bias is "bearish"
+        pat_direction = "bearish" if (meta and meta[3] is None and meta[4] is not None) else "bullish"
+
+        def _avg(lst): return round(sum(lst) / len(lst), 2) if lst else None
 
         pattern_stats.append({
             "pattern":    func_name,
             "label":      pat_label,
             "name":       pat_name,
+            "direction":  pat_direction or "bullish",
             "occurrences": n,
             "up5d_pct":   round(up5  / n * 100),
             "up10d_pct":  round(up10 / n * 100),
             "up20d_pct":  round(up20 / n * 100),
             "avg_move5d": round(move5_sum / n, 2),
+            "avg_win5d":  _avg(win_moves5),
+            "avg_loss5d": _avg(loss_moves5),
             # Context-filtered (same SMA200 trend + RSI half as current)
             "ctx_occurrences": ctx_count,
-            "ctx_up5d_pct":   round(ctx_up5  / ctx_count * 100) if ctx_count >= 3 else None,
-            "ctx_up10d_pct":  round(ctx_up10 / ctx_count * 100) if ctx_count >= 3 else None,
-            "ctx_up20d_pct":  round(ctx_up20 / ctx_count * 100) if ctx_count >= 3 else None,
-            "ctx_avg_move5d": round(ctx_move5 / ctx_count, 2)   if ctx_count >= 3 else None,
-            "ctx_label":      ctx_label,
+            "ctx_up5d_pct":    round(ctx_up5  / ctx_count * 100) if ctx_count >= 3 else None,
+            "ctx_up10d_pct":   round(ctx_up10 / ctx_count * 100) if ctx_count >= 3 else None,
+            "ctx_up20d_pct":   round(ctx_up20 / ctx_count * 100) if ctx_count >= 3 else None,
+            "ctx_avg_move5d":  round(ctx_move5 / ctx_count, 2)   if ctx_count >= 3 else None,
+            "ctx_avg_win5d":   _avg(ctx_win_moves5)  if ctx_count >= 3 else None,
+            "ctx_avg_loss5d":  _avg(ctx_loss_moves5) if ctx_count >= 3 else None,
+            "ctx_label":       ctx_label,
         })
 
     return {
