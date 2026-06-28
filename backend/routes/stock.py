@@ -275,38 +275,7 @@ def prefetch_symbol(symbol: str):
         except Exception as e:
             print(f"[prefetch:{sym}] fundamentals: {e}")
 
-    # --- Shareholding (yfinance major_holders: insider % ≈ promoter %) ---
-    share_count = db.execute(
-        "SELECT COUNT(*) FROM shareholding WHERE symbol = ?", [sym]
-    ).fetchone()[0]
-    if share_count == 0:
-        try:
-            from backend.data_sync.base import upsert_df
-            mh = t.major_holders
-            # mh index = breakdown key (e.g. "insidersPercentHeld"), column "Value" = fraction
-            if mh is not None and not mh.empty and "Value" in mh.columns:
-                def _pct(key: str) -> float | None:
-                    if key in mh.index:
-                        try:
-                            return round(float(mh.loc[key, "Value"]) * 100, 2)
-                        except (TypeError, ValueError):
-                            pass
-                    return None
-                promoter_pct = _pct("insidersPercentHeld")
-                fii_pct = _pct("institutionsPercentHeld")
-                if promoter_pct is not None:
-                    df = pd.DataFrame([{
-                        "symbol": sym, "period": date.today(),
-                        "promoter_pct": promoter_pct,
-                        "promoter_pledge_pct": None,
-                        "fii_pct": fii_pct,
-                        "dii_pct": None, "mf_pct": None, "retail_pct": None,
-                        "government_pct": None, "total_shareholders": None,
-                    }])
-                    upsert_df(df, "shareholding")
-                    fetched.append("shareholding:1")
-        except Exception as e:
-            print(f"[prefetch:{sym}] shareholding: {e}")
+    # Shareholding: covered by sync_shareholding_master (NSE quarterly filings, all stocks)
 
     # --- F&O Options Chain (yfinance — NSE bhavcopy not accessible from cloud IPs) ---
     fno_count = db.execute(
@@ -414,9 +383,13 @@ def get_ratios(symbol: str):
         # (Yahoo often returns 0 / stale for Indian stocks)
         div_yield_pct = _f("trailingAnnualDividendYield", 100)
         div_per_share = _f("lastDividendValue")
+        face_value    = None
+        roce_pct      = None
         try:
             db = get_db()
             cutoff = (date.today() - timedelta(days=548)).isoformat()  # 18 months
+
+            # Dividend from NSE corporate actions
             nse_div = db.execute("""
                 SELECT value FROM corporate_actions
                 WHERE symbol = ? AND action_type = 'DIVIDEND'
@@ -428,8 +401,48 @@ def get_ratios(symbol: str):
                 cur_price = info.get("currentPrice") or info.get("regularMarketPrice")
                 if cur_price and float(cur_price) > 0:
                     div_yield_pct = round(div_per_share / float(cur_price) * 100, 2)
+
+            # Face value from NSE equity master (EQUITY_L.csv)
+            fv_row = db.execute(
+                "SELECT face_value FROM nse_symbols WHERE symbol = ?", [sym]
+            ).fetchone()
+            if fv_row and fv_row[0]:
+                face_value = float(fv_row[0])
+
+            # ROCE = EBIT (or PBT fallback) / (Equity + Debt) * 100
+            # Use annual row first; if EBIT null (banks), sum TTM quarterly PBT
+            earnings = None
+            equity_ce = debt_ce = None
+            annual = db.execute("""
+                SELECT COALESCE(ebit, pbt), total_equity, total_debt FROM stock_fundamentals
+                WHERE symbol = ? AND period_type = 'A'
+                  AND (ebit IS NOT NULL OR pbt IS NOT NULL)
+                  AND total_equity IS NOT NULL AND total_debt IS NOT NULL
+                ORDER BY period DESC LIMIT 1
+            """, [sym]).fetchone()
+            if annual and annual[0] and annual[0] > 0:
+                earnings, equity_ce, debt_ce = annual
+            else:
+                # TTM: sum last 4 quarterly PBT/EBIT
+                ttm = db.execute("""
+                    SELECT SUM(COALESCE(ebit, pbt)), MAX(total_equity), MAX(total_debt)
+                    FROM (
+                        SELECT ebit, pbt, total_equity, total_debt
+                        FROM stock_fundamentals
+                        WHERE symbol = ? AND period_type = 'Q'
+                          AND (ebit IS NOT NULL OR pbt IS NOT NULL)
+                          AND total_equity IS NOT NULL
+                        ORDER BY period DESC LIMIT 4
+                    )
+                """, [sym]).fetchone()
+                if ttm and ttm[0] and ttm[0] > 0:
+                    earnings, equity_ce, debt_ce = ttm
+            if earnings and equity_ce:
+                ce = equity_ce + (debt_ce or 0)
+                if ce > 0:
+                    roce_pct = round(earnings / ce * 100, 2)
         except Exception:
-            pass  # fall back to Yahoo value
+            pass  # fall back to Yahoo values
 
         return {
             "symbol":                  sym,
@@ -447,7 +460,8 @@ def get_ratios(symbol: str):
             "div_yield_pct":           div_yield_pct,
             "div_per_share":           div_per_share,
             "payout_ratio_pct":        _f("payoutRatio", 100),
-            "face_value":              _f("faceValue"),
+            "face_value":              face_value,
+            "roce_pct":                roce_pct,
             "beta":                    _f("beta"),
             "52w_high":                _f("fiftyTwoWeekHigh"),
             "52w_low":                 _f("fiftyTwoWeekLow"),

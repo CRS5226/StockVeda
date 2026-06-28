@@ -53,7 +53,7 @@ export interface StockRatios {
   book_value?: number; roe_pct?: number; roa_pct?: number;
   profit_margin_pct?: number; operating_margin_pct?: number;
   eps_trailing?: number; eps_forward?: number;
-  div_yield_pct?: number; div_per_share?: number; payout_ratio_pct?: number; face_value?: number;
+  div_yield_pct?: number; div_per_share?: number; payout_ratio_pct?: number; face_value?: number; roce_pct?: number;
   beta?: number; "52w_high"?: number; "52w_low"?: number;
   avg_volume?: number; shares_outstanding?: number;
   revenue_growth_pct?: number; earnings_growth_pct?: number;

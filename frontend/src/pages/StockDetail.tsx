@@ -334,6 +334,9 @@ export default function StockDetail() {
               {latestShare?.dii_pct != null && (
                 <MetricCard label="DII %" icon={Users} value={`${fmt(latestShare.dii_pct)}%`} />
               )}
+              <MetricCard label="ROCE" value={ratios?.roce_pct != null ? `${fmt(ratios.roce_pct)}%` : "—"}
+                up={ratios?.roce_pct != null ? ratios.roce_pct > 10 : undefined} />
+              <MetricCard label="Face Value" value={ratios?.face_value != null ? `₹${ratios.face_value}` : "—"} />
             </div>
 
             {/* 52-Week Range Gauge */}

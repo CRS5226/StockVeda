@@ -220,7 +220,8 @@ CREATE TABLE IF NOT EXISTS nse_symbols (
     symbol VARCHAR PRIMARY KEY,
     company_name VARCHAR,
     series VARCHAR,
-    isin VARCHAR
+    isin VARCHAR,
+    face_value DOUBLE
 );
 
 CREATE TABLE IF NOT EXISTS mf_nav (

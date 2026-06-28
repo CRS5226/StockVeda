@@ -18,17 +18,27 @@ def run():
     reader = csv.DictReader(io.StringIO(resp.text))
     rows = []
     for row in reader:
-        sym = row.get("SYMBOL", "").strip()
-        name = row.get("NAME OF COMPANY", "").strip()
+        sym    = row.get("SYMBOL", "").strip()
+        name   = row.get("NAME OF COMPANY", "").strip()
         series = row.get(" SERIES", row.get("SERIES", "")).strip()
-        isin = row.get("ISIN NUMBER", "").strip()
+        isin   = row.get("ISIN NUMBER", "").strip()
+        fv_raw = row.get(" FACE VALUE", row.get("FACE VALUE", "")).strip()
+        try:
+            face_value = float(fv_raw) if fv_raw else None
+        except ValueError:
+            face_value = None
         if sym and series == "EQ":
-            rows.append((sym, name, series, isin))
+            rows.append((sym, name, series, isin, face_value))
 
     db = get_db()
+    # Add face_value column if it doesn't exist yet (idempotent migration)
+    try:
+        db.execute("ALTER TABLE nse_symbols ADD COLUMN face_value DOUBLE")
+    except Exception:
+        pass
     db.execute("DELETE FROM nse_symbols")
     db.executemany(
-        "INSERT OR REPLACE INTO nse_symbols (symbol, company_name, series, isin) VALUES (?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO nse_symbols (symbol, company_name, series, isin, face_value) VALUES (?, ?, ?, ?, ?)",
         rows
     )
     print(f"Seeded {len(rows)} NSE equity symbols.")
