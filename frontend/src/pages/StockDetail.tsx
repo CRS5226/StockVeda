@@ -202,7 +202,9 @@ export default function StockDetail() {
 
   // Last 10 trading days from candle data for pattern filter
   const last10Dates = new Set(candles.slice(-10).map(c => c.date.slice(0, 10)));
-  const recentPatterns = patternHits.filter(h => last10Dates.size === 0 || last10Dates.has(h.date));
+  const recentPatterns = patternHits
+    .filter(h => last10Dates.size === 0 || last10Dates.has(h.date))
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   // Filter sector comparison data client-side by selected range
   const sectorRangeMs = { "1M": 30, "3M": 91, "6M": 182, "1Y": 365 }[sectorRange] * 86_400_000;
