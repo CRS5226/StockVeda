@@ -204,14 +204,28 @@ def get_delivery(
 
 @router.get("/shareholding/{symbol}")
 def get_shareholding(symbol: str):
+    sym = symbol.upper()
     db = get_db()
     df = db.execute(
         """SELECT period, promoter_pct, promoter_pledge_pct, fii_pct, dii_pct, mf_pct, retail_pct
            FROM shareholding WHERE symbol = ? ORDER BY period DESC LIMIT 12""",
-        [symbol.upper()]
+        [sym]
     ).df()
     if df.empty:
         raise HTTPException(404, f"No shareholding data for {symbol}")
+
+    # If latest row has no FII data, fetch XBRL in background to enrich it
+    latest = df.iloc[0]
+    if latest.get("fii_pct") is None or (hasattr(latest["fii_pct"], "__float__") and latest["fii_pct"] != latest["fii_pct"]):
+        import threading
+        def _bg_xbrl():
+            try:
+                from backend.data_sync.sync_shareholding_master import fetch_and_store_one
+                fetch_and_store_one(sym)
+            except Exception:
+                pass
+        threading.Thread(target=_bg_xbrl, daemon=True).start()
+
     return df_to_records(df)
 
 

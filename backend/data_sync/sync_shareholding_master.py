@@ -3,23 +3,21 @@ Shareholding sync via NSE master API + XBRL files.
 No session cookies needed — uses nsearchives.nseindia.com static files.
 
 Step 1: GET /api/corporate-share-holdings-master → bulk promoter % for all stocks
-Step 2: For each stock with XBRL link → parse FII/DII/MF breakdown
+Step 2: Parallel XBRL download → FII/DII/MF breakdown (~10–30 seconds for all)
 """
-import time
 import httpx
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from backend.db.connection import get_db
 from backend.data_sync.base import log_sync
 
-SOURCE_ID   = "nse_shareholding_master"
-MASTER_URL  = "https://www.nseindia.com/api/corporate-share-holdings-master"
-HEADERS     = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-               "Accept": "application/json, text/plain, */*"}
-XBRL_NS     = "http://www.bseindia.com/xbrl/shp/2025-10-31/in-bse-shp"
-SLEEP_XBRL  = 0.3   # seconds between XBRL downloads
+SOURCE_ID  = "nse_shareholding_master"
+MASTER_URL = "https://www.nseindia.com/api/corporate-share-holdings-master"
+HEADERS    = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              "Accept": "application/json, text/plain, */*"}
+XBRL_NS    = "http://www.bseindia.com/xbrl/shp/2025-10-31/in-bse-shp"
 
-# XBRL context → shareholding table column
 XBRL_CTX_MAP = {
     "ShareholdingOfPromoterAndPromoterGroup_ContextI": "promoter_pct",
     "InstitutionsForeign_ContextI":                    "fii_pct",
@@ -32,7 +30,6 @@ PCT_TAG = f"{{{XBRL_NS}}}ShareholdingAsAPercentageOfTotalNumberOfShares"
 
 
 def _parse_xbrl(xml_text: str) -> dict:
-    """Parse XBRL and return {column: float_pct} dict."""
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -49,77 +46,36 @@ def _parse_xbrl(xml_text: str) -> dict:
     return result
 
 
-def run(index: str = "equities", parse_xbrl: bool = True, limit: int = 0):
-    """
-    index: 'equities' or 'sme'
-    parse_xbrl: if True, download each stock's XBRL for FII/DII breakdown
-    limit: 0 = all stocks
-    """
-    client = httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True)
+def fetch_xbrl_for_symbol(xbrl_url: str) -> dict:
+    """Download and parse a single XBRL file. Returns {} on failure."""
+    try:
+        r = httpx.get(xbrl_url, headers=HEADERS, timeout=15)
+        return _parse_xbrl(r.text) if r.status_code == 200 else {}
+    except Exception:
+        return {}
 
-    print(f"[{SOURCE_ID}] Fetching master shareholding list ({index})...")
-    resp = client.get(MASTER_URL, params={"index": index})
-    resp.raise_for_status()
-    records = resp.json()
-    print(f"[{SOURCE_ID}] Got {len(records)} records")
 
-    if limit:
-        records = records[:limit]
+def _record_to_base_row(rec: dict) -> dict:
+    """Convert master API record to a base shareholding row."""
+    try:
+        period = date.fromisoformat(_convert_date(rec.get("date", "")))
+    except Exception:
+        period = date.today()
+    return {
+        "symbol":              rec.get("symbol", "").strip(),
+        "period":              period,
+        "promoter_pct":        _safe_float(rec.get("pr_and_prgrp")),
+        "retail_pct":          _safe_float(rec.get("public_val")),
+        "fii_pct":             None,
+        "dii_pct":             None,
+        "mf_pct":              None,
+        "government_pct":      None,
+        "promoter_pledge_pct": None,
+        "xbrl_url":            rec.get("xbrl") or None,
+    }
 
-    rows = []
-    failed = 0
 
-    for i, rec in enumerate(records):
-        sym = rec.get("symbol", "").strip()
-        if not sym:
-            continue
-
-        try:
-            period = date.fromisoformat(
-                rec["date"].split()[0]  # "31-MAR-2026" → need conversion
-                if "-" not in rec.get("date", "")
-                else _convert_date(rec.get("date", ""))
-            )
-        except Exception:
-            period = date.today()
-
-        promoter = _safe_float(rec.get("pr_and_prgrp"))
-        retail   = _safe_float(rec.get("public_val"))
-
-        row = {
-            "symbol":        sym,
-            "period":        period,
-            "promoter_pct":  promoter,
-            "retail_pct":    retail,
-            "fii_pct":       None,
-            "dii_pct":       None,
-            "mf_pct":        None,
-            "government_pct": None,
-            "promoter_pledge_pct": None,
-        }
-
-        # Parse XBRL for detailed breakdown
-        if parse_xbrl and rec.get("xbrl"):
-            try:
-                xbrl_resp = client.get(rec["xbrl"])
-                if xbrl_resp.status_code == 200:
-                    parsed = _parse_xbrl(xbrl_resp.text)
-                    row.update(parsed)
-                time.sleep(SLEEP_XBRL)
-            except Exception as e:
-                failed += 1
-                if failed <= 5:
-                    print(f"[{SOURCE_ID}] WARN XBRL {sym}: {e}")
-
-        rows.append(row)
-
-        if (i + 1) % 100 == 0:
-            print(f"[{SOURCE_ID}] {i+1}/{len(records)} processed ({failed} XBRL fails)...")
-
-    if not rows:
-        print(f"[{SOURCE_ID}] No rows to insert")
-        return
-
+def _upsert_rows(rows: list[dict]):
     db = get_db()
     db.executemany("""
         INSERT OR REPLACE INTO shareholding
@@ -129,15 +85,86 @@ def run(index: str = "equities", parse_xbrl: bool = True, limit: int = 0):
     """, [
         (r["symbol"], r["period"], r["promoter_pct"], r["promoter_pledge_pct"],
          r["fii_pct"], r["dii_pct"], r["mf_pct"], r["retail_pct"], r["government_pct"])
-        for r in rows
+        for r in rows if r.get("symbol")
     ])
+
+
+def run_parallel(index: str = "equities", workers: int = 20, limit: int = 0):
+    """
+    Full sync: master API → parallel XBRL downloads → DB upsert.
+    ~10–30 seconds for all 2301 stocks with 20 workers.
+    """
+    client = httpx.Client(headers=HEADERS, timeout=30)
+
+    print(f"[{SOURCE_ID}] Fetching master list ({index})...")
+    resp = client.get(MASTER_URL, params={"index": index})
+    resp.raise_for_status()
+    records = resp.json()
+    if limit:
+        records = records[:limit]
+    print(f"[{SOURCE_ID}] {len(records)} records, starting parallel XBRL ({workers} workers)...")
+
+    base_rows = {rec["symbol"]: _record_to_base_row(rec) for rec in records if rec.get("symbol")}
+
+    failed = 0
+    done = 0
+
+    def _fetch(sym_url):
+        sym, url = sym_url
+        return sym, fetch_xbrl_for_symbol(url) if url else {}
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_fetch, (sym, row["xbrl_url"])): sym
+            for sym, row in base_rows.items()
+        }
+        for future in as_completed(futures):
+            sym, parsed = future.result()
+            if parsed:
+                base_rows[sym].update(parsed)
+            else:
+                failed += 1
+            done += 1
+            if done % 200 == 0:
+                print(f"[{SOURCE_ID}] {done}/{len(base_rows)} XBRL done ({failed} failed)...")
+
+    rows = list(base_rows.values())
+    _upsert_rows(rows)
     log_sync(SOURCE_ID, "success", len(rows), date.today())
     print(f"[{SOURCE_ID}] Done: {len(rows)} symbols, {failed} XBRL failures")
 
 
 def run_fast(index: str = "equities"):
-    """Quick sync — master API only (promoter + public %, no XBRL). ~5 seconds."""
-    run(index=index, parse_xbrl=False)
+    """Quick sync — promoter + public % only (no XBRL). ~5 seconds."""
+    client = httpx.Client(headers=HEADERS, timeout=30)
+    resp = client.get(MASTER_URL, params={"index": index})
+    resp.raise_for_status()
+    records = resp.json()
+    rows = [_record_to_base_row(r) for r in records if r.get("symbol")]
+    _upsert_rows(rows)
+    log_sync(SOURCE_ID, "success", len(rows), date.today())
+    print(f"[{SOURCE_ID}] Fast sync done: {len(rows)} symbols")
+
+
+def fetch_and_store_one(symbol: str) -> dict | None:
+    """
+    Fetch XBRL for a single symbol on-demand (called when user views a stock).
+    Returns the parsed shareholding dict or None.
+    """
+    client = httpx.Client(headers=HEADERS, timeout=30)
+    resp = client.get(MASTER_URL, params={"index": "equities"})
+    if resp.status_code != 200:
+        return None
+    records = resp.json()
+    rec = next((r for r in records if r.get("symbol") == symbol), None)
+    if not rec:
+        return None
+    row = _record_to_base_row(rec)
+    if rec.get("xbrl"):
+        parsed = fetch_xbrl_for_symbol(rec["xbrl"])
+        row.update(parsed)
+    _upsert_rows([row])
+    return row
 
 
 def _safe_float(val) -> float | None:
@@ -148,7 +175,6 @@ def _safe_float(val) -> float | None:
 
 
 def _convert_date(s: str) -> str:
-    """'31-MAR-2026' → '2026-03-31'"""
     months = {"JAN":"01","FEB":"02","MAR":"03","APR":"04","MAY":"05","JUN":"06",
               "JUL":"07","AUG":"08","SEP":"09","OCT":"10","NOV":"11","DEC":"12"}
     parts = s.strip().upper().split("-")
@@ -160,8 +186,7 @@ def _convert_date(s: str) -> str:
 
 if __name__ == "__main__":
     import sys
-    fast = "--fast" in sys.argv
-    if fast:
+    if "--fast" in sys.argv:
         run_fast()
     else:
-        run()
+        run_parallel()
