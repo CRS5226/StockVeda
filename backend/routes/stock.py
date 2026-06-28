@@ -873,6 +873,81 @@ def get_correlation_matrix(symbols: str, days: int = 252):
     return {"symbols": present, "matrix": matrix}
 
 
+@router.get("/bulk-deals/sync")
+def sync_bulk_deals(days: int = 30):
+    import requests as _req
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_deals (
+            date DATE, symbol VARCHAR, scrip_name VARCHAR,
+            client_name VARCHAR, buy_sell VARCHAR, quantity BIGINT, price DOUBLE
+        )
+    """)
+    sess = _req.Session()
+    sess.headers.update({
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.nseindia.com/",
+    })
+    sess.get("https://www.nseindia.com/", timeout=15)
+    sess.get("https://www.nseindia.com/market-data/large-deals", timeout=15)
+    from_d = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
+    to_d   = pd.Timestamp.now().date()
+    resp = sess.get(
+        f"https://www.nseindia.com/api/historicalOR/bulk-block-short-deals"
+        f"?optionType=bulk_deals&from={from_d.strftime('%d-%m-%Y')}&to={to_d.strftime('%d-%m-%Y')}",
+        timeout=20
+    )
+    resp.raise_for_status()
+    raw = resp.json().get("data", [])
+    records = []
+    for d in raw:
+        try:
+            records.append({
+                "date":        pd.to_datetime(d["BD_DT_DATE"], format="%d-%b-%Y").date(),
+                "symbol":      d["BD_SYMBOL"].strip().upper(),
+                "scrip_name":  d.get("BD_SCRIP_NAME", ""),
+                "client_name": d.get("BD_CLIENT_NAME", ""),
+                "buy_sell":    d.get("BD_BUY_SELL", ""),
+                "quantity":    int(d.get("BD_QTY_TRD", 0)),
+                "price":       float(d.get("BD_TP_WATP", 0)),
+            })
+        except Exception:
+            continue
+    if records:
+        df = pd.DataFrame(records)
+        db.execute("DELETE FROM bulk_deals WHERE date >= ? AND date <= ?", [from_d, to_d])
+        db.execute("INSERT INTO bulk_deals SELECT * FROM df")
+    return {"synced": len(records), "from": str(from_d), "to": str(to_d)}
+
+
+@router.get("/bulk-deals")
+def get_bulk_deals(symbols: str = "", days: int = 30):
+    db = get_db()
+    try:
+        db.execute("SELECT 1 FROM bulk_deals LIMIT 1")
+    except Exception:
+        return []
+    from_d = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
+    if symbols:
+        syms = [s.strip().upper() for s in symbols.split(",")][:12]
+        rows = db.execute(f"""
+            SELECT date, symbol, scrip_name, client_name, buy_sell, quantity, price
+            FROM bulk_deals WHERE symbol IN ({','.join('?'*len(syms))}) AND date >= ?
+            ORDER BY date DESC, symbol
+        """, syms + [from_d]).fetchall()
+    else:
+        rows = db.execute("""
+            SELECT date, symbol, scrip_name, client_name, buy_sell, quantity, price
+            FROM bulk_deals WHERE date >= ?
+            ORDER BY date DESC, symbol LIMIT 200
+        """, [from_d]).fetchall()
+    return [{"date": str(r[0]), "symbol": r[1], "scrip_name": r[2],
+             "client_name": r[3], "buy_sell": r[4], "quantity": r[5], "price": r[6]}
+            for r in rows]
+
+
 @router.get("/common-holders")
 def get_common_holders(symbols: str):
     syms = [s.strip().upper() for s in symbols.split(",")][:12]

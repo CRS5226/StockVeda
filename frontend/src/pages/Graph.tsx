@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { GitBranch, X, Plus, Search } from "lucide-react";
+import { GitBranch, X, Plus, Search, RefreshCw } from "lucide-react";
 import { api, type CorrelationMatrix, type CommonHolderPair } from "../lib/api";
+
+type BulkDeal = { date: string; symbol: string; scrip_name: string; client_name: string; buy_sell: string; quantity: number; price: number };
 
 const DEFAULT_SYMBOLS = ["RELIANCE", "HDFCBANK", "INFY", "TCS", "ICICIBANK", "SBIN"];
 const PERIOD_DAYS: Record<string, number> = { "1M": 30, "3M": 90, "6M": 182, "1Y": 365 };
@@ -229,16 +231,84 @@ function OwnershipTable({ pairs }: { pairs: CommonHolderPair[] }) {
   );
 }
 
+// ── Bulk Deals table ─────────────────────────────────────────────────────────
+function BulkDealsTable({ deals, syncing, onSync }: { deals: BulkDeal[]; syncing: boolean; onSync: () => void }) {
+  const navigate = useNavigate();
+  const fmtQty = (n: number) => n >= 1e7 ? `${(n/1e7).toFixed(2)}Cr` : n >= 1e5 ? `${(n/1e5).toFixed(1)}L` : n.toLocaleString();
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-slate-400">
+          NSE bulk deals (&gt;0.5% of company equity) — who is buying/selling large blocks
+        </p>
+        <button onClick={onSync} disabled={syncing}
+          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors
+            ${syncing ? "text-blue-400 border-blue-200 bg-blue-50 cursor-not-allowed"
+                      : "text-slate-500 border-slate-200 bg-white hover:border-blue-300 hover:text-blue-600"}`}>
+          <RefreshCw size={11} className={syncing ? "animate-spin" : ""} />
+          {syncing ? "Syncing…" : "Sync from NSE"}
+        </button>
+      </div>
+
+      {deals.length === 0 ? (
+        <div className="py-12 text-center text-xs text-slate-400">
+          No bulk deal data yet.{" "}
+          <button onClick={onSync} disabled={syncing} className="text-blue-500 underline">
+            Click "Sync from NSE"
+          </button>{" "}
+          to fetch the last 30 days.
+        </div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
+              <th className="text-left py-2 px-3">Date</th>
+              <th className="text-left py-2 px-3">Symbol</th>
+              <th className="text-left py-2 px-3">Institution / Client</th>
+              <th className="text-center py-2 px-3">Action</th>
+              <th className="text-right py-2 px-3">Qty</th>
+              <th className="text-right py-2 px-3">Avg Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deals.map((d, i) => (
+              <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{d.date}</td>
+                <td className="py-2 px-3">
+                  <button onClick={() => navigate(`/stock/${d.symbol}`)}
+                    className="text-blue-600 hover:underline font-semibold">{d.symbol}</button>
+                </td>
+                <td className="py-2 px-3 text-slate-600 max-w-[220px] truncate" title={d.client_name}>{d.client_name}</td>
+                <td className="py-2 px-3 text-center">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold
+                    ${d.buy_sell === "BUY" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                    {d.buy_sell}
+                  </span>
+                </td>
+                <td className="py-2 px-3 text-right text-slate-600">{fmtQty(d.quantity)}</td>
+                <td className="py-2 px-3 text-right text-slate-700 font-medium">₹{d.price.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function Graph() {
   const [symbols, setSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
-  const [graphTab, setGraphTab] = useState<"correlation" | "ownership">("correlation");
+  const [graphTab, setGraphTab] = useState<"correlation" | "ownership" | "deals">("correlation");
   const [period, setPeriod] = useState("3M");
   const [view, setView] = useState<"heatmap" | "table">("heatmap");
   const [matrix, setMatrix] = useState<CorrelationMatrix | null>(null);
   const [holders, setHolders] = useState<CommonHolderPair[]>([]);
+  const [deals, setDeals] = useState<BulkDeal[]>([]);
   const [loading, setLoading] = useState(false);
   const [holdersLoading, setHoldersLoading] = useState(false);
+  const [dealsLoading, setDealsLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Fetch correlation matrix
   useEffect(() => {
@@ -255,6 +325,23 @@ export default function Graph() {
     api.getCommonHolders(symbols)
       .then(setHolders).catch(() => setHolders([])).finally(() => setHoldersLoading(false));
   }, [symbols]);
+
+  // Fetch bulk deals for selected symbols
+  useEffect(() => {
+    setDealsLoading(true);
+    api.getBulkDeals(symbols, 30)
+      .then(setDeals).catch(() => setDeals([])).finally(() => setDealsLoading(false));
+  }, [symbols]);
+
+  const handleSyncDeals = async () => {
+    setSyncing(true);
+    try {
+      await api.syncBulkDeals(30);
+      const fresh = await api.getBulkDeals(symbols, 30);
+      setDeals(fresh);
+    } catch { /* ignore */ }
+    finally { setSyncing(false); }
+  };
 
   const removeSymbol = (s: string) => setSymbols(prev => prev.filter(x => x !== s));
   const addSymbol    = (s: string) => {
@@ -295,11 +382,11 @@ export default function Graph() {
         <div className="flex flex-wrap items-center gap-3">
           {/* Tab */}
           <div className="flex gap-1 bg-white border border-slate-200 rounded-lg p-1">
-            {(["correlation", "ownership"] as const).map(t => (
+            {([["correlation", "Price Correlation"], ["ownership", "Institutional Ownership"], ["deals", "Bulk Deals"]] as const).map(([t, label]) => (
               <button key={t} onClick={() => setGraphTab(t)}
-                className={`px-3 py-1 text-xs font-medium rounded capitalize transition-colors
+                className={`px-3 py-1 text-xs font-medium rounded transition-colors
                   ${graphTab === t ? "bg-blue-600 text-white" : "text-slate-500 hover:text-slate-700"}`}>
-                {t === "correlation" ? "Price Correlation" : "Institutional Ownership"}
+                {label}
               </button>
             ))}
           </div>
@@ -361,6 +448,19 @@ export default function Graph() {
               {!holdersLoading && <OwnershipTable pairs={holders} />}
             </>
           )}
+
+          {graphTab === "deals" && (
+            <>
+              {dealsLoading && (
+                <div className="flex items-center justify-center py-16">
+                  <div className="text-xs text-slate-400 animate-pulse">Loading bulk deals…</div>
+                </div>
+              )}
+              {!dealsLoading && (
+                <BulkDealsTable deals={deals} syncing={syncing} onSync={handleSyncDeals} />
+              )}
+            </>
+          )}
         </div>
 
         {/* Explainer */}
@@ -376,6 +476,12 @@ export default function Graph() {
             Compares what % FII and mutual funds hold in common across stocks.
             When institutions heavily own two stocks, they tend to sell both together in risk-off events.
             High overlap = correlated sell-offs even if price patterns look different.
+          </div>
+          <div className="bg-white border border-slate-100 rounded-lg p-3">
+            <div className="font-semibold text-slate-600 mb-1">Bulk Deals</div>
+            NSE bulk deals are trades &gt;0.5% of a company's equity in a single session.
+            These reveal when large institutions, FIIs, or insiders are accumulating or exiting.
+            Data sourced live from NSE — sync to get the latest 30 days.
           </div>
         </div>
 

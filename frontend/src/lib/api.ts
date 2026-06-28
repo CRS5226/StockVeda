@@ -433,6 +433,13 @@ export const api = {
   getCandlePatterns: (symbol: string, limit = 500) =>
     apiFetch<import("./candlePatterns").PatternHit[]>(`/v1/candle-patterns/${symbol}?limit=${limit}`),
 
+  syncBulkDeals: (days = 30) =>
+    apiFetch<{ synced: number; from: string; to: string }>(`/stock/bulk-deals/sync?days=${days}`),
+  getBulkDeals: (symbols: string[], days = 30) =>
+    apiFetch<{ date: string; symbol: string; scrip_name: string; client_name: string; buy_sell: string; quantity: number; price: number }[]>(
+      `/stock/bulk-deals?symbols=${symbols.join(",")}&days=${days}`
+    ),
+
   getOutlook: (symbol: string) =>
     apiFetch<{
       score: number; label: string;
