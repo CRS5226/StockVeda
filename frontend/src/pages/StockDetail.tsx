@@ -341,6 +341,12 @@ export default function StockDetail() {
               <MetricCard label="ROCE" value={ratios?.roce_pct != null ? `${fmt(ratios.roce_pct)}%` : "—"}
                 up={ratios?.roce_pct != null ? ratios.roce_pct > 10 : undefined} />
               <MetricCard label="Face Value" value={ratios?.face_value != null ? `₹${ratios.face_value}` : "—"} />
+              <MetricCard label="PEG Ratio" value={ratios?.peg_ratio != null ? fmt(ratios.peg_ratio) : "—"}
+                up={ratios?.peg_ratio != null ? ratios.peg_ratio < 1 : undefined} />
+              {ratios?.div_streak != null && ratios.div_streak > 0 && (
+                <MetricCard label="Div Streak" value={`${ratios.div_streak} yrs ↑`}
+                  up={ratios.div_streak >= 3} />
+              )}
             </div>
 
             {/* Bank KPIs — GNPA, NPA, NII, CET1 (only when data available) */}
@@ -373,6 +379,49 @@ export default function StockDetail() {
                 </div>
               );
             })()}
+
+            {/* EPS Beat/Miss — last 4 quarters */}
+            {ratios?.eps_history && ratios.eps_history.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="text-xs text-slate-400 font-medium mb-2">EPS — Actual vs Estimate (last 4 quarters)</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-400 border-b border-slate-100">
+                        <th className="text-left pb-1 font-medium">Quarter</th>
+                        <th className="text-right pb-1 font-medium">Estimate</th>
+                        <th className="text-right pb-1 font-medium">Actual</th>
+                        <th className="text-right pb-1 font-medium">Surprise</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...ratios.eps_history].reverse().map((row) => {
+                        const beat = row.surprise_pct != null && row.surprise_pct > 0;
+                        const miss = row.surprise_pct != null && row.surprise_pct < 0;
+                        return (
+                          <tr key={row.quarter} className="border-b border-slate-50 last:border-0">
+                            <td className="py-1 text-slate-500">
+                              {new Date(row.quarter).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}
+                            </td>
+                            <td className="py-1 text-right text-slate-500">
+                              {row.eps_estimate != null ? `₹${row.eps_estimate}` : "—"}
+                            </td>
+                            <td className={`py-1 text-right font-medium ${beat ? "text-emerald-600" : miss ? "text-red-500" : "text-slate-700"}`}>
+                              ₹{row.eps_actual}
+                            </td>
+                            <td className={`py-1 text-right font-semibold ${beat ? "text-emerald-600" : miss ? "text-red-500" : "text-slate-400"}`}>
+                              {row.surprise_pct != null
+                                ? `${beat ? "+" : ""}${fmt(row.surprise_pct)}%`
+                                : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* 52-Week Range Gauge */}
             {ratios?.["52w_high"] != null && ratios?.["52w_low"] != null && last && (

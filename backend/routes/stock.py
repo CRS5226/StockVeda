@@ -502,6 +502,58 @@ def get_ratios(symbol: str):
         except Exception:
             pass  # fall back to Yahoo values
 
+        # PEG Ratio = P/E ÷ EPS growth rate
+        peg_ratio = None
+        pe_val = _f("trailingPE")
+        eg_val = _f("earningsGrowth", 100)
+        if pe_val and eg_val and eg_val > 0:
+            peg_ratio = round(pe_val / eg_val, 2)
+
+        # Dividend growth streak — consecutive years of YoY increase (exclude current year)
+        div_streak = None
+        try:
+            from datetime import date as _date
+            cur_yr = _date.today().year
+            div_rows = db.execute("""
+                SELECT year(ex_date) as yr, SUM(value) as total
+                FROM corporate_actions
+                WHERE symbol = ? AND action_type = 'DIVIDEND' AND value > 0
+                  AND year(ex_date) < ?
+                GROUP BY yr ORDER BY yr
+            """, [sym, cur_yr]).fetchall()
+            if len(div_rows) >= 2:
+                streak = 0
+                for i in range(len(div_rows) - 1, 0, -1):
+                    if div_rows[i][1] > div_rows[i - 1][1]:
+                        streak += 1
+                    else:
+                        break
+                div_streak = streak
+        except Exception:
+            pass
+
+        # EPS beat/miss — last 4 quarters actual vs estimate
+        eps_history = None
+        try:
+            import math
+            eh = t.earnings_history
+            if eh is not None and not eh.empty:
+                eps_history = []
+                for idx, row in eh.iterrows():
+                    actual   = row.get("epsActual")
+                    estimate = row.get("epsEstimate")
+                    surprise = row.get("surprisePercent")
+                    if actual is None or (isinstance(actual, float) and math.isnan(actual)):
+                        continue
+                    eps_history.append({
+                        "quarter":      str(idx)[:10],
+                        "eps_actual":   round(float(actual), 2),
+                        "eps_estimate": round(float(estimate), 2) if estimate and not math.isnan(float(estimate)) else None,
+                        "surprise_pct": round(float(surprise) * 100, 2) if surprise and not math.isnan(float(surprise)) else None,
+                    })
+        except Exception:
+            pass
+
         return {
             "symbol":                  sym,
             "market_cap_cr":           _f("marketCap", 1 / 1e7),
@@ -520,6 +572,9 @@ def get_ratios(symbol: str):
             "payout_ratio_pct":        _f("payoutRatio", 100),
             "face_value":              face_value,
             "roce_pct":                roce_pct,
+            "peg_ratio":               peg_ratio,
+            "div_streak":              div_streak,
+            "eps_history":             eps_history,
             "beta":                    _f("beta"),
             "52w_high":                _f("fiftyTwoWeekHigh"),
             "52w_low":                 _f("fiftyTwoWeekLow"),

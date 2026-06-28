@@ -47,6 +47,12 @@ export interface InsiderTrade {
   person_name: string; person_category: string; trade_date: string;
   transaction_type: string; quantity: number; price?: number; filing_date: string;
 }
+export interface EpsHistoryItem {
+  quarter: string;
+  eps_actual: number;
+  eps_estimate: number | null;
+  surprise_pct: number | null;
+}
 export interface StockRatios {
   symbol: string;
   market_cap_cr?: number; pe_ratio?: number; forward_pe?: number; pb_ratio?: number;
@@ -54,6 +60,7 @@ export interface StockRatios {
   profit_margin_pct?: number; operating_margin_pct?: number;
   eps_trailing?: number; eps_forward?: number;
   div_yield_pct?: number; div_per_share?: number; payout_ratio_pct?: number; face_value?: number; roce_pct?: number;
+  peg_ratio?: number; div_streak?: number; eps_history?: EpsHistoryItem[];
   beta?: number; "52w_high"?: number; "52w_low"?: number;
   avg_volume?: number; shares_outstanding?: number;
   revenue_growth_pct?: number; earnings_growth_pct?: number;
