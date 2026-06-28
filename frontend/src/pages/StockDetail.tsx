@@ -343,13 +343,18 @@ export default function StockDetail() {
               <MetricCard label="Face Value" value={ratios?.face_value != null ? `₹${ratios.face_value}` : "—"} />
             </div>
 
-            {/* Bank KPIs — GNPA, NPA, NII, CRAR (only when data available) */}
+            {/* Bank KPIs — GNPA, NPA, NII, CET1 (only when data available) */}
             {bankFinancials && bankFinancials.length > 0 && (() => {
               const latest = bankFinancials[0];
+              const periodLabel = latest.period
+                ? new Date(latest.period).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+                : "";
+              const capitalPct = latest.crar_pct ?? latest.cet1_pct;
+              const capitalLabel = latest.crar_pct != null ? "CRAR %" : "CET1 %";
               return (
                 <div className="mt-3 pt-3 border-t border-slate-100">
                   <div className="text-xs text-slate-400 font-medium mb-2">
-                    Bank KPIs — Q{latest.period?.slice(0, 7)}
+                    Bank KPIs — {periodLabel}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <MetricCard label="GNPA %" value={latest.gnpa_pct != null ? `${fmt(latest.gnpa_pct)}%` : "—"}
@@ -360,9 +365,9 @@ export default function StockDetail() {
                       up={latest.nii_cr != null ? latest.nii_cr > 0 : undefined} />
                     <MetricCard label="PPOP" value={latest.ppop_cr != null ? `₹${fmt(latest.ppop_cr)}Cr` : "—"}
                       up={latest.ppop_cr != null ? latest.ppop_cr > 0 : undefined} />
-                    <MetricCard label="CRAR %" value={latest.crar_pct != null ? `${fmt(latest.crar_pct)}%` : "—"}
-                      up={latest.crar_pct != null ? latest.crar_pct > 12 : undefined} />
-                    <MetricCard label="ROA" value={latest.roa != null ? `${fmt(latest.roa)}%` : "—"}
+                    <MetricCard label={capitalLabel} value={capitalPct != null ? `${fmt(capitalPct)}%` : "—"}
+                      up={capitalPct != null ? capitalPct > 12 : undefined} />
+                    <MetricCard label="ROA (Q)" value={latest.roa != null ? `${fmt(latest.roa)}%` : "—"}
                       up={latest.roa != null ? latest.roa > 1 : undefined} />
                   </div>
                 </div>
