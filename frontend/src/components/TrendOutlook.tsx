@@ -21,11 +21,16 @@ export interface OutlookData {
   pattern_stats: PatternStat[];
 }
 
+interface LastCandle {
+  date: string; open: number; high: number; low: number; close: number; volume: number;
+}
+
 interface Props {
   symbol: string;
   data: OutlookData | null;
   loading?: boolean;
   sidebar?: boolean;
+  lastCandle?: LastCandle | null;
 }
 
 const LABEL_COLOR: Record<string, string> = {
@@ -94,37 +99,77 @@ function bestWindow(ps: PatternStat): { days: number; winPct: number; avgWin: nu
 function round2(n: number) { return Math.round(n * 100) / 100; }
 function fmtPrice(p: number) { return p >= 1000 ? p.toFixed(1) : p.toFixed(2); }
 
-/** Generate invalidation conditions from pattern direction + current indicators */
-function invalidations(ps: PatternStat, ind: OutlookData["indicators"]): string[] {
+function fmtVol(v: number): string {
+  if (v >= 1e7) return `${(v / 1e7).toFixed(2)} Cr`;
+  if (v >= 1e5) return `${(v / 1e5).toFixed(1)} L`;
+  return v.toLocaleString("en-IN");
+}
+
+/** Generate invalidation conditions with real price/volume numbers from candle data */
+function invalidations(
+  ps: PatternStat,
+  ind: OutlookData["indicators"],
+  candle?: LastCandle | null,
+): string[] {
   const isBullish = ps.direction !== "bearish";
   const items: string[] = [];
 
+  // SMA20 price (back-calculate from diff%)
+  const sma20Price = ind.sma20_diff_pct != null
+    ? ind.close / (1 + ind.sma20_diff_pct / 100)
+    : null;
+
   if (isBullish) {
+    // 1. Price-level invalidation with exact number
+    if (candle)
+      items.push(`Close below ₹${fmtPrice(candle.low)} — pattern candle's low (${ps.name} invalidated)`);
+
+    // 2. Volume confirmation with actual number
+    if (candle)
+      items.push(`Next-day volume below ${fmtVol(candle.volume)} — today's volume (weak follow-through)`);
+
+    // 3. RSI-based with number
     if (ind.rsi > 68)
-      items.push(`RSI at ${ind.rsi} — already elevated, upside room limited`);
-    else if (ind.rsi > 60)
-      items.push(`RSI at ${ind.rsi} — watch for momentum stall above 70`);
-    if (ind.sma20_diff_pct != null && ind.sma20_diff_pct > 6)
-      items.push(`Price ${ind.sma20_diff_pct}% above SMA20 — extended, may pull back first`);
-    items.push("Next candle closes below pattern candle's low");
-    items.push("Volume on follow-through day is below today's volume");
-    items.push("Broad market (NIFTY 50) breaks below recent swing low");
+      items.push(`RSI already at ${ind.rsi} — elevated, limited upside room before hitting 70+`);
+    else if (ind.rsi > 58)
+      items.push(`RSI at ${ind.rsi} — if it fails to cross above 65, momentum stalling`);
+    else
+      items.push(`RSI at ${ind.rsi} — if it fails to rise next session, trend not confirming`);
+
+    // 4. SMA20 reference
+    if (sma20Price != null && ind.sma20_diff_pct != null) {
+      if (ind.sma20_diff_pct > 6)
+        items.push(`Already ${ind.sma20_diff_pct}% above SMA20 (≈₹${fmtPrice(sma20Price)}) — stretched, wait for retest`);
+      else
+        items.push(`SMA20 support at ≈₹${fmtPrice(sma20Price)} — close below it would cancel the setup`);
+    }
   } else {
+    // Bearish invalidations
+    if (candle)
+      items.push(`Close above ₹${fmtPrice(candle.high)} — pattern candle's high (${ps.name} invalidated)`);
+
+    if (candle)
+      items.push(`Next-day volume below ${fmtVol(candle.volume)} — weak selling pressure follow-through`);
+
     if (ind.rsi < 32)
-      items.push(`RSI at ${ind.rsi} — oversold, short-covering bounce likely`);
-    else if (ind.rsi < 40)
-      items.push(`RSI at ${ind.rsi} — approaching oversold, watch for snap-back`);
-    if (ind.sma20_diff_pct != null && ind.sma20_diff_pct < -6)
-      items.push(`Price ${Math.abs(ind.sma20_diff_pct)}% below SMA20 — extended sell-off, mean-reversion risk`);
-    items.push("Next candle closes above pattern candle's high");
-    items.push("Buying volume surges — institution accumulation signal");
-    items.push("Broad market (NIFTY 50) breaks out above resistance");
+      items.push(`RSI at ${ind.rsi} — already oversold, short-covering bounce likely`);
+    else if (ind.rsi < 42)
+      items.push(`RSI at ${ind.rsi} — approaching oversold; if it bounces above 45, exit`);
+    else
+      items.push(`RSI at ${ind.rsi} — if it rises next session instead of falling, bears losing control`);
+
+    if (sma20Price != null && ind.sma20_diff_pct != null) {
+      if (ind.sma20_diff_pct < -6)
+        items.push(`Already ${Math.abs(ind.sma20_diff_pct)}% below SMA20 (≈₹${fmtPrice(sma20Price)}) — extended, mean-reversion risk`);
+      else
+        items.push(`SMA20 resistance at ≈₹${fmtPrice(sma20Price)} — close above it would cancel the short`);
+    }
   }
 
   return items.slice(0, 4);
 }
 
-function TradeSetup({ ps, ind }: { ps: PatternStat; ind: OutlookData["indicators"] }) {
+function TradeSetup({ ps, ind, candle }: { ps: PatternStat; ind: OutlookData["indicators"]; candle?: LastCandle | null }) {
   const useCtx = ps.ctx_occurrences >= 3 && ps.ctx_up5d_pct != null;
   const bw = bestWindow(ps);
   const entry = ind.close;
@@ -145,7 +190,7 @@ function TradeSetup({ ps, ind }: { ps: PatternStat; ind: OutlookData["indicators
   const winPct  = useCtx ? (ps.ctx_up5d_pct ?? ps.up5d_pct) : ps.up5d_pct;
   const samples = useCtx ? ps.ctx_occurrences : ps.occurrences;
 
-  const skips = invalidations(ps, ind);
+  const skips = invalidations(ps, ind, candle);
 
   const rrColor = rr == null ? "text-slate-500"
     : rr >= 2 ? "text-emerald-600" : rr >= 1.5 ? "text-amber-600" : "text-red-500";
@@ -214,7 +259,7 @@ function TradeSetup({ ps, ind }: { ps: PatternStat; ind: OutlookData["indicators
   );
 }
 
-function Body({ symbol, data }: { symbol: string; data: OutlookData }) {
+function Body({ symbol, data, candle }: { symbol: string; data: OutlookData; candle?: LastCandle | null }) {
   return (
     <div className="space-y-3">
       {/* Score row */}
@@ -257,7 +302,7 @@ function Body({ symbol, data }: { symbol: string; data: OutlookData }) {
           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Trade Setup</div>
           <div className="space-y-2">
             {data.pattern_stats.map((ps) => (
-              <TradeSetup key={ps.pattern} ps={ps} ind={data.indicators} />
+              <TradeSetup key={ps.pattern} ps={ps} ind={data.indicators} candle={candle} />
             ))}
           </div>
           <div className="text-[9px] text-slate-300 mt-1.5">
@@ -273,7 +318,7 @@ function Body({ symbol, data }: { symbol: string; data: OutlookData }) {
   );
 }
 
-export default function TrendOutlook({ symbol, data, loading, sidebar = false }: Props) {
+export default function TrendOutlook({ symbol, data, loading, sidebar = false, lastCandle }: Props) {
   const [open, setOpen] = useState(false);
 
   if (!data && !loading) return null;
@@ -286,7 +331,7 @@ export default function TrendOutlook({ symbol, data, loading, sidebar = false }:
             <span className="text-[10px] text-slate-400 animate-pulse">Loading outlook…</span>
           </div>
         )}
-        {data && <Body symbol={symbol} data={data} />}
+        {data && <Body symbol={symbol} data={data} candle={lastCandle} />}
       </div>
     );
   }
@@ -307,7 +352,7 @@ export default function TrendOutlook({ symbol, data, loading, sidebar = false }:
         )}
         <ChevronDown size={12} className={`text-slate-400 ml-auto shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      {open && data && <div className="px-4 pb-4"><Body symbol={symbol} data={data} /></div>}
+      {open && data && <div className="px-4 pb-4"><Body symbol={symbol} data={data} candle={lastCandle} /></div>}
     </div>
   );
 }

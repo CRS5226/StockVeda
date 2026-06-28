@@ -1036,7 +1036,7 @@ export default function StockDetail() {
               {/* Trend Outlook column */}
               <div className="flex-1 p-3">
                 <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Trend Outlook</div>
-                <TrendOutlook symbol={sym} data={outlook} loading={outlookLoading} sidebar />
+                <TrendOutlook symbol={sym} data={outlook} loading={outlookLoading} sidebar lastCandle={last} />
               </div>
             </div>
           </div>
