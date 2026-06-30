@@ -880,9 +880,16 @@ def sync_bulk_deals(days: int = 30):
     db.execute("""
         CREATE TABLE IF NOT EXISTS bulk_deals (
             date DATE, symbol VARCHAR, scrip_name VARCHAR,
-            client_name VARCHAR, buy_sell VARCHAR, quantity BIGINT, price DOUBLE
+            client_name VARCHAR, buy_sell VARCHAR, quantity BIGINT, price DOUBLE,
+            deal_type VARCHAR DEFAULT 'bulk'
         )
     """)
+    # Add deal_type column if table existed without it
+    try:
+        db.execute("ALTER TABLE bulk_deals ADD COLUMN deal_type VARCHAR DEFAULT 'bulk'")
+    except Exception:
+        pass
+
     sess = _req.Session()
     sess.headers.update({
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -892,34 +899,44 @@ def sync_bulk_deals(days: int = 30):
     })
     sess.get("https://www.nseindia.com/", timeout=15)
     sess.get("https://www.nseindia.com/market-data/large-deals", timeout=15)
+
     from_d = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
     to_d   = pd.Timestamp.now().date()
-    resp = sess.get(
-        f"https://www.nseindia.com/api/historicalOR/bulk-block-short-deals"
-        f"?optionType=bulk_deals&from={from_d.strftime('%d-%m-%Y')}&to={to_d.strftime('%d-%m-%Y')}",
-        timeout=20
-    )
-    resp.raise_for_status()
-    raw = resp.json().get("data", [])
-    records = []
-    for d in raw:
+    from_s, to_s = from_d.strftime("%d-%m-%Y"), to_d.strftime("%d-%m-%Y")
+
+    all_records = []
+    for opt_type in ("bulk_deals", "block_deals", "short_deals"):
         try:
-            records.append({
-                "date":        pd.to_datetime(d["BD_DT_DATE"], format="%d-%b-%Y").date(),
-                "symbol":      d["BD_SYMBOL"].strip().upper(),
-                "scrip_name":  d.get("BD_SCRIP_NAME", ""),
-                "client_name": d.get("BD_CLIENT_NAME", ""),
-                "buy_sell":    d.get("BD_BUY_SELL", ""),
-                "quantity":    int(d.get("BD_QTY_TRD", 0)),
-                "price":       float(d.get("BD_TP_WATP", 0)),
-            })
+            resp = sess.get(
+                f"https://www.nseindia.com/api/historicalOR/bulk-block-short-deals"
+                f"?optionType={opt_type}&from={from_s}&to={to_s}",
+                timeout=20
+            )
+            resp.raise_for_status()
+            raw = resp.json().get("data", [])
         except Exception:
             continue
-    if records:
-        df = pd.DataFrame(records)
+        deal_label = opt_type.replace("_deals", "")
+        for d in raw:
+            try:
+                all_records.append({
+                    "date":        pd.to_datetime(d["BD_DT_DATE"], format="%d-%b-%Y").date(),
+                    "symbol":      d["BD_SYMBOL"].strip().upper(),
+                    "scrip_name":  d.get("BD_SCRIP_NAME", ""),
+                    "client_name": d.get("BD_CLIENT_NAME", ""),
+                    "buy_sell":    d.get("BD_BUY_SELL", ""),
+                    "quantity":    int(d.get("BD_QTY_TRD", 0)),
+                    "price":       float(d.get("BD_TP_WATP", 0)),
+                    "deal_type":   deal_label,
+                })
+            except Exception:
+                continue
+
+    if all_records:
+        df = pd.DataFrame(all_records)
         db.execute("DELETE FROM bulk_deals WHERE date >= ? AND date <= ?", [from_d, to_d])
         db.execute("INSERT INTO bulk_deals SELECT * FROM df")
-    return {"synced": len(records), "from": str(from_d), "to": str(to_d)}
+    return {"synced": len(all_records), "from": str(from_d), "to": str(to_d)}
 
 
 def _norm(name: str) -> str:
@@ -940,22 +957,22 @@ def get_bulk_deals(symbols: str = "", days: int = 30):
     if symbols:
         syms = [s.strip().upper() for s in symbols.split(",")][:12]
         rows = db.execute(f"""
-            SELECT date, symbol, scrip_name, client_name, buy_sell, quantity, price
+            SELECT date, symbol, scrip_name, client_name, buy_sell, quantity, price,
+                   COALESCE(deal_type, 'bulk') AS deal_type
             FROM bulk_deals WHERE symbol IN ({','.join('?'*len(syms))}) AND date >= ?
             ORDER BY date DESC, symbol
         """, syms + [from_d]).fetchall()
     else:
         rows = db.execute("""
-            SELECT date, symbol, scrip_name, client_name, buy_sell, quantity, price
+            SELECT date, symbol, scrip_name, client_name, buy_sell, quantity, price,
+                   COALESCE(deal_type, 'bulk') AS deal_type
             FROM bulk_deals WHERE date >= ?
             ORDER BY date DESC, symbol LIMIT 200
         """, [from_d]).fetchall()
 
-    # Build client-name → NSE symbol lookup (normalized)
     ns_rows = db.execute("SELECT symbol, company_name FROM nse_symbols WHERE company_name IS NOT NULL").fetchall()
     ns_lookup = {_norm(r[1]): r[0] for r in ns_rows}
 
-    # Date range from actual stored data
     dr = db.execute("SELECT MIN(date), MAX(date) FROM bulk_deals").fetchone()
     date_range = {"from": str(dr[0]), "to": str(dr[1])} if dr and dr[0] else None
 
@@ -966,6 +983,7 @@ def get_bulk_deals(symbols: str = "", days: int = 30):
             "date": str(r[0]), "symbol": r[1], "scrip_name": r[2],
             "client_name": r[3], "client_symbol": client_sym,
             "buy_sell": r[4], "quantity": r[5], "price": r[6],
+            "deal_type": r[7],
         })
     return {"data": data, "date_range": date_range}
 

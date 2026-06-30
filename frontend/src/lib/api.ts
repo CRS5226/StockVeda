@@ -437,7 +437,7 @@ export const api = {
     apiFetch<{ synced: number; from: string; to: string }>(`/stock/bulk-deals/sync?days=${days}`),
   getBulkDeals: (symbols: string[], days = 30) =>
     apiFetch<{
-      data: { date: string; symbol: string; scrip_name: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number }[];
+      data: { date: string; symbol: string; scrip_name: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number; deal_type: string }[];
       date_range: { from: string; to: string } | null;
     }>(`/stock/bulk-deals?symbols=${symbols.join(",")}&days=${days}`),
 
