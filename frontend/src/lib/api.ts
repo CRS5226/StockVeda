@@ -193,6 +193,18 @@ export interface DashboardData {
 
 export interface NewsItem { title: string; link: string; source: string; published_at: string }
 
+export interface OptionChainRow {
+  strike: number;
+  ce_oi: number | null; ce_oi_change: number | null; ce_ltp: number | null; ce_iv: number | null;
+  pe_oi: number | null; pe_oi_change: number | null; pe_ltp: number | null;
+  is_atm: boolean;
+}
+export interface OptionChainData {
+  symbol: string; spot: number; expiry: string; expiry_dates: string[];
+  data_date?: string;
+  pcr: number | null; max_pain: number; chain: OptionChainRow[];
+}
+
 export interface TopCorrelatedItem {
   symbol: string; company_name: string | null;
   correlation: number; days_overlap: number;
@@ -440,6 +452,15 @@ export const api = {
       data: { date: string; symbol: string; scrip_name: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number; deal_type: string }[];
       date_range: { from: string; to: string } | null;
     }>(`/stock/bulk-deals?symbols=${symbols.join(",")}&days=${days}`),
+
+  getOptionChain: (symbol: string, expiry?: string) =>
+    apiFetch<OptionChainData>(`/fno/option-chain/${encodeURIComponent(symbol)}${expiry ? `?expiry=${encodeURIComponent(expiry)}` : ""}`),
+
+  getFnoLotSizes: () =>
+    apiFetch<{ lot_sizes: Record<string, number> }>("/fno/lot-sizes"),
+
+  getFnoSymbols: () =>
+    apiFetch<{ symbols: string[] }>("/fno/symbols"),
 
   getOutlook: (symbol: string) =>
     apiFetch<{

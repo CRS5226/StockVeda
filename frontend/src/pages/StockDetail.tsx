@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useStockStore } from "../store/useStockStore";
 import { useBacktestStore } from "../store/useBacktestStore";
-import { api, type StockRatios, type SectorCompareData, type NewsItem, type Holder, type BankFinancial } from "../lib/api";
+import { api, type StockRatios, type SectorCompareData, type NewsItem, type Holder, type BankFinancial, type OptionChainData } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import CandleChart from "../components/CandleChart";
 import BacktestResults from "../components/BacktestResults";
@@ -21,7 +21,7 @@ const CANDLE_BARS: Record<string, number> = {
 };
 
 type Range = "1M" | "3M" | "6M" | "1Y" | "3Y" | "MAX";
-type Tab = "fundamentals" | "delivery" | "shareholding" | "corp" | "backtest" | "news" | "deals";
+type Tab = "fundamentals" | "delivery" | "shareholding" | "corp" | "backtest" | "news" | "deals" | "options";
 type SectorRange = "1M" | "3M" | "6M" | "1Y";
 type FundView = "pl" | "bs" | "cf";
 
@@ -77,6 +77,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "shareholding", label: "Shareholding", icon: Users },
   { id: "corp", label: "Corp Actions", icon: Building2 },
   { id: "deals", label: "Bulk/Block Deals", icon: Activity },
+  { id: "options", label: "Options Chain", icon: BarChart2 },
   { id: "news", label: "News", icon: Newspaper },
 ];
 
@@ -111,6 +112,9 @@ export default function StockDetail() {
   const [outlookLoading, setOutlookLoading] = useState(false);
   const [stockDeals, setStockDeals] = useState<{ date: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number; deal_type: string }[]>([]);
   const [dealsLoading, setDealsLoading] = useState(false);
+  const [optionChain, setOptionChain] = useState<OptionChainData | null>(null);
+  const [optionExpiry, setOptionExpiry] = useState<string | null>(null);
+  const [optionLoading, setOptionLoading] = useState(false);
 
   useEffect(() => { fetchCandles(sym, fromDate(range), true); }, [sym, range]);
 
@@ -129,6 +133,13 @@ export default function StockDetail() {
         .then(r => setStockDeals(r.data.map(d => ({ date: d.date, client_name: d.client_name, client_symbol: d.client_symbol, buy_sell: d.buy_sell, quantity: d.quantity, price: d.price, deal_type: d.deal_type }))))
         .catch(() => setStockDeals([]))
         .finally(() => setDealsLoading(false));
+    }
+    if (tab === "options") {
+      setOptionLoading(true);
+      api.getOptionChain(sym, optionExpiry ?? undefined)
+        .then(d => { setOptionChain(d); if (!optionExpiry && d.expiry_dates[0]) setOptionExpiry(d.expiry_dates[0]); })
+        .catch(() => setOptionChain(null))
+        .finally(() => setOptionLoading(false));
     }
   }, [tab, sym, fundPeriod]);
 
@@ -955,6 +966,60 @@ export default function StockDetail() {
                                 </td>
                                 <td className="py-2 px-3 text-right text-slate-600">{fmtQty(d.quantity)}</td>
                                 <td className="py-2 px-3 text-right font-medium text-slate-700">₹{d.price.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {tab === "options" && (
+                optionLoading ? (
+                  <div className="flex justify-center py-8">
+                    <div className="w-5 h-5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+                  </div>
+                ) : !optionChain ? (
+                  <div className="text-xs text-slate-400 py-6 text-center space-y-1">
+                    <div className="font-medium text-slate-500">No option chain data for {sym}</div>
+                    <div>Run the fno_bhavcopy sync to populate F&O historical data.</div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">EOD {optionChain.data_date}</span>
+                      <span className="text-[10px] text-slate-500">Spot <strong className="text-slate-700">₹{fmt(optionChain.spot)}</strong></span>
+                      {optionChain.pcr != null && <span className="text-[10px] text-slate-500">PCR <strong className={optionChain.pcr >= 1.2 ? "text-emerald-600" : optionChain.pcr <= 0.8 ? "text-red-600" : "text-amber-600"}>{optionChain.pcr.toFixed(2)}</strong></span>}
+                      <span className="text-[10px] text-slate-500">Max Pain <strong className="text-orange-600">₹{fmt(optionChain.max_pain)}</strong></span>
+                      <select value={optionExpiry ?? ""} onChange={e => { setOptionExpiry(e.target.value); setOptionLoading(true); api.getOptionChain(sym, e.target.value).then(setOptionChain).catch(() => {}).finally(() => setOptionLoading(false)); }}
+                        className="text-xs border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none">
+                        {optionChain.expiry_dates.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div className="overflow-auto max-h-[380px] rounded-lg border border-slate-100 text-xs">
+                      <table className="w-full border-collapse min-w-[480px]">
+                        <thead className="sticky top-0 bg-white z-10">
+                          <tr className="text-[9px] text-slate-400 uppercase tracking-wide border-b border-slate-200">
+                            <th className="text-right py-1.5 px-2 bg-emerald-50/40">OI</th>
+                            <th className="text-right py-1.5 px-2 bg-emerald-50/40">LTP (CE)</th>
+                            <th className="text-center py-1.5 px-2 bg-slate-50 font-bold text-slate-600">Strike</th>
+                            <th className="text-left py-1.5 px-2 bg-red-50/40">LTP (PE)</th>
+                            <th className="text-left py-1.5 px-2 bg-red-50/40">OI</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {optionChain.chain.filter(r => optionChain.spot === 0 || (r.strike >= optionChain.spot * 0.85 && r.strike <= optionChain.spot * 1.15)).map(r => {
+                            const fmtK = (n: number | null) => n == null ? "—" : n >= 100000 ? (n/100000).toFixed(1)+"L" : n >= 1000 ? (n/1000).toFixed(0)+"K" : String(n);
+                            const fmtP = (n: number | null) => n == null ? "—" : n.toFixed(2);
+                            return (
+                              <tr key={r.strike} className={`border-b border-slate-50 ${r.is_atm ? "bg-yellow-50 ring-1 ring-inset ring-yellow-200 font-semibold" : "hover:bg-slate-50/50"}`}>
+                                <td className="text-right py-1 px-2 bg-emerald-50/20 text-slate-600">{fmtK(r.ce_oi)}</td>
+                                <td className="text-right py-1 px-2 bg-emerald-50/20 text-emerald-700 font-medium">{fmtP(r.ce_ltp)}</td>
+                                <td className={`text-center py-1 px-2 bg-slate-50 font-bold ${r.is_atm ? "text-yellow-700" : "text-slate-700"}`}>{fmt(r.strike)}{r.is_atm && <span className="ml-1 text-[8px] text-yellow-500">ATM</span>}</td>
+                                <td className="text-left py-1 px-2 bg-red-50/20 text-red-700 font-medium">{fmtP(r.pe_ltp)}</td>
+                                <td className="text-left py-1 px-2 bg-red-50/20 text-slate-600">{fmtK(r.pe_oi)}</td>
                               </tr>
                             );
                           })}
