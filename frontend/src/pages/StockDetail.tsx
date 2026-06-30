@@ -405,8 +405,8 @@ export default function StockDetail() {
               </>)}
             </div>
 
-            {/* Bank KPIs — GNPA, NPA, NII, CET1 (only when data available) */}
-            {bankFinancials && bankFinancials.length > 0 && (() => {
+            {/* Bank KPIs — GNPA, NPA, NII, CET1 (only on ownership tab) */}
+            {metricsTab === "ownership" && bankFinancials && bankFinancials.length > 0 && (() => {
               const latest = bankFinancials[0];
               const periodLabel = latest.period
                 ? new Date(latest.period).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
