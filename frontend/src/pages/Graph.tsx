@@ -266,38 +266,45 @@ function BulkDealsTable({ deals, syncing, onSync, filter, onFilter, total }:
       ) : deals.length === 0 ? (
         <div className="py-8 text-center text-xs text-slate-400">No deals match "{filter}"</div>
       ) : (
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
-              <th className="text-left py-2 px-3">Date</th>
-              <th className="text-left py-2 px-3">Symbol</th>
-              <th className="text-left py-2 px-3">Institution / Client</th>
-              <th className="text-center py-2 px-3">Action</th>
-              <th className="text-right py-2 px-3">Qty</th>
-              <th className="text-right py-2 px-3">Avg Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {deals.map((d, i) => (
-              <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
-                <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{d.date}</td>
-                <td className="py-2 px-3">
-                  <button onClick={() => navigate(`/stock/${d.symbol}`)}
-                    className="text-blue-600 hover:underline font-semibold">{d.symbol}</button>
-                </td>
-                <td className="py-2 px-3 text-slate-600 max-w-[220px] truncate" title={d.client_name}>{d.client_name}</td>
-                <td className="py-2 px-3 text-center">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold
-                    ${d.buy_sell === "BUY" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-                    {d.buy_sell}
-                  </span>
-                </td>
-                <td className="py-2 px-3 text-right text-slate-600">{fmtQty(d.quantity)}</td>
-                <td className="py-2 px-3 text-right text-slate-700 font-medium">₹{d.price.toFixed(2)}</td>
+        <div className="max-h-[480px] overflow-y-auto rounded-lg border border-slate-100">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-white z-10">
+              <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                <th className="text-left py-2 px-3">Date</th>
+                <th className="text-left py-2 px-3">Symbol</th>
+                <th className="text-left py-2 px-3">Institution / Client</th>
+                <th className="text-center py-2 px-3">Action</th>
+                <th className="text-right py-2 px-3">Qty</th>
+                <th className="text-right py-2 px-3">Avg Price</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {deals.map((d, i) => (
+                <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                  <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{d.date}</td>
+                  <td className="py-2 px-3">
+                    <button onClick={() => navigate(`/stock/${d.symbol}`)}
+                      className="text-blue-600 hover:underline font-semibold block leading-tight">{d.symbol}</button>
+                    {d.scrip_name && (
+                      <span className="text-[9px] text-slate-400 leading-tight block truncate max-w-[120px]" title={d.scrip_name}>
+                        {d.scrip_name}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-3 text-slate-600 max-w-[220px] truncate" title={d.client_name}>{d.client_name}</td>
+                  <td className="py-2 px-3 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold
+                      ${d.buy_sell === "BUY" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                      {d.buy_sell}
+                    </span>
+                  </td>
+                  <td className="py-2 px-3 text-right text-slate-600">{fmtQty(d.quantity)}</td>
+                  <td className="py-2 px-3 text-right text-slate-700 font-medium">₹{d.price.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
