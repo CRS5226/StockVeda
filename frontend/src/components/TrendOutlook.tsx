@@ -296,24 +296,26 @@ function Body({ symbol, data, candle }: { symbol: string; data: OutlookData; can
         </div>
       </div>
 
-      {/* Trade setup cards (one per recent pattern) */}
-      {data.pattern_stats.length > 0 && (
-        <div>
-          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Trade Setup</div>
-          <div className="space-y-2">
-            {data.pattern_stats.map((ps) => (
-              <TradeSetup key={ps.pattern} ps={ps} ind={data.indicators} candle={candle} />
-            ))}
+      {/* Trade setup cards — only for patterns that actually formed recently */}
+      {(() => {
+        const recentCodes = new Set(data.recent_patterns);
+        const activeStats = data.pattern_stats.filter(ps => recentCodes.has(ps.pattern));
+        return activeStats.length > 0 ? (
+          <div>
+            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Trade Setup</div>
+            <div className="space-y-2">
+              {activeStats.map((ps) => (
+                <TradeSetup key={ps.pattern} ps={ps} ind={data.indicators} candle={candle} />
+              ))}
+            </div>
+            <div className="text-[9px] text-slate-300 mt-1.5">
+              Based on {symbol}'s own price history · not a guarantee · always use a stop loss
+            </div>
           </div>
-          <div className="text-[9px] text-slate-300 mt-1.5">
-            Based on {symbol}'s own price history · not a guarantee · always use a stop loss
-          </div>
-        </div>
-      )}
-
-      {data.pattern_stats.length === 0 && (
-        <div className="text-[9px] text-slate-400 text-center py-1">No recent patterns for trade setup</div>
-      )}
+        ) : (
+          <div className="text-[9px] text-slate-400 text-center py-1">No recent patterns for trade setup</div>
+        );
+      })()}
     </div>
   );
 }
