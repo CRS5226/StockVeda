@@ -232,17 +232,22 @@ function OwnershipTable({ pairs }: { pairs: CommonHolderPair[] }) {
 }
 
 // ── Bulk Deals table ─────────────────────────────────────────────────────────
-function BulkDealsTable({ deals, syncing, onSync }: { deals: BulkDeal[]; syncing: boolean; onSync: () => void }) {
+function BulkDealsTable({ deals, syncing, onSync, filter, onFilter, total }:
+  { deals: BulkDeal[]; syncing: boolean; onSync: () => void; filter: string; onFilter: (v: string) => void; total: number }) {
   const navigate = useNavigate();
   const fmtQty = (n: number) => n >= 1e7 ? `${(n/1e7).toFixed(2)}Cr` : n >= 1e5 ? `${(n/1e5).toFixed(1)}L` : n.toLocaleString();
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] text-slate-400">
-          NSE bulk deals (&gt;0.5% of company equity) — who is buying/selling large blocks
-        </p>
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input value={filter} onChange={e => onFilter(e.target.value.toUpperCase())}
+            placeholder="Filter by symbol or institution…"
+            className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-blue-400" />
+        </div>
+        <span className="text-[10px] text-slate-400">{deals.length} of {total} deals</span>
         <button onClick={onSync} disabled={syncing}
-          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors
+          className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors
             ${syncing ? "text-blue-400 border-blue-200 bg-blue-50 cursor-not-allowed"
                       : "text-slate-500 border-slate-200 bg-white hover:border-blue-300 hover:text-blue-600"}`}>
           <RefreshCw size={11} className={syncing ? "animate-spin" : ""} />
@@ -250,7 +255,7 @@ function BulkDealsTable({ deals, syncing, onSync }: { deals: BulkDeal[]; syncing
         </button>
       </div>
 
-      {deals.length === 0 ? (
+      {total === 0 ? (
         <div className="py-12 text-center text-xs text-slate-400">
           No bulk deal data yet.{" "}
           <button onClick={onSync} disabled={syncing} className="text-blue-500 underline">
@@ -258,6 +263,8 @@ function BulkDealsTable({ deals, syncing, onSync }: { deals: BulkDeal[]; syncing
           </button>{" "}
           to fetch the last 30 days.
         </div>
+      ) : deals.length === 0 ? (
+        <div className="py-8 text-center text-xs text-slate-400">No deals match "{filter}"</div>
       ) : (
         <table className="w-full text-xs">
           <thead>
@@ -326,22 +333,31 @@ export default function Graph() {
       .then(setHolders).catch(() => setHolders([])).finally(() => setHoldersLoading(false));
   }, [symbols]);
 
-  // Fetch bulk deals for selected symbols
-  useEffect(() => {
+  const [dealFilter, setDealFilter] = useState("");
+
+  // Fetch bulk deals — all market deals, not filtered by selected symbols
+  const loadDeals = () => {
     setDealsLoading(true);
-    api.getBulkDeals(symbols, 30)
+    api.getBulkDeals([], 30)
       .then(setDeals).catch(() => setDeals([])).finally(() => setDealsLoading(false));
-  }, [symbols]);
+  };
+
+  useEffect(() => { loadDeals(); }, []);
 
   const handleSyncDeals = async () => {
     setSyncing(true);
     try {
       await api.syncBulkDeals(30);
-      const fresh = await api.getBulkDeals(symbols, 30);
-      setDeals(fresh);
+      loadDeals();
     } catch { /* ignore */ }
     finally { setSyncing(false); }
   };
+
+  const filteredDeals = useMemo(() => {
+    if (!dealFilter.trim()) return deals;
+    const q = dealFilter.trim().toUpperCase();
+    return deals.filter(d => d.symbol.includes(q) || d.client_name.toUpperCase().includes(q));
+  }, [deals, dealFilter]);
 
   const removeSymbol = (s: string) => setSymbols(prev => prev.filter(x => x !== s));
   const addSymbol    = (s: string) => {
@@ -457,7 +473,8 @@ export default function Graph() {
                 </div>
               )}
               {!dealsLoading && (
-                <BulkDealsTable deals={deals} syncing={syncing} onSync={handleSyncDeals} />
+                <BulkDealsTable deals={filteredDeals} syncing={syncing} onSync={handleSyncDeals}
+                  filter={dealFilter} onFilter={setDealFilter} total={deals.length} />
               )}
             </>
           )}
