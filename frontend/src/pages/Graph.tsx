@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { GitBranch, X, Plus, Search, RefreshCw } from "lucide-react";
 import { api, type CorrelationMatrix, type CommonHolderPair } from "../lib/api";
 
-type BulkDeal = { date: string; symbol: string; scrip_name: string; client_name: string; buy_sell: string; quantity: number; price: number };
+type BulkDeal = { date: string; symbol: string; scrip_name: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number };
+type DateRange = { from: string; to: string } | null;
 
 const DEFAULT_SYMBOLS = ["RELIANCE", "HDFCBANK", "INFY", "TCS", "ICICIBANK", "SBIN"];
 const PERIOD_DAYS: Record<string, number> = { "1M": 30, "3M": 90, "6M": 182, "1Y": 365 };
@@ -232,13 +233,13 @@ function OwnershipTable({ pairs }: { pairs: CommonHolderPair[] }) {
 }
 
 // ── Bulk Deals table ─────────────────────────────────────────────────────────
-function BulkDealsTable({ deals, syncing, onSync, filter, onFilter, total }:
-  { deals: BulkDeal[]; syncing: boolean; onSync: () => void; filter: string; onFilter: (v: string) => void; total: number }) {
+function BulkDealsTable({ deals, syncing, onSync, filter, onFilter, total, dateRange }:
+  { deals: BulkDeal[]; syncing: boolean; onSync: () => void; filter: string; onFilter: (v: string) => void; total: number; dateRange: DateRange }) {
   const navigate = useNavigate();
   const fmtQty = (n: number) => n >= 1e7 ? `${(n/1e7).toFixed(2)}Cr` : n >= 1e5 ? `${(n/1e5).toFixed(1)}L` : n.toLocaleString();
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-xs">
           <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input value={filter} onChange={e => onFilter(e.target.value.toUpperCase())}
@@ -246,6 +247,11 @@ function BulkDealsTable({ deals, syncing, onSync, filter, onFilter, total }:
             className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-blue-400" />
         </div>
         <span className="text-[10px] text-slate-400">{deals.length} of {total} deals</span>
+        {dateRange && (
+          <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+            {dateRange.from} → {dateRange.to}
+          </span>
+        )}
         <button onClick={onSync} disabled={syncing}
           className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors
             ${syncing ? "text-blue-400 border-blue-200 bg-blue-50 cursor-not-allowed"
@@ -291,7 +297,15 @@ function BulkDealsTable({ deals, syncing, onSync, filter, onFilter, total }:
                       </span>
                     )}
                   </td>
-                  <td className="py-2 px-3 text-slate-600 max-w-[220px] truncate" title={d.client_name}>{d.client_name}</td>
+                  <td className="py-2 px-3 max-w-[240px]">
+                    <div className="text-slate-600 truncate" title={d.client_name}>{d.client_name}</div>
+                    {d.client_symbol && (
+                      <button onClick={() => navigate(`/stock/${d.client_symbol}`)}
+                        className="text-[9px] text-blue-500 hover:underline font-semibold">
+                        {d.client_symbol} ↗
+                      </button>
+                    )}
+                  </td>
                   <td className="py-2 px-3 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold
                       ${d.buy_sell === "BUY" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
@@ -319,6 +333,7 @@ export default function Graph() {
   const [matrix, setMatrix] = useState<CorrelationMatrix | null>(null);
   const [holders, setHolders] = useState<CommonHolderPair[]>([]);
   const [deals, setDeals] = useState<BulkDeal[]>([]);
+  const [dateRange, setDateRange] = useState<DateRange>(null);
   const [loading, setLoading] = useState(false);
   const [holdersLoading, setHoldersLoading] = useState(false);
   const [dealsLoading, setDealsLoading] = useState(false);
@@ -346,7 +361,9 @@ export default function Graph() {
   const loadDeals = () => {
     setDealsLoading(true);
     api.getBulkDeals([], 30)
-      .then(setDeals).catch(() => setDeals([])).finally(() => setDealsLoading(false));
+      .then(r => { setDeals(r.data); setDateRange(r.date_range); })
+      .catch(() => { setDeals([]); setDateRange(null); })
+      .finally(() => setDealsLoading(false));
   };
 
   useEffect(() => { loadDeals(); }, []);
@@ -481,7 +498,7 @@ export default function Graph() {
               )}
               {!dealsLoading && (
                 <BulkDealsTable deals={filteredDeals} syncing={syncing} onSync={handleSyncDeals}
-                  filter={dealFilter} onFilter={setDealFilter} total={deals.length} />
+                  filter={dealFilter} onFilter={setDealFilter} total={deals.length} dateRange={dateRange} />
               )}
             </>
           )}

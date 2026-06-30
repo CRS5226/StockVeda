@@ -922,13 +922,20 @@ def sync_bulk_deals(days: int = 30):
     return {"synced": len(records), "from": str(from_d), "to": str(to_d)}
 
 
+def _norm(name: str) -> str:
+    import re
+    s = name.upper().strip()
+    s = re.sub(r"\s+(PRIVATE LIMITED|PVT\.?\s*LTD\.?|LIMITED|LTD\.?|INC\.?|CORP\.?)\s*$", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 @router.get("/bulk-deals")
 def get_bulk_deals(symbols: str = "", days: int = 30):
     db = get_db()
     try:
         db.execute("SELECT 1 FROM bulk_deals LIMIT 1")
     except Exception:
-        return []
+        return {"data": [], "date_range": None}
     from_d = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
     if symbols:
         syms = [s.strip().upper() for s in symbols.split(",")][:12]
@@ -943,9 +950,24 @@ def get_bulk_deals(symbols: str = "", days: int = 30):
             FROM bulk_deals WHERE date >= ?
             ORDER BY date DESC, symbol LIMIT 200
         """, [from_d]).fetchall()
-    return [{"date": str(r[0]), "symbol": r[1], "scrip_name": r[2],
-             "client_name": r[3], "buy_sell": r[4], "quantity": r[5], "price": r[6]}
-            for r in rows]
+
+    # Build client-name → NSE symbol lookup (normalized)
+    ns_rows = db.execute("SELECT symbol, company_name FROM nse_symbols WHERE company_name IS NOT NULL").fetchall()
+    ns_lookup = {_norm(r[1]): r[0] for r in ns_rows}
+
+    # Date range from actual stored data
+    dr = db.execute("SELECT MIN(date), MAX(date) FROM bulk_deals").fetchone()
+    date_range = {"from": str(dr[0]), "to": str(dr[1])} if dr and dr[0] else None
+
+    data = []
+    for r in rows:
+        client_sym = ns_lookup.get(_norm(r[3]))
+        data.append({
+            "date": str(r[0]), "symbol": r[1], "scrip_name": r[2],
+            "client_name": r[3], "client_symbol": client_sym,
+            "buy_sell": r[4], "quantity": r[5], "price": r[6],
+        })
+    return {"data": data, "date_range": date_range}
 
 
 @router.get("/common-holders")
