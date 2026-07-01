@@ -15,6 +15,7 @@ from backend.core.backtest_engine import (
     run_backtest_v2, BacktestParamsV2, ConditionRow,
     ENTRY_CONDITIONS, VALID_INDICATORS, VALID_OPERATORS,
 )
+from backend.core.fno_signals import attach_fno_signals
 import pandas as pd
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -178,6 +179,7 @@ def run_v2(req: BacktestV2Request):
         ).df()
         if len(df) < 30:
             continue
+        df = attach_fno_signals(df, sym, req.from_date, req.to_date)
         try:
             per_symbol[sym] = run_backtest_v2(df, params)
         except Exception:
@@ -242,7 +244,7 @@ def run_matrix(req: MatrixRequest):
             [s, req.from_date, req.to_date],
         ).df()
         if len(df) >= 30:
-            ohlcv[s] = df
+            ohlcv[s] = attach_fno_signals(df, s, req.from_date, req.to_date)
 
     if not ohlcv:
         raise HTTPException(400, "No data found for any symbol in the given date range. Sync data first via the Screener.")
@@ -419,7 +421,7 @@ def run_matrix_stream(req: MatrixRequest):
             [s, req.from_date, req.to_date],
         ).df()
         if len(df) >= 30:
-            ohlcv[s] = df
+            ohlcv[s] = attach_fno_signals(df, s, req.from_date, req.to_date)
 
     if not ohlcv:
         raise HTTPException(400, "No data found for any symbol in the given date range.")

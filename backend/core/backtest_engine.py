@@ -213,6 +213,10 @@ VALID_INDICATORS = [
     # Candle patterns (0/1 columns)
     "cdl_hammer", "cdl_bull_engulf", "cdl_inside_bar", "cdl_pin_bar_bull",
     "cdl_doji", "cdl_shooting_star", "cdl_morning_star", "cdl_evening_star", "cdl_bear_engulf",
+    # F&O signals (Phase 1) — daily PCR/max-pain/basis/rollover from fno_ohlcv + fno_futures_ohlcv.
+    # NaN for symbols with no synced F&O data — conditions on them simply never fire.
+    "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration",
+    "basis", "cost_of_carry", "rollover_pct",
 ]
 
 VALID_OPERATORS = ["crosses_above", "crosses_below", "above", "below"]
@@ -234,14 +238,20 @@ def aggregate_weekly(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate daily OHLCV into weekly bars (Monday–Friday week ending on last trading day)."""
     df = df.copy()
     df["_week"] = pd.to_datetime(df["date"]).dt.to_period("W")
-    weekly = df.groupby("_week", sort=True).agg(
-        date=("date", "last"),
-        open=("open", "first"),
-        high=("high", "max"),
-        low=("low", "min"),
-        close=("close", "last"),
-        volume=("volume", "sum"),
-    ).reset_index(drop=True)
+    agg = {
+        "date": ("date", "last"),
+        "open": ("open", "first"),
+        "high": ("high", "max"),
+        "low": ("low", "min"),
+        "close": ("close", "last"),
+        "volume": ("volume", "sum"),
+    }
+    # Carry forward any extra columns (e.g. F&O signals) with the week's last value —
+    # they're daily snapshots, not OHLC-style ranges, so "last" is the right rollup.
+    extra_cols = [c for c in df.columns if c not in agg and c != "_week"]
+    for col in extra_cols:
+        agg[col] = (col, "last")
+    weekly = df.groupby("_week", sort=True).agg(**agg).reset_index(drop=True)
     return weekly
 
 
