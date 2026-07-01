@@ -86,7 +86,86 @@ function toIso(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-function FetchHistoryPanel({ onDone }: { onDone: () => void }) {
+function SymbolAutocomplete({ value, onChange, onCommit, placeholder }: {
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [results, setResults] = useState<{ symbol: string; name: string; is_index: boolean }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  const search = (q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.trim().length < 1) { setResults([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await api.fnoSearch(q.trim());
+        setResults(res.results);
+        setHighlight(0);
+      } catch { setResults([]); }
+    }, 200);
+  };
+
+  const commit = (sym: string) => {
+    setOpen(false);
+    setResults([]);
+    onCommit(sym.toUpperCase());
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        value={value}
+        onChange={e => {
+          const v = e.target.value.toUpperCase();
+          onChange(v);
+          setOpen(true);
+          search(v);
+        }}
+        onFocus={() => { setOpen(true); if (value) search(value); }}
+        onKeyDown={e => {
+          if (!open || results.length === 0) {
+            if (e.key === "Enter") commit(value.trim());
+            return;
+          }
+          if (e.key === "ArrowDown") { e.preventDefault(); setHighlight(h => Math.min(h + 1, results.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
+          else if (e.key === "Enter") { e.preventDefault(); commit(results[highlight]?.symbol ?? value.trim()); }
+          else if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder={placeholder}
+        className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold w-52 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+      />
+      {open && results.length > 0 && (
+        <div className="absolute z-20 mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          {results.map((r, i) => (
+            <div key={r.symbol}
+              onMouseDown={() => commit(r.symbol)}
+              onMouseEnter={() => setHighlight(i)}
+              className={`px-3 py-1.5 text-xs cursor-pointer flex items-center justify-between gap-2 ${i === highlight ? "bg-blue-50" : ""}`}>
+              <span className="font-semibold text-slate-700 shrink-0">{r.symbol}</span>
+              <span className="text-slate-400 truncate">{r.is_index ? "Index" : r.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FetchHistoryPanel({ symbol, onDone }: { symbol: string; onDone: () => void }) {
   const today = new Date();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(today.getDate() - 30);
@@ -103,12 +182,14 @@ function FetchHistoryPanel({ onDone }: { onDone: () => void }) {
 
   useEffect(() => () => stopPoll(), []);
 
+  const isIndex = INDEX_SYMBOLS.includes(symbol);
+
   const startFetch = async () => {
     setErr(null);
     setFetching(true);
     setProgress(null);
     try {
-      const res = await api.fnoFetchHistory(fromDate, toDate);
+      const res = await api.fnoFetchHistory(fromDate, toDate, isIndex ? null : symbol);
       setJobId(res.job_id);
       setProgress({ done: 0, total: res.total_days, inserted: 0, status: "queued", current_date: "" });
       pollRef.current = setInterval(async () => {
@@ -138,9 +219,9 @@ function FetchHistoryPanel({ onDone }: { onDone: () => void }) {
           <Download size={16} className="text-blue-600" />
         </div>
         <div>
-          <div className="font-semibold text-blue-800 text-sm">Fetch Historical F&O Data</div>
+          <div className="font-semibold text-blue-800 text-sm">Fetch Historical F&O Data{symbol ? ` — ${symbol}` : ""}</div>
           <div className="text-xs text-blue-600 mt-0.5 leading-relaxed">
-            Downloads NSE bhavcopy (index options + futures) for the selected date range. Data is stored locally so the option chain loads instantly after.
+            Downloads NSE bhavcopy and extracts {symbol ? `${symbol}'s` : ""} option chain (all expiries) for the selected date range. Data is stored locally so it loads instantly after.
           </div>
         </div>
       </div>
@@ -200,7 +281,9 @@ function FetchHistoryPanel({ onDone }: { onDone: () => void }) {
 
       {!jobId && (
         <div className="text-[10px] text-blue-500 leading-relaxed">
-          Tip: Start with a recent 1–3 month window. Only index instruments (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY) are stored — roughly 6K rows/day.
+          {isIndex
+            ? "Tip: Start with a recent 1–3 month window — roughly 6K rows/day for index options."
+            : "Tip: Start with a recent 1–3 month window. Stock option chains are bulkier than index ones — roughly 200–300 rows/day."}
         </div>
       )}
     </div>
@@ -531,8 +614,11 @@ export default function FnO() {
   const [showAll, setShowAll] = useState(false);
   const [participantOI, setParticipantOI] = useState<ParticipantRow[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "chart">("table");
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchChain = useCallback((sym: string, exp?: string) => {
     setLoading(true);
@@ -574,6 +660,65 @@ export default function FnO() {
     api.getFnoParticipantOI(90).then(rows => setParticipantOI(rows)).catch(() => {});
   }, []);
 
+  useEffect(() => () => { if (refreshPollRef.current) clearInterval(refreshPollRef.current); }, []);
+
+  const commitSymbol = useCallback((sym: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setInputVal(sym);
+    setSymbol(sym);
+    setExpiry(null);
+    setShowAll(false);
+    fetchChain(sym);
+  }, [fetchChain]);
+
+  // Refresh = check NSE for a newer bhavcopy than what's stored, and pull only the missing day(s).
+  // Bhavcopy is EOD-only, so this never returns live/intraday prices — just syncs up to the latest published file.
+  const handleRefresh = async () => {
+    if (refreshPollRef.current) return;
+    setRefreshing(true);
+    setRefreshMsg("Checking NSE for a newer file…");
+    try {
+      const res = await api.fnoRefresh(symbol);
+      if (res.status === "up_to_date") {
+        setRefreshMsg(`Already up to date — data as of ${res.latest_date ?? "—"}`);
+        setRefreshing(false);
+        setTimeout(() => setRefreshMsg(null), 5000);
+        return;
+      }
+      if (res.job_id) {
+        setRefreshMsg("Fetching the latest day(s) from NSE…");
+        refreshPollRef.current = setInterval(async () => {
+          try {
+            const job = await api.fnoFetchJob(res.job_id!);
+            if (job.status === "done") {
+              clearInterval(refreshPollRef.current!); refreshPollRef.current = null;
+              setRefreshing(false);
+              setRefreshMsg(`Updated — ${job.inserted.toLocaleString()} new rows synced`);
+              fetchChain(symbol, expiry ?? undefined);
+              setTimeout(() => setRefreshMsg(null), 5000);
+            } else if (job.status === "empty") {
+              clearInterval(refreshPollRef.current!); refreshPollRef.current = null;
+              setRefreshing(false);
+              setRefreshMsg("No new data yet — NSE hasn't published today's file (market may still be live)");
+              setTimeout(() => setRefreshMsg(null), 6000);
+            }
+          } catch {
+            clearInterval(refreshPollRef.current!); refreshPollRef.current = null;
+            setRefreshing(false);
+            setRefreshMsg(null);
+          }
+        }, 1500);
+      } else {
+        setRefreshing(false);
+        setRefreshMsg(null);
+      }
+    } catch {
+      setRefreshing(false);
+      setRefreshMsg("Refresh failed — try again");
+      setTimeout(() => setRefreshMsg(null), 5000);
+    }
+  };
+
   const chain = chainData?.chain ?? [];
   const atmRow = chain.find(r => r.is_atm);
   const lotSize = lotSizes[symbol] ?? null;
@@ -604,7 +749,12 @@ export default function FnO() {
           <h1 className="text-lg font-bold text-slate-800">F&O Analytics</h1>
           {pageTab === "options" && chainData?.data_date && (
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-              EOD {chainData.data_date}
+              Data as of {chainData.data_date}
+            </span>
+          )}
+          {refreshMsg && (
+            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+              {refreshMsg}
             </span>
           )}
         </div>
@@ -619,9 +769,10 @@ export default function FnO() {
             ))}
           </div>
           {pageTab === "options" && (
-            <button onClick={() => fetchChain(symbol, expiry ?? undefined)} disabled={loading}
+            <button onClick={handleRefresh} disabled={loading || refreshing}
+              title="Pulls only the day(s) NSE has published since your last fetch — bhavcopy is EOD-only, so this never shows live/intraday prices"
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-slate-500 hover:text-blue-600 hover:border-blue-300 transition-all disabled:opacity-50">
-              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
               Refresh
             </button>
           )}
@@ -630,11 +781,11 @@ export default function FnO() {
 
       {/* Symbol input — shared between tabs */}
       <div className="flex items-center gap-3 flex-wrap">
-        <input
+        <SymbolAutocomplete
           value={inputVal}
-          onChange={e => setInputVal(e.target.value.toUpperCase())}
-          placeholder={pageTab === "options" ? "Symbol (NIFTY, RELIANCE…)" : "Symbol (NIFTY, RELIANCE…)"}
-          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold w-52 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+          onChange={setInputVal}
+          onCommit={commitSymbol}
+          placeholder="Symbol (NIFTY, RELIANCE…)"
         />
 
         {pageTab === "options" && chainData && chainData.expiry_dates.length > 0 && (
@@ -673,7 +824,7 @@ export default function FnO() {
       {/* ── Options tab content ─────────────────────────────────── */}
       {pageTab === "options" && error && (
         error.includes("No F&O data") || error.includes("sync") ? (
-          <FetchHistoryPanel onDone={() => { setError(null); fetchChain(symbol); }} />
+          <FetchHistoryPanel symbol={symbol} onDone={() => { setError(null); fetchChain(symbol); }} />
         ) : (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
             <strong>Data unavailable:</strong> {error}

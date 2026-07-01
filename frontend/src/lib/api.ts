@@ -462,15 +462,31 @@ export const api = {
   getFnoSymbols: () =>
     apiFetch<{ symbols: string[] }>("/fno/symbols"),
 
-  fnoFetchHistory: (from_date: string, to_date: string) =>
-    apiFetch<{ job_id: string; total_days: number }>(
-      `/fno/fetch-history?from_date=${from_date}&to_date=${to_date}`,
+  fnoFetchHistory: (from_date: string, to_date: string, symbol?: string | null) =>
+    apiFetch<{ job_id: string; total_days: number; symbol: string | null }>(
+      `/fno/fetch-history?from_date=${from_date}&to_date=${to_date}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
       { method: "POST" }
     ),
 
   fnoFetchJob: (job_id: string) =>
     apiFetch<{ total: number; done: number; inserted: number; status: string; current_date: string }>(
       `/fno/fetch-job/${job_id}`
+    ),
+
+  fnoSearch: (q: string) =>
+    apiFetch<{ results: { symbol: string; name: string; is_index: boolean }[] }>(
+      `/fno/search?q=${encodeURIComponent(q)}`
+    ),
+
+  fnoDataStatus: (symbol: string) =>
+    apiFetch<{ symbol: string; latest_date: string | null; target_date: string; up_to_date: boolean }>(
+      `/fno/data-status/${encodeURIComponent(symbol)}`
+    ),
+
+  fnoRefresh: (symbol: string) =>
+    apiFetch<{ status?: string; job_id?: string; total_days?: number; latest_date: string | null }>(
+      `/fno/refresh/${encodeURIComponent(symbol)}`,
+      { method: "POST" }
     ),
 
   getFutures: (symbol: string, days = 90) =>

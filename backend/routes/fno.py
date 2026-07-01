@@ -200,12 +200,141 @@ def get_fno_symbols():
         return {"symbols": []}
 
 
+# NSE F&O-eligible stock universe (periodically revised by NSE — hardcoded backbone,
+# merged with whatever symbols have already been synced so newly-added F&O stocks
+# still show up once fetched once).
+_FNO_STOCK_UNIVERSE = {
+    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "HINDUNILVR", "ITC", "SBIN",
+    "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "BAJFINANCE", "ASIANPAINT", "MARUTI",
+    "HCLTECH", "SUNPHARMA", "TITAN", "ULTRACEMCO", "NESTLEIND", "WIPRO", "ADANIENT",
+    "ADANIPORTS", "ADANIGREEN", "ADANIPOWER", "ONGC", "NTPC", "POWERGRID", "COALINDIA",
+    "TATASTEEL", "TATAMOTORS", "TATACONSUM", "TATAPOWER", "JSWSTEEL", "HINDALCO", "VEDL",
+    "GRASIM", "BAJAJFINSV", "BAJAJ-AUTO", "HEROMOTOCO", "EICHERMOT", "M&M", "DRREDDY",
+    "CIPLA", "DIVISLAB", "APOLLOHOSP", "BRITANNIA", "DABUR", "GODREJCP", "MARICO",
+    "COLPAL", "PIDILITIND", "BERGEPAINT", "HAVELLS", "VOLTAS", "SIEMENS", "ABB", "BEL",
+    "BHEL", "HAL", "IRCTC", "IRFC", "RVNL", "ZOMATO", "PAYTM", "NYKAA", "POLICYBZR",
+    "DMART", "TRENT", "JUBLFOOD", "PAGEIND", "INDIGO", "PVRINOX", "LUPIN", "AUROPHARMA",
+    "TORNTPHARM", "BIOCON", "ALKEM", "MOTHERSON", "BOSCHLTD", "EXIDEIND", "MRF",
+    "BALKRISIND", "ASHOKLEY", "TVSMOTOR", "BHARATFORG", "CUMMINSIND", "SRF", "PIIND",
+    "UPL", "DEEPAKNTR", "GNFC", "PETRONET", "GAIL", "IOC", "BPCL", "HINDPETRO", "OIL",
+    "IGL", "MGL", "INDUSINDBK", "IDFCFIRSTB", "FEDERALBNK", "BANKBARODA", "PNB", "CANBK",
+    "UNIONBANK", "RBLBANK", "AUBANK", "BANDHANBNK", "CHOLAFIN", "MUTHOOTFIN",
+    "SHRIRAMFIN", "LICHSGFIN", "PFC", "RECLTD", "HDFCLIFE", "ICICIPRULI", "ICICIGI",
+    "SBILIFE", "SBICARD", "MFSL", "HDFCAMC", "NAUKRI", "CDSL", "BSE", "MCX", "IEX",
+    "CAMS", "ANGELONE", "IIFL", "PERSISTENT", "LTIM", "MPHASIS", "COFORGE", "LTTS",
+    "TECHM", "OFSS", "TATAELXSI", "ZENSAR", "KPITTECH", "SONACOMS", "SUZLON",
+    "JINDALSTEL", "SAIL", "NMDC", "NATIONALUM", "RATNAMANI", "APLAPOLLO", "JSL",
+    "ESCORTS", "CGPOWER", "POLYCAB", "DIXON", "AMBER", "WHIRLPOOL", "CROMPTON",
+    "GODREJPROP", "DLF", "OBEROIRLTY", "PRESTIGE", "PHOENIXLTD", "LODHA", "BRIGADE",
+    "SUNTV", "ZEEL", "NAZARA", "INDHOTEL", "LEMONTREE", "CONCOR", "GMRINFRA",
+    "MANAPPURAM", "IDEA", "TATACOMM", "HFCL", "GSPL", "LAURUSLABS", "ABCAPITAL",
+    "ABFRL", "DALBHARAT", "SYNGENE", "GLENMARK", "IPCALAB", "METROPOLIS", "NAVINFLUOR",
+    "CHAMBLFERT", "COROMANDEL", "PIRAMALENT", "BATAINDIA", "RELAXO", "VBL", "UBL",
+    "RADICO", "ACC", "AMBUJACEM", "SHREECEM", "JKCEMENT", "ATUL", "TATACHEM",
+    "AARTIIND", "GRANULES", "CANFINHOME", "PEL", "M&MFIN", "L&TFH", "IEX",
+} | set(INDEX_SYMBOLS)
+
+
+@router.get("/search")
+def search_fno_symbols(q: str = FQuery(..., min_length=1)):
+    """Autocomplete over F&O-eligible symbols (stocks + indices) with company names."""
+    db = get_db()
+    query = q.strip().upper()
+
+    try:
+        synced = db.execute(
+            "SELECT DISTINCT symbol FROM fno_ohlcv"
+        ).fetchall()
+        universe = _FNO_STOCK_UNIVERSE | {r[0] for r in synced}
+    except Exception:
+        universe = _FNO_STOCK_UNIVERSE
+
+    matches = sorted(s for s in universe if s.startswith(query))[:20]
+    if not matches:
+        return {"results": []}
+
+    names: dict[str, str] = {}
+    try:
+        rows = db.execute(
+            f"SELECT symbol, company_name FROM nse_symbols WHERE symbol IN ({','.join(['?'] * len(matches))})",
+            matches,
+        ).fetchall()
+        names = {r[0]: r[1] for r in rows}
+    except Exception:
+        pass
+
+    idx_names = {
+        "NIFTY": "Nifty 50 Index", "BANKNIFTY": "Nifty Bank Index",
+        "FINNIFTY": "Nifty Financial Services Index", "MIDCPNIFTY": "Nifty Midcap Select Index",
+        "SENSEX": "BSE Sensex", "NIFTYBANK": "Nifty Bank Index",
+    }
+
+    return {"results": [
+        {"symbol": s, "name": names.get(s) or idx_names.get(s) or "", "is_index": s in INDEX_SYMBOLS}
+        for s in matches
+    ]}
+
+
+@router.get("/data-status/{symbol}")
+def get_data_status(symbol: str):
+    """Latest date stored locally vs the latest date NSE should have published, for the refresh button."""
+    from backend.data_sync.base import last_business_day
+
+    db = get_db()
+    sym = symbol.strip().upper()
+    inst = "OPTIDX" if sym in INDEX_SYMBOLS else "OPTSTK"
+
+    row = db.execute(
+        "SELECT MAX(date) FROM fno_ohlcv WHERE symbol = ? AND instrument = ?", [sym, inst]
+    ).fetchone()
+    latest_date = row[0] if row else None
+    target_date = last_business_day(date.today())
+
+    return {
+        "symbol": sym,
+        "latest_date": str(latest_date) if latest_date else None,
+        "target_date": str(target_date),
+        "up_to_date": bool(latest_date and latest_date >= target_date),
+    }
+
+
+@router.post("/refresh/{symbol}")
+async def refresh_symbol(symbol: str, background_tasks: BackgroundTasks):
+    """
+    Incrementally sync just the missing days for one symbol — used by the Refresh button.
+    If NSE hasn't published a newer bhavcopy yet (market still live / file not out), returns up_to_date.
+    """
+    from datetime import timedelta
+    from backend.data_sync.base import last_business_day, business_days_between
+
+    db = get_db()
+    sym = symbol.strip().upper()
+    inst = "OPTIDX" if sym in INDEX_SYMBOLS else "OPTSTK"
+
+    row = db.execute(
+        "SELECT MAX(date) FROM fno_ohlcv WHERE symbol = ? AND instrument = ?", [sym, inst]
+    ).fetchone()
+    latest_date = row[0] if row else None
+    target_date = last_business_day(date.today())
+
+    if latest_date and latest_date >= target_date:
+        return {"status": "up_to_date", "latest_date": str(latest_date)}
+
+    from_date = (latest_date + timedelta(days=1)) if latest_date else date(2025, 1, 1)
+    days = business_days_between(from_date, target_date)
+
+    job_id = uuid.uuid4().hex[:8]
+    _fetch_jobs[job_id] = {"total": len(days), "done": 0, "inserted": 0, "status": "queued", "current_date": "", "symbol": sym}
+    background_tasks.add_task(_run_fetch_job, job_id, from_date, target_date, sym)
+    return {"job_id": job_id, "total_days": len(days), "status": "fetching", "latest_date": str(latest_date) if latest_date else None}
+
+
 # ── On-demand historical data fetch ──────────────────────────────────────────
 
 _fetch_jobs: dict = {}
 
 
-def _run_fetch_job(job_id: str, from_date: date, to_date: date) -> None:
+def _run_fetch_job(job_id: str, from_date: date, to_date: date, symbol: str | None = None) -> None:
     from backend.data_sync.sync_fno_bhavcopy import fetch_fno_day
     from backend.data_sync.base import upsert_df, log_sync, business_days_between
     from backend.data_sync.nse_session import get_nse_client
@@ -223,8 +352,8 @@ def _run_fetch_job(job_id: str, from_date: date, to_date: date) -> None:
     for i, d in enumerate(days):
         _fetch_jobs[job_id]["current_date"] = str(d)
         try:
-            df = fetch_fno_day(d)
-            if df is not None:
+            df = fetch_fno_day(d, symbol=symbol)
+            if df is not None and not df.empty:
                 batch_rows.append(df)
         except Exception as e:
             print(f"[fno_fetch:{job_id}] WARN {d}: {e}")
@@ -251,8 +380,13 @@ async def fetch_history(
     background_tasks: BackgroundTasks,
     from_date: str = FQuery(..., description="Start date YYYY-MM-DD"),
     to_date: str = FQuery(..., description="End date YYYY-MM-DD"),
+    symbol: str | None = FQuery(None, description="Symbol to fetch (None = all index options only)"),
 ):
-    """Download index F&O bhavcopy for a date range and insert into fno_ohlcv."""
+    """
+    Download F&O bhavcopy for a date range and insert into fno_ohlcv.
+    With no symbol: index options only (small, fast, default view).
+    With a symbol: that symbol's options only (stock or index), any size.
+    """
     try:
         fd = date.fromisoformat(from_date)
         td = date.fromisoformat(to_date)
@@ -265,11 +399,12 @@ async def fetch_history(
 
     from backend.data_sync.base import business_days_between
     days = business_days_between(fd, td)
+    sym = symbol.strip().upper() if symbol else None
 
     job_id = uuid.uuid4().hex[:8]
-    _fetch_jobs[job_id] = {"total": len(days), "done": 0, "inserted": 0, "status": "queued", "current_date": ""}
-    background_tasks.add_task(_run_fetch_job, job_id, fd, td)
-    return {"job_id": job_id, "total_days": len(days)}
+    _fetch_jobs[job_id] = {"total": len(days), "done": 0, "inserted": 0, "status": "queued", "current_date": "", "symbol": sym}
+    background_tasks.add_task(_run_fetch_job, job_id, fd, td, sym)
+    return {"job_id": job_id, "total_days": len(days), "symbol": sym}
 
 
 @router.get("/fetch-job/{job_id}")

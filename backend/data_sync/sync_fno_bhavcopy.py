@@ -48,9 +48,16 @@ INSTR_MAP = {
 
 # Only keep index options — FUTIDX (IDF) have no strike and don't fit the fno_ohlcv PK
 INDEX_INSTRUMENTS = {"IDO"}
+# Stock + index options — used when fetching a single symbol on demand
+OPTION_INSTRUMENTS = {"IDO", "STO"}
 
 
-def fetch_fno_day(d: date) -> pd.DataFrame | None:
+def fetch_fno_day(d: date, symbol: str | None = None) -> pd.DataFrame | None:
+    """
+    Download one day's bhavcopy and return option rows.
+    With no symbol: index options only (bulk/default sync — keeps DB small).
+    With a symbol: stock or index options for that symbol only (on-demand fetch).
+    """
     url = BHAV_URL.format(yyyymmdd=d.strftime("%Y%m%d"))
     resp = nse_get(url)
     if resp.status_code == 404:
@@ -65,8 +72,13 @@ def fetch_fno_day(d: date) -> pd.DataFrame | None:
 
     df.columns = [c.strip() for c in df.columns]
 
-    # Filter to index instruments before doing any heavy work
-    if "FinInstrmTp" in df.columns:
+    if "FinInstrmTp" not in df.columns:
+        return None
+
+    if symbol:
+        df = df[df["FinInstrmTp"].isin(OPTION_INSTRUMENTS)]
+        df = df[df["TckrSymb"].str.strip().str.upper() == symbol.upper()]
+    else:
         df = df[df["FinInstrmTp"].isin(INDEX_INSTRUMENTS)]
 
     df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
