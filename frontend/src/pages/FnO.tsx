@@ -335,16 +335,17 @@ export default function FnO() {
   const fiiData = participantOI.filter(r => r.participant_type === "FII" && r.instrument === "FUTURE_INDEX");
   const diiData = participantOI.filter(r => r.participant_type === "DII" && r.instrument === "FUTURE_INDEX");
 
+  // lightweight-charts requires ascending time order
   const participantSeries = [
     {
       label: "FII Net",
       color: "#3b82f6",
-      data: fiiData.map(r => ({ date: r.date, value: r.net_oi })),
+      data: [...fiiData].sort((a, b) => a.date < b.date ? -1 : 1).map(r => ({ date: r.date, value: r.net_oi })),
     },
     {
       label: "DII Net",
       color: "#10b981",
-      data: diiData.map(r => ({ date: r.date, value: r.net_oi })),
+      data: [...diiData].sort((a, b) => a.date < b.date ? -1 : 1).map(r => ({ date: r.date, value: r.net_oi })),
     },
   ];
 
@@ -465,29 +466,7 @@ export default function FnO() {
             ))}
           </div>
 
-          {/* Chain content */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
-              <div className="text-sm font-semibold text-slate-700">
-                Option Chain — {chainData.symbol} · {chainData.expiry}
-              </div>
-              <button
-                onClick={() => setShowAll(v => !v)}
-                className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 transition-colors">
-                {showAll ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                {showAll ? "Show ±15% only" : "Show all strikes"}
-              </button>
-            </div>
-            <div className="p-3">
-              {viewMode === "table" ? (
-                <OptionTable chain={chain} spot={chainData.spot} showAll={showAll} />
-              ) : (
-                <OIButterflyChart chain={chain} maxPain={chainData.max_pain} spot={chainData.spot} />
-              )}
-            </div>
-          </div>
-
-          {/* OI insight cards */}
+          {/* Key Resistance / Support — above the chain */}
           {chain.length > 0 && (() => {
             const maxCeRow = [...chain].sort((a, b) => (b.ce_oi ?? 0) - (a.ce_oi ?? 0))[0];
             const maxPeRow = [...chain].sort((a, b) => (b.pe_oi ?? 0) - (a.pe_oi ?? 0))[0];
@@ -512,6 +491,28 @@ export default function FnO() {
               </div>
             );
           })()}
+
+          {/* Chain content */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+              <div className="text-sm font-semibold text-slate-700">
+                Option Chain — {chainData.symbol} · {chainData.expiry}
+              </div>
+              <button
+                onClick={() => setShowAll(v => !v)}
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 transition-colors">
+                {showAll ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                {showAll ? "Show ±15% only" : "Show all strikes"}
+              </button>
+            </div>
+            <div className="p-3">
+              {viewMode === "table" ? (
+                <OptionTable chain={chain} spot={chainData.spot} showAll={showAll} />
+              ) : (
+                <OIButterflyChart chain={chain} maxPain={chainData.max_pain} spot={chainData.spot} />
+              )}
+            </div>
+          </div>
         </>
       )}
 
