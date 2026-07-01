@@ -473,6 +473,26 @@ export const api = {
       `/fno/fetch-job/${job_id}`
     ),
 
+  getFutures: (symbol: string, days = 90) =>
+    apiFetch<{
+      symbol: string; instrument: string; data_date: string; spot: number;
+      expiries: Array<{ expiry: string; close: number | null; open_interest: number | null;
+        oi_change: number | null; basis: number | null; cost_of_carry: number | null; dte: number | null }>;
+      rollover_pct: number | null;
+      oi_history: Array<{ date: string; close: number | null; open_interest: number | null; oi_change: number | null }>;
+    }>(`/fno/futures/${encodeURIComponent(symbol)}?days=${days}`),
+
+  fnoFetchFutures: (symbol: string | null, from_date: string, to_date: string) =>
+    apiFetch<{ job_id: string; total_days: number; symbol: string }>(
+      `/fno/fetch-futures?${symbol ? `symbol=${encodeURIComponent(symbol)}&` : ""}from_date=${from_date}&to_date=${to_date}`,
+      { method: "POST" }
+    ),
+
+  fnoFetchFuturesJob: (job_id: string) =>
+    apiFetch<{ total: number; done: number; inserted: number; status: string; current_date: string; symbol: string }>(
+      `/fno/fetch-futures-job/${job_id}`
+    ),
+
   getOutlook: (symbol: string) =>
     apiFetch<{
       score: number; label: string;

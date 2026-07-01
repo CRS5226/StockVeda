@@ -274,7 +274,253 @@ function OptionTable({ chain, spot, showAll }: { chain: OptionChainRow[]; spot: 
 
 interface ParticipantRow { date: string; participant_type: string; instrument: string; long_oi: number; short_oi: number; net_oi: number }
 
+type FuturesData = Awaited<ReturnType<typeof api.getFutures>>;
+
+function FetchFuturesPanel({ symbol, onDone }: { symbol: string; onDone: () => void }) {
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today); thirtyDaysAgo.setDate(today.getDate() - 30);
+
+  const [fromDate, setFromDate] = useState(toIso(thirtyDaysAgo));
+  const [toDate, setToDate] = useState(toIso(today));
+  const [fetching, setFetching] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; inserted: number; status: string; current_date: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  useEffect(() => () => stopPoll(), []);
+
+  const startFetch = async () => {
+    setErr(null); setFetching(true); setProgress(null);
+    try {
+      const res = await api.fnoFetchFutures(symbol || null, fromDate, toDate);
+      setProgress({ done: 0, total: res.total_days, inserted: 0, status: "queued", current_date: "" });
+      pollRef.current = setInterval(async () => {
+        try {
+          const job = await api.fnoFetchFuturesJob(res.job_id);
+          setProgress(job);
+          if (job.status === "done" || job.status === "empty" || job.status === "error") {
+            stopPoll(); setFetching(false);
+            if (job.status === "done") setTimeout(onDone, 600);
+            else setErr(job.status === "empty" ? "No futures data found for this range." : "Fetch failed.");
+          }
+        } catch { stopPoll(); setFetching(false); }
+      }, 1500);
+    } catch (e: unknown) { setFetching(false); setErr(e instanceof Error ? e.message : "Fetch failed"); }
+  };
+
+  const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="p-2 bg-blue-100 rounded-lg shrink-0 mt-0.5"><Download size={16} className="text-blue-600" /></div>
+        <div>
+          <div className="font-semibold text-blue-800 text-sm">Fetch Futures Data{symbol ? ` — ${symbol}` : ""}</div>
+          <div className="text-xs text-blue-600 mt-0.5 leading-relaxed">
+            Downloads NSE bhavcopy and extracts {symbol ? `${symbol} ` : ""}futures (all expiries) for the selected date range.
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">From</label>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} disabled={fetching}
+            className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">To</label>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={fetching}
+            className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
+        </div>
+        <div className="flex gap-2 items-end">
+          {(["1W", "1M", "3M"] as const).map(label => {
+            const d = label === "1W" ? 7 : label === "1M" ? 30 : 90;
+            return (
+              <button key={label} disabled={fetching}
+                onClick={() => { const x = new Date(); x.setDate(x.getDate() - d); setFromDate(toIso(x)); setToDate(toIso(today)); }}
+                className="px-2.5 py-1.5 text-xs font-medium border border-blue-200 bg-white text-blue-600 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50">
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={startFetch} disabled={fetching || !fromDate || !toDate}
+          className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+          <Download size={14} className={fetching ? "animate-bounce" : ""} />
+          {fetching ? "Fetching…" : "Fetch Data"}
+        </button>
+      </div>
+      {progress && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-blue-700">
+            <span>{progress.done} / {progress.total} days · {progress.inserted.toLocaleString()} rows</span>
+            {progress.current_date && <span className="text-blue-500">{progress.current_date}</span>}
+          </div>
+          <div className="w-full bg-blue-100 rounded-full h-2">
+            <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+          </div>
+          {progress.status === "done" && <div className="text-xs text-emerald-600 font-medium">Done! Loading futures data…</div>}
+        </div>
+      )}
+      {err && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</div>}
+    </div>
+  );
+}
+
+function FuturesTab({ symbol }: { symbol: string }) {
+  const [data, setData] = useState<FuturesData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [noData, setNoData] = useState(false);
+
+  const load = useCallback(() => {
+    if (!symbol) return;
+    setLoading(true); setNoData(false);
+    api.getFutures(symbol)
+      .then(d => { setData(d); setNoData(false); })
+      .catch(e => {
+        if (String(e).includes("404")) setNoData(true);
+        setData(null);
+      })
+      .finally(() => setLoading(false));
+  }, [symbol]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return (
+    <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-8 bg-slate-100 rounded animate-pulse" />)}</div>
+  );
+
+  if (noData || !data) return (
+    <FetchFuturesPanel symbol={symbol} onDone={load} />
+  );
+
+  const nearExpiry = data.expiries[0];
+  const oiSeries = [{
+    label: "OI (Near month)",
+    color: "#3b82f6",
+    data: data.oi_history.map(r => ({ date: r.date, value: r.open_interest ?? 0 })),
+  }];
+  const priceSeries = [
+    { label: "Futures Close", color: "#f59e0b", data: data.oi_history.map(r => ({ date: r.date, value: r.close ?? 0 })) },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Metric cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          {
+            label: "Near-Month Basis",
+            value: nearExpiry?.basis != null
+              ? <span className={`font-bold ${nearExpiry.basis > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {nearExpiry.basis > 0 ? "+" : ""}{fmt(nearExpiry.basis, 2)}
+                </span>
+              : <span className="text-slate-400">—</span>,
+            sub: `Futures − Spot (${nearExpiry?.expiry ?? ""})`,
+          },
+          {
+            label: "Cost of Carry",
+            value: nearExpiry?.cost_of_carry != null
+              ? <span className={`font-bold ${nearExpiry.cost_of_carry > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {nearExpiry.cost_of_carry > 0 ? "+" : ""}{nearExpiry.cost_of_carry.toFixed(2)}%
+                </span>
+              : <span className="text-slate-400">—</span>,
+            sub: "Annualised carry cost",
+          },
+          {
+            label: "Rollover",
+            value: data.rollover_pct != null
+              ? <span className={`font-bold ${data.rollover_pct > 70 ? "text-emerald-600" : data.rollover_pct < 40 ? "text-amber-600" : "text-slate-700"}`}>
+                  {data.rollover_pct}%
+                </span>
+              : <span className="text-slate-400">—</span>,
+            sub: "Near-month OI / total OI",
+          },
+          {
+            label: "Near-Month OI",
+            value: <span className="font-bold text-slate-700">{fmtK(nearExpiry?.open_interest)}</span>,
+            sub: "Open interest (contracts)",
+          },
+        ].map(m => (
+          <div key={m.label} className="bg-white border border-slate-200 rounded-xl p-3 space-y-0.5">
+            <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">{m.label}</div>
+            <div className="text-sm">{m.value}</div>
+            <div className="text-[9px] text-slate-400 leading-tight">{m.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Expiry table */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
+          <div className="text-sm font-semibold text-slate-700">Open Interest across Expiries — {data.data_date}</div>
+          <span className="text-xs text-slate-400">Spot: {fmt(data.spot, 2)}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+                <th className="text-left px-4 py-2 font-semibold">Expiry</th>
+                <th className="text-right px-3 py-2 font-semibold">DTE</th>
+                <th className="text-right px-3 py-2 font-semibold">Close</th>
+                <th className="text-right px-3 py-2 font-semibold">Basis</th>
+                <th className="text-right px-3 py-2 font-semibold">CoC %</th>
+                <th className="text-right px-3 py-2 font-semibold">OI</th>
+                <th className="text-right px-3 py-2 font-semibold">OI Chg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.expiries.map((e, i) => (
+                <tr key={e.expiry} className={`border-b border-slate-50 ${i === 0 ? "bg-blue-50/40" : "hover:bg-slate-50/50"}`}>
+                  <td className="px-4 py-1.5 font-medium text-slate-700">{e.expiry}{i === 0 && <span className="ml-1 text-[9px] text-blue-500 font-bold">NEAR</span>}</td>
+                  <td className="text-right px-3 py-1.5 text-slate-500">{e.dte ?? "—"}d</td>
+                  <td className="text-right px-3 py-1.5 font-semibold">{fmt(e.close, 2)}</td>
+                  <td className={`text-right px-3 py-1.5 font-medium ${(e.basis ?? 0) > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {e.basis != null ? ((e.basis > 0 ? "+" : "") + fmt(e.basis, 2)) : "—"}
+                  </td>
+                  <td className={`text-right px-3 py-1.5 ${(e.cost_of_carry ?? 0) > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {e.cost_of_carry != null ? ((e.cost_of_carry > 0 ? "+" : "") + e.cost_of_carry.toFixed(2) + "%") : "—"}
+                  </td>
+                  <td className="text-right px-3 py-1.5">{fmtK(e.open_interest)}</td>
+                  <td className={`text-right px-3 py-1.5 ${(e.oi_change ?? 0) > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {e.oi_change != null ? ((e.oi_change > 0 ? "+" : "") + fmtK(e.oi_change)) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* OI trend chart */}
+      {data.oi_history.length > 1 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-sm font-semibold text-slate-700 mb-3">Near-Month OI Trend</div>
+          <MacroLineChart series={oiSeries} height={180} />
+        </div>
+      )}
+
+      {/* Price trend */}
+      {data.oi_history.length > 1 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-sm font-semibold text-slate-700 mb-1">Near-Month Futures Price</div>
+          <div className="text-xs text-slate-400 mb-3">EOD settle price over the fetched period</div>
+          <MacroLineChart series={priceSeries} height={160} />
+        </div>
+      )}
+
+      <div className="text-[10px] text-slate-400 text-right">
+        Data from NSE EOD bhavcopy · {data.data_date} ·
+        <button onClick={load} className="ml-1 text-blue-500 hover:underline">Refresh</button>
+        {" · "}
+        <button onClick={() => setNoData(true)} className="text-slate-400 hover:underline">Fetch more dates</button>
+      </div>
+    </div>
+  );
+}
+
 export default function FnO() {
+  const [pageTab, setPageTab] = useState<"options" | "futures">("options");
   const [symbol, setSymbol] = useState("NIFTY");
   const [inputVal, setInputVal] = useState("NIFTY");
   const [expiry, setExpiry] = useState<string | null>(null);
@@ -351,40 +597,47 @@ export default function FnO() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header + page-level tab */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <BarChart2 size={20} className="text-blue-600" />
           <h1 className="text-lg font-bold text-slate-800">F&O Analytics</h1>
-          {chainData?.data_date && (
+          {pageTab === "options" && chainData?.data_date && (
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
               EOD {chainData.data_date}
             </span>
           )}
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => fetchChain(symbol, expiry ?? undefined)}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-slate-500 hover:text-blue-600 hover:border-blue-300 transition-all disabled:opacity-50">
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-            Refresh
-          </button>
+        <div className="flex items-center gap-2">
+          {/* Options / Futures toggle */}
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            {(["options", "futures"] as const).map(t => (
+              <button key={t} onClick={() => setPageTab(t)}
+                className={`px-4 py-1.5 text-xs font-semibold transition-colors capitalize ${pageTab === t ? "bg-blue-600 text-white" : "text-slate-500 hover:bg-slate-50"}`}>
+                {t === "options" ? "Options" : "Futures"}
+              </button>
+            ))}
+          </div>
+          {pageTab === "options" && (
+            <button onClick={() => fetchChain(symbol, expiry ?? undefined)} disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-slate-500 hover:text-blue-600 hover:border-blue-300 transition-all disabled:opacity-50">
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Symbol + Expiry selector */}
+      {/* Symbol input — shared between tabs */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative">
-          <input
-            value={inputVal}
-            onChange={e => setInputVal(e.target.value.toUpperCase())}
-            placeholder="Symbol (NIFTY, RELIANCE…)"
-            className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold w-52 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-          />
-        </div>
+        <input
+          value={inputVal}
+          onChange={e => setInputVal(e.target.value.toUpperCase())}
+          placeholder={pageTab === "options" ? "Symbol (NIFTY, RELIANCE…)" : "Symbol (NIFTY, RELIANCE…)"}
+          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold w-52 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+        />
 
-        {chainData && chainData.expiry_dates.length > 0 && (
+        {pageTab === "options" && chainData && chainData.expiry_dates.length > 0 && (
           <select
             value={expiry ?? chainData.expiry_dates[0]}
             onChange={e => setExpiry(e.target.value)}
@@ -395,25 +648,30 @@ export default function FnO() {
           </select>
         )}
 
-        <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-          {(["table", "chart"] as const).map(v => (
-            <button key={v} onClick={() => setViewMode(v)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors capitalize ${viewMode === v ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50"}`}>
-              {v === "table" ? "Chain Table" : "OI Chart"}
-            </button>
-          ))}
-        </div>
+        {pageTab === "options" && (
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            {(["table", "chart"] as const).map(v => (
+              <button key={v} onClick={() => setViewMode(v)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors capitalize ${viewMode === v ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50"}`}>
+                {v === "table" ? "Chain Table" : "OI Chart"}
+              </button>
+            ))}
+          </div>
+        )}
 
         {INDEX_SYMBOLS.map(s => (
-          <button key={s} onClick={() => { setInputVal(s); }}
+          <button key={s} onClick={() => setInputVal(s)}
             className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${symbol === s ? "bg-blue-50 text-blue-600 border-blue-200" : "text-slate-500 border-slate-200 hover:bg-slate-50"}`}>
             {s}
           </button>
         ))}
       </div>
 
-      {/* Error state */}
-      {error && (
+      {/* Futures tab content */}
+      {pageTab === "futures" && <FuturesTab symbol={symbol} />}
+
+      {/* ── Options tab content ─────────────────────────────────── */}
+      {pageTab === "options" && error && (
         error.includes("No F&O data") || error.includes("sync") ? (
           <FetchHistoryPanel onDone={() => { setError(null); fetchChain(symbol); }} />
         ) : (
@@ -423,8 +681,7 @@ export default function FnO() {
         )
       )}
 
-      {/* Loading */}
-      {loading && (
+      {pageTab === "options" && loading && (
         <div className="space-y-2">
           {[...Array(8)].map((_, i) => (
             <div key={i} className="h-6 bg-slate-100 rounded animate-pulse" />
@@ -433,7 +690,7 @@ export default function FnO() {
       )}
 
       {/* Key Metrics row */}
-      {!loading && chainData && (
+      {pageTab === "options" && !loading && chainData && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
@@ -517,7 +774,7 @@ export default function FnO() {
       )}
 
       {/* Participant OI Trend */}
-      {participantSeries.some(s => s.data.length > 0) && (
+      {pageTab === "options" && participantSeries.some(s => s.data.length > 0) && (
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <Minus size={14} className="text-blue-500" />
@@ -533,7 +790,7 @@ export default function FnO() {
       )}
 
       {/* Empty state when no sync has happened */}
-      {!loading && !error && !chainData && (
+      {pageTab === "options" && !loading && !error && !chainData && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center text-slate-500">
           <BarChart2 size={32} className="mx-auto mb-3 text-slate-300" />
           <div className="font-medium mb-1">Enter a symbol to view the option chain</div>

@@ -166,6 +166,22 @@ CREATE TABLE IF NOT EXISTS fno_ohlcv (
     PRIMARY KEY (date, symbol, instrument, expiry, strike, option_type)
 );
 
+CREATE TABLE IF NOT EXISTS fno_futures_ohlcv (
+    date         DATE    NOT NULL,
+    symbol       VARCHAR NOT NULL,
+    instrument   VARCHAR NOT NULL,  -- FUTIDX or FUTSTK
+    expiry       DATE    NOT NULL,
+    open         DOUBLE,
+    high         DOUBLE,
+    low          DOUBLE,
+    close        DOUBLE,
+    settle_price DOUBLE,
+    contracts    BIGINT,
+    open_interest BIGINT,
+    oi_change    BIGINT,
+    PRIMARY KEY (date, symbol, instrument, expiry)
+);
+
 CREATE TABLE IF NOT EXISTS fno_oi (
     date DATE,
     participant_type VARCHAR,

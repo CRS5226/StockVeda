@@ -279,3 +279,185 @@ def get_fetch_job(job_id: str):
     if job is None:
         raise HTTPException(404, "Job not found")
     return job
+
+
+# ── Futures endpoints ─────────────────────────────────────────────────────────
+
+_futures_jobs: dict = {}
+
+
+def _run_futures_job(job_id: str, symbol: str | None, from_date: date, to_date: date) -> None:
+    from backend.data_sync.sync_fno_futures import fetch_and_store
+    from backend.data_sync.base import business_days_between
+
+    days = business_days_between(from_date, to_date)
+    _futures_jobs[job_id].update({"total": len(days), "done": 0, "inserted": 0,
+                                   "status": "running", "current_date": ""})
+
+    def cb(done, total, current_date, inserted):
+        _futures_jobs[job_id].update({"done": done, "total": total,
+                                       "current_date": current_date, "inserted": inserted})
+
+    try:
+        total = fetch_and_store(symbol, from_date, to_date, progress_cb=cb)
+        _futures_jobs[job_id]["status"] = "done" if total > 0 else "empty"
+        _futures_jobs[job_id]["inserted"] = total
+    except Exception as e:
+        _futures_jobs[job_id]["status"] = "error"
+        print(f"[fno_futures_job:{job_id}] ERROR: {e}")
+
+
+@router.post("/fetch-futures")
+async def fetch_futures_data(
+    background_tasks: BackgroundTasks,
+    symbol: str | None = FQuery(None, description="Symbol to fetch (None = all index futures)"),
+    from_date: str = FQuery(..., description="Start date YYYY-MM-DD"),
+    to_date: str = FQuery(..., description="End date YYYY-MM-DD"),
+):
+    """Download futures bhavcopy for a date range (optionally one symbol) into fno_futures_ohlcv."""
+    try:
+        fd = date.fromisoformat(from_date)
+        td = date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(400, "Invalid date format — use YYYY-MM-DD")
+    if td < fd:
+        raise HTTPException(400, "to_date must be >= from_date")
+    if (td - fd).days > 366:
+        raise HTTPException(400, "Date range cannot exceed 1 year")
+
+    from backend.data_sync.base import business_days_between
+    days = business_days_between(fd, td)
+    sym = symbol.strip().upper() if symbol else None
+
+    job_id = uuid.uuid4().hex[:8]
+    _futures_jobs[job_id] = {"total": len(days), "done": 0, "inserted": 0,
+                              "status": "queued", "current_date": "", "symbol": sym or "ALL"}
+    background_tasks.add_task(_run_futures_job, job_id, sym, fd, td)
+    return {"job_id": job_id, "total_days": len(days), "symbol": sym or "ALL"}
+
+
+@router.get("/fetch-futures-job/{job_id}")
+def get_futures_job(job_id: str):
+    job = _futures_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    return job
+
+
+@router.get("/futures/{symbol}")
+def get_futures(symbol: str, days: int = 90):
+    """
+    Returns futures analytics for a symbol:
+    - Available expiries with latest OI / close / basis / cost-of-carry
+    - OI history over `days` for the near-month expiry
+    """
+    db = get_db()
+    sym = symbol.strip().upper()
+    instr = "FUTIDX" if sym in INDEX_SYMBOLS else "FUTSTK"
+
+    # Check if we have any data
+    try:
+        check = db.execute(
+            "SELECT COUNT(*) FROM fno_futures_ohlcv WHERE symbol = ? AND instrument = ?",
+            [sym, instr]
+        ).fetchone()
+    except Exception:
+        raise HTTPException(404, f"No futures data for {sym}")
+
+    if not check or check[0] == 0:
+        raise HTTPException(404, f"No futures data for {sym} — use fetch-futures to load data")
+
+    # Latest date available
+    latest_date = db.execute(
+        "SELECT MAX(date) FROM fno_futures_ohlcv WHERE symbol = ? AND instrument = ?",
+        [sym, instr]
+    ).fetchone()[0]
+
+    # All active expiries on latest date
+    expiry_rows = db.execute("""
+        SELECT expiry, open, high, low, close, settle_price, contracts, open_interest, oi_change
+        FROM fno_futures_ohlcv
+        WHERE symbol = ? AND instrument = ? AND date = ?
+        ORDER BY expiry
+    """, [sym, instr, latest_date]).fetchall()
+
+    # Spot price
+    spot = 0.0
+    try:
+        if sym in INDEX_SYMBOLS:
+            idx_map = {
+                "NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK", "NIFTYBANK": "NIFTY BANK",
+                "FINNIFTY": "NIFTY FIN SERVICE", "MIDCPNIFTY": "NIFTY MIDCAP 100",
+                "SENSEX": "S&P BSE SENSEX",
+            }
+            spot_row = db.execute(
+                "SELECT close FROM index_ohlcv WHERE index_name = ? ORDER BY date DESC LIMIT 1",
+                [idx_map.get(sym, sym)]
+            ).fetchone()
+        else:
+            spot_row = db.execute(
+                "SELECT close FROM stock_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1",
+                [sym]
+            ).fetchone()
+        if spot_row:
+            spot = float(spot_row[0])
+    except Exception:
+        pass
+
+    # Build expiry summary with basis + cost of carry
+    from datetime import date as date_type
+    today = date_type.today()
+    expiries = []
+    for r in expiry_rows:
+        expiry_dt = r[0]
+        close_val = float(r[4]) if r[4] is not None else None
+        oi_val = int(r[7]) if r[7] is not None else None
+        oi_chg = int(r[8]) if r[8] is not None else None
+        basis = round(close_val - spot, 2) if close_val and spot else None
+        dte = (expiry_dt - today).days if expiry_dt else None
+        coc = round((basis / spot) * (365 / dte) * 100, 2) if basis and spot and dte and dte > 0 else None
+        expiries.append({
+            "expiry": str(expiry_dt),
+            "close": close_val,
+            "open_interest": oi_val,
+            "oi_change": oi_chg,
+            "basis": basis,
+            "cost_of_carry": coc,
+            "dte": dte,
+        })
+
+    # Rollover % (near month OI vs total OI across all expiries)
+    total_oi = sum(e["open_interest"] or 0 for e in expiries)
+    near_oi = expiries[0]["open_interest"] or 0 if expiries else 0
+    rollover_pct = round(near_oi / total_oi * 100, 1) if total_oi > 0 else None
+
+    # OI history for near-month expiry
+    oi_history = []
+    if expiries:
+        near_expiry = expiries[0]["expiry"]
+        cutoff = db.execute(
+            "SELECT MIN(date) FROM fno_futures_ohlcv WHERE symbol=? AND instrument=? AND expiry=?",
+            [sym, instr, near_expiry]
+        ).fetchone()[0]
+        oi_rows = db.execute("""
+            SELECT date, close, open_interest, oi_change
+            FROM fno_futures_ohlcv
+            WHERE symbol = ? AND instrument = ? AND expiry = ?
+            ORDER BY date
+        """, [sym, instr, near_expiry]).fetchall()
+        oi_history = [
+            {"date": str(r[0]), "close": float(r[1]) if r[1] else None,
+             "open_interest": int(r[2]) if r[2] else None,
+             "oi_change": int(r[3]) if r[3] else None}
+            for r in oi_rows
+        ]
+
+    return {
+        "symbol": sym,
+        "instrument": instr,
+        "data_date": str(latest_date),
+        "spot": spot,
+        "expiries": expiries,
+        "rollover_pct": rollover_pct,
+        "oi_history": oi_history,
+    }
