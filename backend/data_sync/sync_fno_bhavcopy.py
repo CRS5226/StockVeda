@@ -5,15 +5,14 @@ Table: fno_ohlcv
 """
 
 import io
-import time
 import zipfile
 from datetime import date, timedelta
-import httpx
 import pandas as pd
 from backend.data_sync.base import (
     upsert_df, log_sync,
     last_synced_date, business_days_between, last_business_day
 )
+from backend.data_sync.nse_session import nse_get, get_nse_client
 
 SOURCE_ID     = "nse_fno_bhavcopy"
 BHAV_URL      = "https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{yyyymmdd}_F_0000.csv.zip"
@@ -45,26 +44,9 @@ INSTR_MAP = {
 }
 
 
-def _make_client() -> httpx.Client:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.nseindia.com/",
-        "Connection": "keep-alive",
-    }
-    client = httpx.Client(headers=headers, timeout=120, follow_redirects=True)
-    client.get("https://www.nseindia.com/")
-    time.sleep(0.5)
-    client.get("https://www.nseindia.com/all-reports-derivatives")
-    time.sleep(0.3)
-    return client
-
-
-def _fetch_fno_bhavcopy(client, d: date) -> pd.DataFrame | None:
+def _fetch_fno_bhavcopy(d: date) -> pd.DataFrame | None:
     url = BHAV_URL.format(yyyymmdd=d.strftime("%Y%m%d"))
-    resp = client.get(url)
+    resp = nse_get(url)
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
@@ -117,19 +99,18 @@ def run():
 
     all_rows, failed = [], []
 
-    with _make_client() as client:
-        for d in days:
-            try:
-                df = _fetch_fno_bhavcopy(client, d)
-                if df is not None:
-                    all_rows.append(df)
-                    print(f"[{SOURCE_ID}] {d}: {len(df)} rows")
-                else:
-                    print(f"[{SOURCE_ID}] {d}: no file (holiday/weekend)")
-                time.sleep(0.4)
-            except Exception as e:
-                failed.append(d)
-                print(f"[{SOURCE_ID}] WARN {d}: {e}")
+    get_nse_client()  # ensure warmup completes before first download
+    for d in days:
+        try:
+            df = _fetch_fno_bhavcopy(d)
+            if df is not None:
+                all_rows.append(df)
+                print(f"[{SOURCE_ID}] {d}: {len(df)} rows")
+            else:
+                print(f"[{SOURCE_ID}] {d}: no file (holiday/weekend)")
+        except Exception as e:
+            failed.append(d)
+            print(f"[{SOURCE_ID}] WARN {d}: {e}")
 
     if not all_rows:
         log_sync(SOURCE_ID, "failed", 0, last, f"{len(failed)} failures")

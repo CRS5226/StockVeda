@@ -1,13 +1,16 @@
 """
 NSE session helper. NSE's API endpoints need session cookies set by the web UI.
-Warm up by hitting a page that returns 200, then all API calls reuse those cookies.
-Run scripts on a local Indian IP — Akamai blocks cloud server IPs.
+Loads pre-authenticated cookies from cookies.txt (Netscape format) if available,
+then warms up with an NSE page to acquire any missing session tokens.
 """
 
+import os
 import time
 import httpx
 
-_WARMUP_URL = "https://www.nseindia.com/market-data/live-equity-market"
+_WARMUP_URL  = "https://www.nseindia.com/market-data/live-equity-market"
+_WARMUP_URL2 = "https://www.nseindia.com/all-reports-derivatives"
+_COOKIES_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "cookies.txt")
 _BASE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -20,15 +23,41 @@ _BASE_HEADERS = {
 _client: httpx.Client | None = None
 
 
+def _load_cookies_file(path: str) -> dict:
+    """Parse Netscape cookie file into a dict."""
+    cookies = {}
+    try:
+        with open(os.path.abspath(path)) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 7:
+                    cookies[parts[5]] = parts[6]
+    except FileNotFoundError:
+        pass
+    return cookies
+
+
 def get_nse_client(timeout: int = 30) -> httpx.Client:
     """Return a warmed-up NSE session client (singleton per process)."""
     global _client
     if _client is None:
-        _client = httpx.Client(headers=_BASE_HEADERS, timeout=timeout, follow_redirects=True)
-        r = _client.get(_WARMUP_URL)
+        saved = _load_cookies_file(_COOKIES_FILE)
+        _client = httpx.Client(
+            headers=_BASE_HEADERS, timeout=timeout, follow_redirects=True,
+            cookies=saved if saved else None,
+        )
+        if saved:
+            print(f"[nse_session] loaded {len(saved)} cookies from cookies.txt")
+        # Always warm up to acquire nsit and any missing tokens
+        _client.get(_WARMUP_URL)
+        time.sleep(0.5)
+        r = _client.get(_WARMUP_URL2)
         if r.status_code not in (200, 301, 302):
             print(f"[nse_session] warmup returned {r.status_code} — session may be invalid on this IP")
-        time.sleep(0.5)
+        time.sleep(0.3)
     return _client
 
 
