@@ -17,6 +17,7 @@ from backend.core.backtest_engine import (
 )
 from backend.core.fno_signals import attach_fno_signals
 from backend.core.futures_continuous import build_continuous_futures
+from backend.core.options_backtest import run_straddle_backtest, StraddleParams, STRATEGIES
 import pandas as pd
 
 
@@ -473,3 +474,48 @@ def run_matrix_stream(req: MatrixRequest):
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+# ── Straddle / strangle backtester ──────────────────────────────────────────
+
+class StraddleRequest(BaseModel):
+    symbol: str
+    from_date: str
+    to_date: str
+    strategy: Literal["short_straddle", "long_straddle", "short_strangle", "long_strangle"] = "short_straddle"
+    strangle_width_pct: float = Field(2.0, gt=0, le=20)
+    entry_dte: int = Field(7, ge=1, le=30)
+    target_pct: float = Field(30.0, gt=0)
+    sl_pct: float = Field(50.0, gt=0)
+    force_exit_dte: int = Field(0, ge=0, le=5)
+    capital_per_trade: float = Field(50_000.0, gt=0)
+
+
+@router.get("/straddle-strategies")
+def get_straddle_strategies():
+    return {"strategies": list(STRATEGIES)}
+
+
+@router.post("/run-straddle")
+def run_straddle(req: StraddleRequest):
+    params = StraddleParams(
+        strategy=req.strategy,
+        strangle_width_pct=req.strangle_width_pct,
+        entry_dte=req.entry_dte,
+        target_pct=req.target_pct,
+        sl_pct=req.sl_pct,
+        force_exit_dte=req.force_exit_dte,
+        capital_per_trade=req.capital_per_trade,
+    )
+    try:
+        result = run_straddle_backtest(req.symbol, req.from_date, req.to_date, params)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    if result["stats"]["total_trades"] == 0:
+        raise HTTPException(
+            400,
+            f"No {req.strategy.replace('_', ' ')} cycles found for {req.symbol.upper()} in this range — "
+            "fetch its option chain data across at least one full expiry cycle on the F&O page first."
+        )
+    return result

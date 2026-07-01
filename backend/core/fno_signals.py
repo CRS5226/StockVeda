@@ -9,6 +9,7 @@ them exactly like any other indicator column (crosses_above/below, thresholds).
 
 import pandas as pd
 from backend.db.connection import get_db
+from backend.core.options_math import implied_vol, get_risk_free_rate
 
 INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "NIFTYBANK"}
 
@@ -20,7 +21,7 @@ IDX_NAME_MAP = {
 
 FNO_SIGNAL_COLUMNS = [
     "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration",
-    "basis", "cost_of_carry", "rollover_pct",
+    "basis", "cost_of_carry", "rollover_pct", "atm_iv", "iv_rank",
 ]
 
 
@@ -57,10 +58,10 @@ def _option_signals(sym: str, instr: str, from_date: str, to_date: str, spot: pd
     """, [sym, instr, from_date, to_date]).df()
 
     if front_expiry.empty:
-        return pd.DataFrame(columns=["date", "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration"])
+        return pd.DataFrame(columns=["date", "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration", "atm_iv"])
 
     chain = db.execute("""
-        SELECT date, expiry, strike, option_type, open_interest
+        SELECT date, expiry, strike, option_type, open_interest, close
         FROM fno_ohlcv
         WHERE symbol = ? AND instrument = ? AND date BETWEEN ? AND ?
     """, [sym, instr, from_date, to_date]).df()
@@ -68,44 +69,76 @@ def _option_signals(sym: str, instr: str, from_date: str, to_date: str, spot: pd
     chain = chain.merge(front_expiry, on="date")
     chain = chain[chain["expiry"] == chain["front_expiry"]]
     chain["open_interest"] = chain["open_interest"].fillna(0)
+    # spot_map keys are plain date strings (see _get_spot_series) — match that here,
+    # otherwise Timestamp-vs-string lookups silently miss and spot-dependent columns stay None.
+    chain["date"] = chain["date"].astype(str)
 
     spot_map = dict(zip(spot["date"], spot["close"])) if not spot.empty else {}
 
     rows = []
     for d, group in chain.groupby("date"):
-        ce = group[group.option_type == "CE"].groupby("strike")["open_interest"].sum()
-        pe = group[group.option_type == "PE"].groupby("strike")["open_interest"].sum()
-        strikes = sorted(set(ce.index) | set(pe.index))
+        ce_oi = group[group.option_type == "CE"].groupby("strike")["open_interest"].sum()
+        pe_oi = group[group.option_type == "PE"].groupby("strike")["open_interest"].sum()
+        strikes = sorted(set(ce_oi.index) | set(pe_oi.index))
         if not strikes:
             continue
 
-        ce_total, pe_total = ce.sum(), pe.sum()
+        ce_total, pe_total = ce_oi.sum(), pe_oi.sum()
         pcr = round(pe_total / ce_total, 4) if ce_total > 0 else None
 
         min_loss, max_pain = float("inf"), strikes[0]
         for s in strikes:
-            loss = sum(max(0, k - s) * ce.get(k, 0) for k in strikes) + sum(max(0, s - k) * pe.get(k, 0) for k in strikes)
+            loss = sum(max(0, k - s) * ce_oi.get(k, 0) for k in strikes) + sum(max(0, s - k) * pe_oi.get(k, 0) for k in strikes)
             if loss < min_loss:
                 min_loss, max_pain = loss, s
 
-        strike_totals = ce.add(pe, fill_value=0)
+        strike_totals = ce_oi.add(pe_oi, fill_value=0)
         total_oi = ce_total + pe_total
         oi_concentration = round(strike_totals.max() / total_oi * 100, 2) if total_oi > 0 else None
 
         day_spot = spot_map.get(d)
         max_pain_dist_pct = round((day_spot - max_pain) / day_spot * 100, 2) if day_spot else None
         atm_oi = None
+        atm_iv = None
         if day_spot and strikes:
             atm_strike = min(strikes, key=lambda k: abs(k - day_spot))
             atm_oi = float(strike_totals.get(atm_strike, 0))
 
+            expiry_dt = group["expiry"].iloc[0]
+            dte_days = (pd.Timestamp(expiry_dt) - pd.Timestamp(d)).days
+            if dte_days and dte_days > 0:
+                dte_years = dte_days / 365
+                rate = get_risk_free_rate(str(d))
+                ce_close = group[(group.option_type == "CE") & (group.strike == atm_strike)]["close"]
+                pe_close = group[(group.option_type == "PE") & (group.strike == atm_strike)]["close"]
+                ivs = []
+                if not ce_close.empty and ce_close.iloc[0] > 0:
+                    iv_ce = implied_vol(float(ce_close.iloc[0]), day_spot, atm_strike, dte_years, rate, "CE")
+                    if iv_ce:
+                        ivs.append(iv_ce)
+                if not pe_close.empty and pe_close.iloc[0] > 0:
+                    iv_pe = implied_vol(float(pe_close.iloc[0]), day_spot, atm_strike, dte_years, rate, "PE")
+                    if iv_pe:
+                        ivs.append(iv_pe)
+                atm_iv = round(sum(ivs) / len(ivs), 2) if ivs else None
+
         rows.append({
             "date": d, "pcr_oi": pcr, "max_pain": float(max_pain),
             "max_pain_dist_pct": max_pain_dist_pct, "atm_oi": atm_oi,
-            "oi_concentration": oi_concentration,
+            "oi_concentration": oi_concentration, "atm_iv": atm_iv,
         })
 
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+    if not result.empty and result["atm_iv"].notna().sum() > 1:
+        result = result.sort_values("date").reset_index(drop=True)
+        # IV rank = percentile of today's ATM IV within its trailing 60-session window
+        result["iv_rank"] = result["atm_iv"].rolling(window=60, min_periods=5).apply(
+            lambda w: pd.Series(w).rank(pct=True).iloc[-1] * 100, raw=False
+        ).round(1)
+    else:
+        result["iv_rank"] = None
+
+    return result
 
 
 def _futures_signals(sym: str, instr: str, from_date: str, to_date: str, spot: pd.DataFrame) -> pd.DataFrame:
@@ -135,11 +168,14 @@ def _futures_signals(sym: str, instr: str, from_date: str, to_date: str, spot: p
     front = front.merge(total_oi, on="date")
     front["rollover_pct"] = (front["front_oi"] / front["total_oi"].replace(0, float("nan")) * 100).round(1)
 
-    spot_map = dict(zip(spot["date"], spot["close"])) if not spot.empty else {}
-    front["spot"] = front["date"].map(spot_map)
     front["expiry_dt"] = pd.to_datetime(front["expiry"])
     front["date_dt"] = pd.to_datetime(front["date"])
     front["dte"] = (front["expiry_dt"] - front["date_dt"]).dt.days
+    # spot_map keys are plain date strings (see _get_spot_series) — cast here too,
+    # otherwise Timestamp-vs-string lookups silently miss and basis/CoC stay None.
+    front["date"] = front["date"].astype(str)
+    spot_map = dict(zip(spot["date"], spot["close"])) if not spot.empty else {}
+    front["spot"] = front["date"].map(spot_map)
 
     def _basis_coc(r):
         if r["spot"] is None or pd.isna(r["spot"]):

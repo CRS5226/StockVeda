@@ -217,6 +217,9 @@ VALID_INDICATORS = [
     # NaN for symbols with no synced F&O data — conditions on them simply never fire.
     "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration",
     "basis", "cost_of_carry", "rollover_pct",
+    # Options IV (Phase 3) — ATM IV solved via Black-Scholes/Newton-Raphson, plus its
+    # trailing-60-session percentile rank.
+    "atm_iv", "iv_rank",
 ]
 
 VALID_OPERATORS = ["crosses_above", "crosses_below", "above", "below"]

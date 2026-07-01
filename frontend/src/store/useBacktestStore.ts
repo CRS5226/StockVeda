@@ -36,6 +36,23 @@ interface StrategyV2 {
   data_source: "cash" | "futures";
 }
 
+// ── Options straddle/strangle mode ─────────────────────────────────────────
+
+export interface StraddleConfig {
+  symbol: string;
+  from_date: string;
+  to_date: string;
+  strategy: "short_straddle" | "long_straddle" | "short_strangle" | "long_strangle";
+  strangle_width_pct: number;
+  entry_dte: number;
+  target_pct: number;
+  sl_pct: number;
+  force_exit_dte: number;
+  capital_per_trade: number;
+}
+
+export type StraddleResult = Awaited<ReturnType<typeof api.runStraddleBacktest>>;
+
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
 export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
 
@@ -58,6 +75,19 @@ export interface SavedRun {
 
 const TWO_YEARS_AGO = new Date(Date.now() - 2 * 365 * 86400_000).toISOString().slice(0, 10);
 const TODAY = new Date().toISOString().slice(0, 10);
+
+const DEFAULT_STRADDLE: StraddleConfig = {
+  symbol: "NIFTY",
+  from_date: TWO_YEARS_AGO,
+  to_date: TODAY,
+  strategy: "short_straddle",
+  strangle_width_pct: 2,
+  entry_dte: 7,
+  target_pct: 30,
+  sl_pct: 50,
+  force_exit_dte: 0,
+  capital_per_trade: 50000,
+};
 
 const DEFAULT_STRATEGY: StrategyV2 = {
   entry_conditions: [{ left: "macd", operator: "crosses_above", right: "macd_signal" }],
@@ -104,11 +134,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "options";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -127,6 +157,14 @@ interface BacktestState {
   removeMatrixAlgo: (id: string) => void;
   updateMatrixAlgo: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
   runMatrix: () => Promise<void>;
+
+  // options straddle/strangle mode
+  straddle: StraddleConfig;
+  straddleResults: StraddleResult | null;
+  straddleLoading: boolean;
+  straddleError: string | null;
+  setStraddle: (p: Partial<StraddleConfig>) => void;
+  runStraddle: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -383,6 +421,26 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       }
     } catch (e) {
       set({ matrixLoading: false, matrixError: String(e), matrixProgress: null });
+    }
+  },
+
+  // ── Options straddle/strangle mode ────────────────────────────────────────
+  straddle: DEFAULT_STRADDLE,
+  straddleResults: null,
+  straddleLoading: false,
+  straddleError: null,
+
+  setStraddle: (p) => set((s) => ({ straddle: { ...s.straddle, ...p } })),
+
+  runStraddle: async () => {
+    const { straddle } = get();
+    if (!straddle.symbol) return;
+    set({ straddleLoading: true, straddleError: null, straddleResults: null });
+    try {
+      const res = await api.runStraddleBacktest(straddle);
+      set({ straddleResults: res, straddleLoading: false });
+    } catch (e) {
+      set({ straddleLoading: false, straddleError: String(e) });
     }
   },
 

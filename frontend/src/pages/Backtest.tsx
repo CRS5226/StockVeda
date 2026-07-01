@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
 import { api, ConditionRow } from "../lib/api";
-import { useBacktestStore, SavedRun, ALGO_COLORS } from "../store/useBacktestStore";
+import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult } from "../store/useBacktestStore";
 import BacktestChart from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
 import type { PatternHit } from "../lib/candlePatterns";
@@ -147,6 +147,7 @@ const INDICATOR_LABELS: Record<string, string> = {
   pcr_oi: "PCR (OI)", max_pain: "Max Pain Strike", max_pain_dist_pct: "Max Pain Distance %",
   atm_oi: "ATM Combined OI", oi_concentration: "OI Concentration %",
   basis: "Futures Basis", cost_of_carry: "Cost of Carry %", rollover_pct: "Rollover %",
+  atm_iv: "ATM Implied Vol %", iv_rank: "IV Rank (60d) %",
 };
 
 const OPERATOR_LABELS: Record<string, string> = {
@@ -926,6 +927,191 @@ function MultiAlgoResults({
   );
 }
 
+const STRADDLE_STRATEGIES = [
+  { key: "short_straddle" as const, label: "Short Straddle", tip: "Sell ATM CE + ATM PE — profits from premium decay, loses on a big move either way" },
+  { key: "long_straddle" as const, label: "Long Straddle", tip: "Buy ATM CE + ATM PE — profits from a big move either way, loses to premium decay" },
+  { key: "short_strangle" as const, label: "Short Strangle", tip: "Sell OTM CE + OTM PE — cheaper premium than a straddle, wider profit zone, smaller max profit" },
+  { key: "long_strangle" as const, label: "Long Strangle", tip: "Buy OTM CE + OTM PE — cheaper than a long straddle, needs a bigger move to profit" },
+];
+
+function OptionsStraddlePanel({
+  straddle, results, loading, error, onChange, onRun,
+}: {
+  straddle: StraddleConfig;
+  results: StraddleResult | null;
+  loading: boolean;
+  error: string | null;
+  onChange: (p: Partial<StraddleConfig>) => void;
+  onRun: () => void;
+}) {
+  const isStrangle = straddle.strategy.includes("strangle");
+  const isShort = straddle.strategy.startsWith("short");
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
+          <span className="text-sm font-semibold text-slate-700">Straddle / Strangle Backtest</span>
+          <span className="text-xs text-slate-400 ml-1">— one trade per expiry cycle, tracking combined CE+PE premium</span>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
+            <input value={straddle.symbol} onChange={(e) => onChange({ symbol: e.target.value.toUpperCase() })}
+              placeholder="NIFTY, RELIANCE…"
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">From Date</label>
+            <input type="date" value={straddle.from_date} onChange={(e) => onChange({ from_date: e.target.value })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">To Date</label>
+            <input type="date" value={straddle.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
+            <input type="number" value={straddle.capital_per_trade}
+              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
+          <div className="flex flex-wrap gap-1.5">
+            {STRADDLE_STRATEGIES.map((s) => (
+              <button key={s.key} title={s.tip} onClick={() => onChange({ strategy: s.key })}
+                className={`px-2.5 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
+                  straddle.strategy === s.key
+                    ? "bg-blue-500 text-white border-blue-500"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                }`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className={`grid gap-3 mb-4 ${isStrangle ? "grid-cols-2 md:grid-cols-5" : "grid-cols-2 md:grid-cols-4"}`}>
+          {isStrangle && (
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Strangle Width %</label>
+              <input type="number" step="0.5" value={straddle.strangle_width_pct}
+                onChange={(e) => onChange({ strangle_width_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="Enter once days-to-expiry drops to this many">Entry DTE</label>
+            <input type="number" value={straddle.entry_dte}
+              onChange={(e) => onChange({ entry_dte: parseInt(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Target %</label>
+            <input type="number" step="1" value={straddle.target_pct}
+              onChange={(e) => onChange({ target_pct: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Stop-Loss %</label>
+            <input type="number" step="1" value={straddle.sl_pct}
+              onChange={(e) => onChange({ sl_pct: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="Force-close once days-to-expiry drops to this many, regardless of P&L">Force Exit DTE</label>
+            <input type="number" value={straddle.force_exit_dte}
+              onChange={(e) => onChange({ force_exit_dte: parseInt(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+        </div>
+
+        <button onClick={onRun} disabled={!straddle.symbol || loading}
+          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+          {loading
+            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running…</>
+            : <><Play size={13} /> Run Backtest</>}
+        </button>
+      </section>
+
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {results && (
+        <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            {[
+              { label: "Total Trades", value: results.stats.total_trades },
+              { label: "Win Rate", value: `${results.stats.win_rate_pct}%` },
+              { label: "Total P&L", value: `₹${results.stats.total_pnl.toLocaleString("en-IN")}`, color: results.stats.total_pnl >= 0 ? "text-emerald-600" : "text-red-600" },
+              { label: "Avg P&L %", value: `${results.stats.avg_pnl_pct}%`, color: results.stats.avg_pnl_pct >= 0 ? "text-emerald-600" : "text-red-600" },
+            ].map((m) => (
+              <div key={m.label} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">{m.label}</div>
+                <div className={`text-lg font-bold ${m.color ?? "text-slate-800"}`}>{m.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-3 py-2 font-semibold">Expiry</th>
+                  <th className="text-left px-3 py-2 font-semibold">Entry</th>
+                  <th className="text-left px-3 py-2 font-semibold">Exit</th>
+                  <th className="text-right px-3 py-2 font-semibold">{isStrangle ? "Call / Put Strike" : "Strike"}</th>
+                  <th className="text-right px-3 py-2 font-semibold">Entry Premium</th>
+                  <th className="text-right px-3 py-2 font-semibold">Exit Premium</th>
+                  <th className="text-right px-3 py-2 font-semibold">P&L %</th>
+                  <th className="text-right px-3 py-2 font-semibold">P&L ₹</th>
+                  <th className="text-left px-3 py-2 font-semibold">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.trades.map((t, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-3 py-1.5 font-medium text-slate-700">{t.expiry}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{t.entry_date}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{t.exit_date}</td>
+                    <td className="text-right px-3 py-1.5 font-semibold">
+                      {isStrangle ? `${t.call_strike} / ${t.put_strike}` : t.call_strike}
+                    </td>
+                    <td className="text-right px-3 py-1.5">{t.entry_premium}</td>
+                    <td className="text-right px-3 py-1.5">{t.exit_premium}</td>
+                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct}%
+                    </td>
+                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {t.pnl_amount >= 0 ? "+" : ""}₹{t.pnl_amount.toLocaleString("en-IN")}
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-500 capitalize">{t.exit_reason.replace("_", " ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
+            {isShort ? "Short strategy: profit = premium decay (entry − exit)." : "Long strategy: profit = premium gain (exit − entry)."}
+            {" "}IV/premium data is EOD-only (no intraday fills) — real slippage and bid/ask spread aren't modeled.
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -942,6 +1128,9 @@ export default function Backtest() {
     // matrix
     matrixAlgos, matrixResults, matrixLoading, matrixError, matrixProgress,
     addMatrixAlgo, removeMatrixAlgo, updateMatrixAlgo, runMatrix,
+    // options straddle/strangle
+    straddle, straddleResults, straddleLoading, straddleError,
+    setStraddle, runStraddle,
   } = store;
 
   const [algoSymbolSearch, setAlgoSymbolSearch] = useState("");
@@ -1077,6 +1266,7 @@ export default function Backtest() {
           { key: "multi_stock" as const, icon: "🔀", label: "Multi-Stock", desc: "1 algo · many stocks" },
           { key: "multi_algo"  as const, icon: "⚡", label: "Multi-Algo",  desc: "many algos · 1 stock" },
           { key: "matrix"      as const, icon: "✦",  label: "Matrix",      desc: "M algos · N stocks" },
+          { key: "options"     as const, icon: "Ω",  label: "Options",     desc: "straddle / strangle" },
         ]).map((m) => (
           <button key={m.key} onClick={() => setMode(m.key)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
@@ -1137,6 +1327,18 @@ export default function Backtest() {
           onRunAll={runAllAlgos}
           expandedAlgoId={expandedAlgoId}
           setExpandedAlgoId={setExpandedAlgoId}
+        />
+      )}
+
+      {/* ── Options mode: straddle/strangle backtest ── */}
+      {mode === "options" && (
+        <OptionsStraddlePanel
+          straddle={straddle}
+          results={straddleResults}
+          loading={straddleLoading}
+          error={straddleError}
+          onChange={setStraddle}
+          onRun={runStraddle}
         />
       )}
 

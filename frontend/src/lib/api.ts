@@ -383,6 +383,26 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  runStraddleBacktest: (params: {
+    symbol: string; from_date: string; to_date: string;
+    strategy: "short_straddle" | "long_straddle" | "short_strangle" | "long_strangle";
+    strangle_width_pct?: number; entry_dte?: number; target_pct?: number; sl_pct?: number;
+    force_exit_dte?: number; capital_per_trade?: number;
+  }) =>
+    apiFetch<{
+      trades: Array<{
+        expiry: string; entry_date: string; exit_date: string;
+        call_strike: number; put_strike: number;
+        entry_premium: number; exit_premium: number;
+        pnl_pct: number; pnl_amount: number; exit_reason: string;
+      }>;
+      stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
+    }>("/backtest/run-straddle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });
     if (indexName) p.set("index_name", indexName);
