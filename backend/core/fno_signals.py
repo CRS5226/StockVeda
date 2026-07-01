@@ -12,10 +12,38 @@ from backend.db.connection import get_db
 
 INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "NIFTYBANK"}
 
+IDX_NAME_MAP = {
+    "NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK", "NIFTYBANK": "NIFTY BANK",
+    "FINNIFTY": "NIFTY FIN SERVICE", "MIDCPNIFTY": "NIFTY MIDCAP 100",
+    "SENSEX": "S&P BSE SENSEX",
+}
+
 FNO_SIGNAL_COLUMNS = [
     "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration",
     "basis", "cost_of_carry", "rollover_pct",
 ]
+
+
+def _get_spot_series(sym: str, from_date: str, to_date: str) -> pd.DataFrame:
+    """
+    Always the true cash/index price — independent of whatever price series the
+    caller is backtesting against (e.g. a continuous futures series), since
+    basis/max-pain-distance are only meaningful relative to real spot.
+    """
+    db = get_db()
+    if sym in INDEX_SYMBOLS:
+        df = db.execute(
+            "SELECT date, close FROM index_ohlcv WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date",
+            [IDX_NAME_MAP.get(sym, sym), from_date, to_date],
+        ).df()
+    else:
+        df = db.execute(
+            "SELECT date, close FROM stock_ohlcv WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date",
+            [sym, from_date, to_date],
+        ).df()
+    if not df.empty:
+        df["date"] = df["date"].astype(str)
+    return df
 
 
 def _option_signals(sym: str, instr: str, from_date: str, to_date: str, spot: pd.DataFrame) -> pd.DataFrame:
@@ -128,7 +156,9 @@ def _futures_signals(sym: str, instr: str, from_date: str, to_date: str, spot: p
 
 def attach_fno_signals(price_df: pd.DataFrame, symbol: str, from_date: str, to_date: str) -> pd.DataFrame:
     """
-    Left-joins daily F&O signals onto price_df (must have 'date' and 'close').
+    Left-joins daily F&O signals onto price_df (must have a 'date' column — price_df
+    can be cash OHLCV or a continuous futures series; spot for basis/max-pain-distance
+    is always looked up independently from stock_ohlcv/index_ohlcv, not from price_df).
     If the symbol has no synced F&O data, the new columns are added as all-NaN
     so downstream indicator lookups never KeyError — conditions on them just
     never fire, which is the correct behaviour for an unfetched symbol.
@@ -137,8 +167,10 @@ def attach_fno_signals(price_df: pd.DataFrame, symbol: str, from_date: str, to_d
     opt_instr = "OPTIDX" if sym in INDEX_SYMBOLS else "OPTSTK"
     fut_instr = "FUTIDX" if sym in INDEX_SYMBOLS else "FUTSTK"
 
-    spot = price_df[["date", "close"]].copy()
-    spot["date"] = spot["date"].astype(str)
+    try:
+        spot = _get_spot_series(sym, from_date, to_date)
+    except Exception:
+        spot = pd.DataFrame(columns=["date", "close"])
 
     df = price_df.copy()
     df["date"] = df["date"].astype(str)

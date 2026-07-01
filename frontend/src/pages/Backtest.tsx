@@ -1278,7 +1278,7 @@ export default function Backtest() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-4 gap-3 mb-4">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">From Date</label>
             <input type="date" value={strategy.from_date}
@@ -1303,6 +1303,24 @@ export default function Backtest() {
                       : "text-slate-500 bg-slate-50 hover:bg-slate-100"
                   }`}>
                   {tf === "1D" ? "Daily" : "Weekly"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="Cash = stock price. Futures = continuous roll-adjusted near-month futures series (needs futures data fetched on the F&O page first).">
+              Data Source
+            </label>
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
+              {(["cash", "futures"] as const).map((ds) => (
+                <button key={ds}
+                  onClick={() => setStrategy({ data_source: ds })}
+                  className={`flex-1 font-medium transition-colors ${
+                    strategy.data_source === ds
+                      ? "bg-blue-500 text-white"
+                      : "text-slate-500 bg-slate-50 hover:bg-slate-100"
+                  }`}>
+                  {ds === "cash" ? "Cash" : "Futures"}
                 </button>
               ))}
             </div>
@@ -1425,7 +1443,7 @@ export default function Backtest() {
           })()}
 
           {/* Shared date / capital / timeframe */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
             <div>
               <label className="text-xs text-slate-500 mb-1 block">From Date</label>
               <input type="date" value={strategy.from_date}
@@ -1453,6 +1471,21 @@ export default function Backtest() {
                       strategy.timeframe === tf ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
                     }`}>
                     {tf === "1D" ? "Daily" : "Weekly"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="Cash = stock price. Futures = continuous roll-adjusted near-month futures series (needs futures data fetched on the F&O page first).">
+                Data Source
+              </label>
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
+                {(["cash", "futures"] as const).map((ds) => (
+                  <button key={ds} onClick={() => setStrategy({ data_source: ds })}
+                    className={`flex-1 font-medium transition-colors ${
+                      strategy.data_source === ds ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
+                    }`}>
+                    {ds === "cash" ? "Cash" : "Futures"}
                   </button>
                 ))}
               </div>

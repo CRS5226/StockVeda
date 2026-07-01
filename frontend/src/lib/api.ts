@@ -364,7 +364,7 @@ export const api = {
     symbols: string[]; from_date: string; to_date: string;
     entry_conditions: ConditionRow[]; exit_conditions: ConditionRow[];
     target_pct: number; sl_pct: number; max_bars: number; capital_per_trade: number;
-    timeframe?: string;
+    timeframe?: string; data_source?: "cash" | "futures";
   }) =>
     apiFetch<BacktestV2Response>("/backtest/run-v2", {
       method: "POST",
@@ -375,6 +375,7 @@ export const api = {
   runBacktestMatrix: (params: {
     symbols: string[]; algos: MatrixAlgoInput[];
     from_date: string; to_date: string; capital_per_trade: number; timeframe?: string;
+    data_source?: "cash" | "futures";
   }) =>
     apiFetch<MatrixResponse>("/backtest/run-matrix", {
       method: "POST",

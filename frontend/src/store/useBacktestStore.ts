@@ -30,6 +30,10 @@ interface StrategyV2 {
   to_date: string;
   capital_per_trade: number;
   timeframe: "1D" | "1W";
+  // "cash" = stock_ohlcv (default). "futures" = continuous roll-adjusted near-month
+  // futures series (Phase 2) — lets RSI/MACD/SMA-style conditions run on futures
+  // price action instead of the cash price.
+  data_source: "cash" | "futures";
 }
 
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
@@ -65,6 +69,7 @@ const DEFAULT_STRATEGY: StrategyV2 = {
   to_date: TODAY,
   capital_per_trade: 10000,
   timeframe: "1D",
+  data_source: "cash",
 };
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -289,6 +294,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           max_bars: slot.strategy.max_bars,
           capital_per_trade: slot.strategy.capital_per_trade,
           timeframe: slot.strategy.timeframe,
+          data_source: slot.strategy.data_source,
         });
         const symResult = res.per_symbol[multiAlgoSymbol] ?? null;
         set((s) => ({
@@ -348,6 +354,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           symbols: pickedSymbols, algos,
           from_date: strategy.from_date, to_date: strategy.to_date,
           capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
+          data_source: strategy.data_source,
         }),
       });
       if (!res.ok) {
@@ -409,6 +416,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         max_bars: strategy.max_bars,
         capital_per_trade: strategy.capital_per_trade,
         timeframe: strategy.timeframe,
+        data_source: strategy.data_source,
       });
       const firstSym = Object.keys(res.per_symbol)[0] ?? null;
       set({ v2Results: res, v2Loading: false, activeSymbol: firstSym });

@@ -16,7 +16,20 @@ from backend.core.backtest_engine import (
     ENTRY_CONDITIONS, VALID_INDICATORS, VALID_OPERATORS,
 )
 from backend.core.fno_signals import attach_fno_signals
+from backend.core.futures_continuous import build_continuous_futures
 import pandas as pd
+
+
+def _load_price_df(db, sym: str, from_date: str, to_date: str, data_source: str) -> pd.DataFrame:
+    """data_source: 'cash' (stock_ohlcv) or 'futures' (continuous roll-adjusted near-month series)."""
+    if data_source == "futures":
+        return build_continuous_futures(sym, from_date, to_date)
+    return db.execute(
+        """SELECT date, open, high, low, close, volume FROM stock_ohlcv
+           WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
+        [sym, from_date, to_date],
+    ).df()
+
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
@@ -148,6 +161,7 @@ class BacktestV2Request(BaseModel):
     max_bars: int = Field(30, ge=1, le=252)
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
 
 
 @router.post("/run-v2")
@@ -172,11 +186,7 @@ def run_v2(req: BacktestV2Request):
     per_symbol: dict = {}
     for sym in req.symbols:
         sym = sym.upper()
-        df = db.execute(
-            """SELECT date, open, high, low, close, volume FROM stock_ohlcv
-               WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
-            [sym, req.from_date, req.to_date],
-        ).df()
+        df = _load_price_df(db, sym, req.from_date, req.to_date, req.data_source)
         if len(df) < 30:
             continue
         df = attach_fno_signals(df, sym, req.from_date, req.to_date)
@@ -229,6 +239,7 @@ class MatrixRequest(BaseModel):
     to_date: str
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
 
 
 @router.post("/run-matrix")
@@ -238,11 +249,7 @@ def run_matrix(req: MatrixRequest):
     ohlcv: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = db.execute(
-            """SELECT date, open, high, low, close, volume FROM stock_ohlcv
-               WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
-            [s, req.from_date, req.to_date],
-        ).df()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
         if len(df) >= 30:
             ohlcv[s] = attach_fno_signals(df, s, req.from_date, req.to_date)
 
@@ -415,11 +422,7 @@ def run_matrix_stream(req: MatrixRequest):
     ohlcv: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = db.execute(
-            """SELECT date, open, high, low, close, volume FROM stock_ohlcv
-               WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
-            [s, req.from_date, req.to_date],
-        ).df()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
         if len(df) >= 30:
             ohlcv[s] = attach_fno_signals(df, s, req.from_date, req.to_date)
 
