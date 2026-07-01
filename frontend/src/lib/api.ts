@@ -462,6 +462,17 @@ export const api = {
   getFnoSymbols: () =>
     apiFetch<{ symbols: string[] }>("/fno/symbols"),
 
+  fnoFetchHistory: (from_date: string, to_date: string) =>
+    apiFetch<{ job_id: string; total_days: number }>(
+      `/fno/fetch-history?from_date=${from_date}&to_date=${to_date}`,
+      { method: "POST" }
+    ),
+
+  fnoFetchJob: (job_id: string) =>
+    apiFetch<{ total: number; done: number; inserted: number; status: string; current_date: string }>(
+      `/fno/fetch-job/${job_id}`
+    ),
+
   getOutlook: (symbol: string) =>
     apiFetch<{
       score: number; label: string;

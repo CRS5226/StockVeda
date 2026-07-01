@@ -1,10 +1,13 @@
 """
-F&O routes: option chain (from DB), lot sizes, F&O symbol list.
+F&O routes: option chain (from DB), lot sizes, F&O symbol list, on-demand history fetch.
 Note: NSE real-time option chain API is Akamai-blocked on cloud IPs.
-Data is served from the fno_ohlcv table synced daily from NSE archives.
+Data is served from the fno_ohlcv table populated via /fno/fetch-history.
 """
 
-from fastapi import APIRouter, HTTPException
+import uuid
+from datetime import date
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import Query as FQuery
 from backend.db.connection import get_db
 
 router = APIRouter(prefix="/fno", tags=["fno"])
@@ -198,3 +201,84 @@ def get_fno_symbols():
         return {"symbols": [r[0] for r in rows]}
     except Exception:
         return {"symbols": []}
+
+
+# ── On-demand historical data fetch ──────────────────────────────────────────
+
+_fetch_jobs: dict = {}
+
+
+def _run_fetch_job(job_id: str, from_date: date, to_date: date) -> None:
+    from backend.data_sync.sync_fno_bhavcopy import fetch_fno_day
+    from backend.data_sync.base import upsert_df, log_sync, business_days_between
+    from backend.data_sync.nse_session import get_nse_client
+    import pandas as pd
+
+    days = business_days_between(from_date, to_date)
+    _fetch_jobs[job_id].update({"total": len(days), "done": 0, "inserted": 0, "status": "running", "current_date": ""})
+
+    get_nse_client()
+
+    batch_rows: list = []
+    total_inserted = 0
+    BATCH = 5
+
+    for i, d in enumerate(days):
+        _fetch_jobs[job_id]["current_date"] = str(d)
+        try:
+            df = fetch_fno_day(d)
+            if df is not None:
+                batch_rows.append(df)
+        except Exception as e:
+            print(f"[fno_fetch:{job_id}] WARN {d}: {e}")
+
+        _fetch_jobs[job_id]["done"] = i + 1
+
+        if batch_rows and (len(batch_rows) >= BATCH or i == len(days) - 1):
+            try:
+                combined = pd.concat(batch_rows, ignore_index=True)
+                count = upsert_df(combined, "fno_ohlcv")
+                total_inserted += count
+                _fetch_jobs[job_id]["inserted"] = total_inserted
+                log_sync("nse_fno_bhavcopy", "partial", total_inserted, d)
+            except Exception as e:
+                print(f"[fno_fetch:{job_id}] WARN flush failed: {e}")
+            batch_rows = []
+
+    _fetch_jobs[job_id]["status"] = "done" if total_inserted > 0 else "empty"
+    print(f"[fno_fetch:{job_id}] complete — {total_inserted} rows")
+
+
+@router.post("/fetch-history")
+async def fetch_history(
+    background_tasks: BackgroundTasks,
+    from_date: str = FQuery(..., description="Start date YYYY-MM-DD"),
+    to_date: str = FQuery(..., description="End date YYYY-MM-DD"),
+):
+    """Download index F&O bhavcopy for a date range and insert into fno_ohlcv."""
+    try:
+        fd = date.fromisoformat(from_date)
+        td = date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(400, "Invalid date format — use YYYY-MM-DD")
+    if td < fd:
+        raise HTTPException(400, "to_date must be >= from_date")
+    if (td - fd).days > 366:
+        raise HTTPException(400, "Date range cannot exceed 1 year")
+
+    from backend.data_sync.base import business_days_between
+    days = business_days_between(fd, td)
+
+    job_id = uuid.uuid4().hex[:8]
+    _fetch_jobs[job_id] = {"total": len(days), "done": 0, "inserted": 0, "status": "queued", "current_date": ""}
+    background_tasks.add_task(_run_fetch_job, job_id, fd, td)
+    return {"job_id": job_id, "total_days": len(days)}
+
+
+@router.get("/fetch-job/{job_id}")
+def get_fetch_job(job_id: str):
+    """Poll progress of a fetch-history job."""
+    job = _fetch_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    return job

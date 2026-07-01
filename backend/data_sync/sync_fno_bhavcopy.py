@@ -2,6 +2,9 @@
 NSE F&O daily bhavcopy (futures + options OHLCV + OI).
 Source: nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{YYYYMMDD}_F_0000.csv.zip
 Table: fno_ohlcv
+
+Only stores index instruments (OPTIDX/FUTIDX) to keep DB size manageable.
+Stock options add ~40K rows/day vs ~6K for index — not needed for the option chain view.
 """
 
 import io
@@ -16,9 +19,9 @@ from backend.data_sync.nse_session import nse_get, get_nse_client
 
 SOURCE_ID     = "nse_fno_bhavcopy"
 BHAV_URL      = "https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{yyyymmdd}_F_0000.csv.zip"
-DEFAULT_START = date(2024, 1, 1)
+DEFAULT_START = date(2025, 1, 1)   # UDiFF format reliably available from 2024 onward
+BATCH_DAYS    = 5                   # flush to DB every N days — keeps RAM under 50MB
 
-# UDiFF format column mapping
 COLUMN_MAP = {
     "TckrSymb":        "symbol",
     "FinInstrmTp":     "instrument_code",
@@ -43,8 +46,11 @@ INSTR_MAP = {
     "IDF": "FUTIDX",
 }
 
+# Only keep index options — FUTIDX (IDF) have no strike and don't fit the fno_ohlcv PK
+INDEX_INSTRUMENTS = {"IDO"}
 
-def _fetch_fno_bhavcopy(d: date) -> pd.DataFrame | None:
+
+def fetch_fno_day(d: date) -> pd.DataFrame | None:
     url = BHAV_URL.format(yyyymmdd=d.strftime("%Y%m%d"))
     resp = nse_get(url)
     if resp.status_code == 404:
@@ -58,8 +64,12 @@ def _fetch_fno_bhavcopy(d: date) -> pd.DataFrame | None:
         df = pd.read_csv(z.open(csvs[0]))
 
     df.columns = [c.strip() for c in df.columns]
-    df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
 
+    # Filter to index instruments before doing any heavy work
+    if "FinInstrmTp" in df.columns:
+        df = df[df["FinInstrmTp"].isin(INDEX_INSTRUMENTS)]
+
+    df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
     df["instrument"] = df["instrument_code"].map(INSTR_MAP)
     df = df.drop(columns=["instrument_code"], errors="ignore")
 
@@ -95,16 +105,19 @@ def run():
         print(f"[{SOURCE_ID}] already up to date")
         return
 
-    print(f"[{SOURCE_ID}] fetching {len(days)} days: {days[0]} → {days[-1]}")
+    print(f"[{SOURCE_ID}] fetching {len(days)} days: {days[0]} → {days[-1]} (index only)")
 
-    all_rows, failed = [], []
+    batch_rows: list = []
+    total_count = 0
+    failed = []
+    last_inserted = last
 
-    get_nse_client()  # ensure warmup completes before first download
-    for d in days:
+    get_nse_client()
+    for i, d in enumerate(days):
         try:
-            df = _fetch_fno_bhavcopy(d)
+            df = fetch_fno_day(d)
             if df is not None:
-                all_rows.append(df)
+                batch_rows.append(df)
                 print(f"[{SOURCE_ID}] {d}: {len(df)} rows")
             else:
                 print(f"[{SOURCE_ID}] {d}: no file (holiday/weekend)")
@@ -112,16 +125,23 @@ def run():
             failed.append(d)
             print(f"[{SOURCE_ID}] WARN {d}: {e}")
 
-    if not all_rows:
+        if batch_rows and (len(batch_rows) >= BATCH_DAYS or i == len(days) - 1):
+            combined = pd.concat(batch_rows, ignore_index=True)
+            count = upsert_df(combined, "fno_ohlcv")
+            total_count += count
+            last_inserted = d
+            log_sync(SOURCE_ID, "partial", total_count, last_inserted)
+            print(f"[{SOURCE_ID}] flushed {count} rows — total {total_count}")
+            batch_rows = []
+
+    if total_count == 0:
         log_sync(SOURCE_ID, "failed", 0, last, f"{len(failed)} failures")
         print(f"[{SOURCE_ID}] FAILED — no data fetched")
         return
 
-    combined = pd.concat(all_rows, ignore_index=True)
-    count = upsert_df(combined, "fno_ohlcv")
     status = "success" if not failed else "partial"
-    log_sync(SOURCE_ID, status, count, days[-1])
-    print(f"[{SOURCE_ID}] inserted {count} rows up to {days[-1]}")
+    log_sync(SOURCE_ID, status, total_count, last_inserted)
+    print(f"[{SOURCE_ID}] done — {total_count} rows up to {last_inserted}")
 
 
 if __name__ == "__main__":

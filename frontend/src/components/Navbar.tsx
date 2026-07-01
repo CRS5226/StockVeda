@@ -66,7 +66,7 @@ export default function Navbar() {
     if (syncing) return;
     setSyncing(true);
     setSyncMsg(null);
-    const sources = ["indices", "bhavcopy", "fii_dii", "currency", "fno_participant", "fno_bhavcopy"];
+    const sources = ["indices", "bhavcopy", "fii_dii", "currency", "fno_participant"];
     try {
       await Promise.all(sources.map((s) => api.triggerSync(s)));
       setSyncMsg("Syncing… dashboard will update shortly");
