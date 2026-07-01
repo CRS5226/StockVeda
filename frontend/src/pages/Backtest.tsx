@@ -144,6 +144,9 @@ const INDICATOR_LABELS: Record<string, string> = {
   cdl_doji: "Doji", cdl_shooting_star: "Shooting Star",
   cdl_morning_star: "Morning Star", cdl_evening_star: "Evening Star",
   cdl_bear_engulf: "Bearish Engulfing",
+  pcr_oi: "PCR (OI)", max_pain: "Max Pain Strike", max_pain_dist_pct: "Max Pain Distance %",
+  atm_oi: "ATM Combined OI", oi_concentration: "OI Concentration %",
+  basis: "Futures Basis", cost_of_carry: "Cost of Carry %", rollover_pct: "Rollover %",
 };
 
 const OPERATOR_LABELS: Record<string, string> = {
