@@ -1063,6 +1063,26 @@ function OptionsStraddlePanel({
             ))}
           </div>
 
+          {results.ohlcv.length > 0 && (
+            <div className="h-80 mb-4 border border-slate-200 rounded-lg overflow-hidden">
+              <BacktestChart
+                symbol={straddle.symbol}
+                ohlcv={results.ohlcv}
+                hLines={false}
+                strikeLines={results.trades.map((t) => ({
+                  entry_date: t.entry_date, exit_date: t.exit_date,
+                  call_strike: t.call_strike, put_strike: t.put_strike,
+                }))}
+                trades={results.trades.map((t) => ({
+                  entry_date: t.entry_date, exit_date: t.exit_date,
+                  entry_price: 0, target_price: 0, sl_price: 0, exit_price: 0,
+                  exit_reason: t.exit_reason === "target" ? "target" : t.exit_reason === "sl" ? "sl" : "timeout",
+                  pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
+                }))}
+              />
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>

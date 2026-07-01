@@ -397,6 +397,7 @@ export const api = {
         pnl_pct: number; pnl_amount: number; exit_reason: string;
       }>;
       stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
+      ohlcv: Array<{ date: string; open: number; high: number; low: number; close: number }>;
     }>("/backtest/run-straddle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

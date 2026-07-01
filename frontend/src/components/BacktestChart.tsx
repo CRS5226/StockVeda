@@ -17,6 +17,13 @@ export interface AlgoTradeSet {
   active: boolean; // active algo → larger markers + h-lines shown
 }
 
+export interface StrikeLine {
+  entry_date: string;
+  exit_date: string;
+  call_strike: number;
+  put_strike: number;
+}
+
 interface Props {
   ohlcv: OhlcvRow[];
   symbol: string;
@@ -26,6 +33,15 @@ interface Props {
   algoTrades?: AlgoTradeSet[];
   /** TA-Lib pattern hits from backend; pass [] to hide patterns */
   patternHits?: PatternHit[];
+  /**
+   * Entry/target/SL horizontal lines only make sense when trade prices share the
+   * candle's price scale (cash/futures). Straddle/strangle trades track option
+   * premium, not spot price, so pass false there to keep only the date-anchored
+   * entry/exit markers.
+   */
+  hLines?: boolean;
+  /** Call/put strike reference lines (straddle/strangle) — these ARE on the spot price scale. */
+  strikeLines?: StrikeLine[];
 }
 
 const BG   = "#ffffff";
@@ -40,7 +56,7 @@ function hexWithAlpha(hex: string, alpha: number): string {
 }
 
 export default function BacktestChart({
-  ohlcv, trades = [], algoTrades, patternHits = [],
+  ohlcv, trades = [], algoTrades, patternHits = [], hLines = true, strikeLines = [],
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
@@ -135,8 +151,9 @@ export default function BacktestChart({
         const exitDate  = t.exit_date.slice(0, 10);
         if (!dateSet.has(entryDate)) return;
 
-        // H-lines only for the active algo to avoid clutter
-        if (active) {
+        // H-lines only for the active algo to avoid clutter — and only when the
+        // trade's price fields share the candle's scale (see hLines prop doc).
+        if (active && hLines) {
           addHLine(entryDate, exitDate, t.entry_price,  color);
           addHLine(entryDate, exitDate, t.target_price, "#22c55e");
           addHLine(entryDate, exitDate, t.sl_price,     "#ef4444");
@@ -171,6 +188,15 @@ export default function BacktestChart({
       drawTrades(trades, "#3b82f6", true, false);
     }
 
+    // Straddle/strangle strike reference lines — these ARE on the candle's price scale.
+    strikeLines.forEach((s) => {
+      const entryDate = s.entry_date.slice(0, 10);
+      const exitDate  = s.exit_date.slice(0, 10);
+      if (!dateSet.has(entryDate)) return;
+      addHLine(entryDate, exitDate, s.call_strike, "#f59e0b");
+      if (s.put_strike !== s.call_strike) addHLine(entryDate, exitDate, s.put_strike, "#0ea5e9");
+    });
+
     // TA-Lib candle pattern markers from backend
     patternHits.forEach((p) => {
       markers.push({
@@ -183,7 +209,7 @@ export default function BacktestChart({
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 

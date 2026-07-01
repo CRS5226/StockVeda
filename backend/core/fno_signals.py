@@ -31,15 +31,22 @@ def _get_spot_series(sym: str, from_date: str, to_date: str) -> pd.DataFrame:
     caller is backtesting against (e.g. a continuous futures series), since
     basis/max-pain-distance are only meaningful relative to real spot.
     """
+    df = get_spot_ohlcv(sym, from_date, to_date)
+    return df[["date", "close"]] if not df.empty else df
+
+
+def get_spot_ohlcv(sym: str, from_date: str, to_date: str) -> pd.DataFrame:
+    """Full OHLC cash/index candles — for charting (spot series only, not options premium)."""
     db = get_db()
+    sym = sym.strip().upper()
     if sym in INDEX_SYMBOLS:
         df = db.execute(
-            "SELECT date, close FROM index_ohlcv WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date",
+            "SELECT date, open, high, low, close FROM index_ohlcv WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date",
             [IDX_NAME_MAP.get(sym, sym), from_date, to_date],
         ).df()
     else:
         df = db.execute(
-            "SELECT date, close FROM stock_ohlcv WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date",
+            "SELECT date, open, high, low, close FROM stock_ohlcv WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date",
             [sym, from_date, to_date],
         ).df()
     if not df.empty:

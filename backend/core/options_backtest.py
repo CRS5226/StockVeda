@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 import pandas as pd
 from backend.db.connection import get_db
-from backend.core.fno_signals import INDEX_SYMBOLS, _get_spot_series
+from backend.core.fno_signals import INDEX_SYMBOLS, _get_spot_series, get_spot_ohlcv
 
 STRATEGIES = ("short_straddle", "long_straddle", "short_strangle", "long_strangle")
 
@@ -59,8 +59,11 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
     """, [sym, instr, from_date, to_date]).fetchall()
     expiries = [str(r[0]) for r in expiries]
 
+    ohlcv = get_spot_ohlcv(sym, from_date, to_date)
+    ohlcv_records = ohlcv.to_dict("records") if not ohlcv.empty else []
+
     if not expiries:
-        return {"trades": [], "stats": _empty_stats()}
+        return {"trades": [], "stats": _empty_stats(), "ohlcv": ohlcv_records}
 
     spot_df = _get_spot_series(sym, from_date, to_date)
     spot_map = dict(zip(spot_df["date"], spot_df["close"])) if not spot_df.empty else {}
@@ -152,7 +155,7 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
             "pnl_pct": round(pnl_pct, 2), "pnl_amount": pnl_amount, "exit_reason": exit_reason,
         })
 
-    return {"trades": trades, "stats": _compute_stats(trades)}
+    return {"trades": trades, "stats": _compute_stats(trades), "ohlcv": ohlcv_records}
 
 
 def _empty_stats() -> dict:
