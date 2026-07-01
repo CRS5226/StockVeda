@@ -30,17 +30,20 @@ function PcrBadge({ pcr }: { pcr: number | null }) {
 
 function OIButterflyChart({ chain, maxPain, spot }: { chain: OptionChainRow[]; maxPain: number; spot: number }) {
   const visible = chain.filter(r => spot === 0 || (r.strike >= spot * 0.85 && r.strike <= spot * 1.15));
-  const maxOI = Math.max(...visible.flatMap(r => [r.ce_oi ?? 0, r.pe_oi ?? 0]), 1);
+  const allOI = visible.flatMap(r => [r.ce_oi ?? 0, r.pe_oi ?? 0]);
+  const maxOI = allOI.length > 0 ? Math.max(...allOI, 1) : 1;
+
+  if (visible.length === 0) return <div className="text-xs text-slate-400 py-8 text-center">No strikes in ±15% range of spot</div>;
 
   return (
     <div className="overflow-y-auto max-h-[480px]">
-      <div className="flex items-center gap-2 mb-2 text-[11px] text-slate-500">
+      <div className="flex items-center gap-3 mb-2 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2 bg-emerald-400 rounded inline-block" /> CE OI</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2 bg-red-400 rounded inline-block" /> PE OI</span>
-        <span className="inline-flex items-center gap-1"><span className="w-3 h-2 bg-yellow-300 rounded inline-block" /> ATM</span>
-        <span className="inline-flex items-center gap-1"><span className="w-3 h-2 bg-orange-300 rounded inline-block" /> Max Pain</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-yellow-300 rounded-full inline-block" /> ATM</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-orange-300 rounded-full inline-block" /> Max Pain</span>
       </div>
-      <div className="space-y-0.5">
+      <div className="space-y-px">
         {visible.map(r => {
           const ceW = ((r.ce_oi ?? 0) / maxOI) * 100;
           const peW = ((r.pe_oi ?? 0) / maxOI) * 100;
@@ -48,19 +51,28 @@ function OIButterflyChart({ chain, maxPain, spot }: { chain: OptionChainRow[]; m
           const isMp = r.strike === maxPain;
           return (
             <div key={r.strike}
-              className={`flex items-center gap-1 text-[11px] rounded px-1 ${isAtm ? "bg-yellow-50 ring-1 ring-yellow-300" : isMp ? "bg-orange-50 ring-1 ring-orange-200" : ""}`}>
-              <div className="w-28 flex justify-end items-center gap-1">
-                <span className="text-slate-500 text-[10px]">{fmtK(r.ce_oi)}</span>
-                <div className="h-3.5 bg-emerald-400 rounded-l-sm" style={{ width: `${ceW}%`, minWidth: ceW > 0 ? "2px" : "0" }} />
+              className={`flex items-center h-5 text-[10px] rounded ${isAtm ? "bg-yellow-50 ring-1 ring-yellow-300" : isMp ? "bg-orange-50 ring-1 ring-orange-200" : ""}`}>
+              {/* CE side — bar grows right-to-left from the strike column */}
+              <div className="flex items-center w-[38%] h-full pr-1">
+                <span className="text-slate-400 shrink-0 w-8 text-right mr-1">{fmtK(r.ce_oi)}</span>
+                <div className="flex-1 relative h-3">
+                  <div className="absolute right-0 top-0 bottom-0 bg-emerald-400 rounded-l-sm"
+                    style={{ width: `${ceW}%` }} />
+                </div>
               </div>
-              <div className="w-[72px] text-center font-semibold text-slate-700 shrink-0 flex items-center justify-center gap-0.5">
+              {/* Strike label */}
+              <div className="w-[24%] text-center font-semibold text-slate-700 shrink-0 flex items-center justify-center gap-0.5">
                 {fmt(r.strike)}
-                {isAtm && <span className="text-yellow-600 text-[8px] font-bold">A</span>}
-                {isMp && <span className="text-orange-500 text-[8px] font-bold">M</span>}
+                {isAtm && <span className="text-yellow-600 text-[7px] font-bold leading-none">▲</span>}
+                {isMp && !isAtm && <span className="text-orange-500 text-[7px] font-bold leading-none">★</span>}
               </div>
-              <div className="w-28 flex items-center gap-1">
-                <div className="h-3.5 bg-red-400 rounded-r-sm" style={{ width: `${peW}%`, minWidth: peW > 0 ? "2px" : "0" }} />
-                <span className="text-slate-500 text-[10px]">{fmtK(r.pe_oi)}</span>
+              {/* PE side — bar grows left-to-right from the strike column */}
+              <div className="flex items-center w-[38%] h-full pl-1">
+                <div className="flex-1 relative h-3">
+                  <div className="absolute left-0 top-0 bottom-0 bg-red-400 rounded-r-sm"
+                    style={{ width: `${peW}%` }} />
+                </div>
+                <span className="text-slate-400 shrink-0 w-8 ml-1">{fmtK(r.pe_oi)}</span>
               </div>
             </div>
           );
@@ -433,11 +445,11 @@ export default function FnO() {
                 sub: "Strike where max options expire worthless",
               },
               {
-                label: "ATM IV", value: <span className="font-bold text-blue-600">{atmRow?.ce_iv != null ? atmRow.ce_iv.toFixed(1) + "%" : "—"}</span>,
-                sub: "ATM Call implied volatility",
+                label: "ATM CE OI", value: <span className="font-bold text-blue-600">{atmRow?.ce_oi != null ? fmtK(atmRow.ce_oi) : "—"}</span>,
+                sub: "ATM Call open interest (contracts)",
               },
               {
-                label: "Lot Size", value: <span className="font-bold text-slate-700">{lotSize ?? "—"}</span>,
+                label: "Lot Size", value: <span className="font-bold text-slate-700">{lotSize != null && lotSize > 0 ? lotSize : "—"}</span>,
                 sub: `${symbol} contract size`,
               },
               {

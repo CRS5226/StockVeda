@@ -155,39 +155,36 @@ def get_option_chain(symbol: str, expiry: str | None = None):
     }
 
 
+# NSE index lot sizes — revised Oct 2024 circular SEBI/DNPD/Cir-33/2024
+_KNOWN_LOT_SIZES = {
+    "NIFTY": 75, "BANKNIFTY": 30, "FINNIFTY": 65, "MIDCPNIFTY": 120,
+    "NIFTYNXT50": 25, "SENSEX": 20, "BANKEX": 15,
+}
+
+
 @router.get("/lot-sizes")
 def get_lot_sizes():
     global _lot_cache, _lot_cache_ts
     import time, requests as _req
     if _lot_cache is None or time.time() - _lot_cache_ts > 21600:
+        fetched: dict = {}
         try:
+            # NSE mktlots CSV (may redirect; use the archive URL without redirects)
             url = "https://archives.nseindia.com/content/fo/fo_mktlots.csv"
             txt = _req.get(url, timeout=10, allow_redirects=False).text
-            res: dict = {}
             for line in txt.split("\n"):
                 if line and "," in line and "symbol" not in line.casefold():
                     parts = [x.strip() for x in line.split(",")]
                     if len(parts) >= 3:
                         try:
-                            res[parts[1]] = int(parts[2])
+                            fetched[parts[1]] = int(parts[2])
                         except ValueError:
                             pass
-            if res:
-                _lot_cache = res
-                _lot_cache_ts = time.time()
         except Exception:
             pass
-        if not _lot_cache:
-            # Fallback: derive from fno_ohlcv contracts column or known values
-            db = get_db()
-            try:
-                rows = db.execute(
-                    "SELECT DISTINCT symbol FROM fno_ohlcv WHERE instrument IN ('OPTSTK','OPTIDX') ORDER BY symbol"
-                ).fetchall()
-                _lot_cache = {r[0]: 0 for r in rows}
-            except Exception:
-                _lot_cache = {}
-            _lot_cache_ts = time.time()
+        # Merge: known hardcoded values win for index symbols; CSV covers stocks
+        _lot_cache = {**fetched, **_KNOWN_LOT_SIZES}
+        _lot_cache_ts = time.time()
     return {"lot_sizes": _lot_cache}
 
 
