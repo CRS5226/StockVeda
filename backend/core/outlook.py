@@ -102,6 +102,9 @@ def compute_outlook(df: pd.DataFrame) -> dict:
     # ── Historical pattern win-rate stats ─────────────────────────────────────
     pattern_stats: list[dict] = []
     recent_pattern_funcs = list({h["pattern"] for h in recent_hits})
+    # Most recent occurrence wins if a func_name hit more than once with different bias
+    # (rare, but CDLENGULFING can flip bullish/bearish across different dates).
+    recent_hit_by_func = {h["pattern"]: h for h in sorted(recent_hits, key=lambda h: h["date"])}
 
     o_arr = df["open"].values.astype(float)
     h_arr = df["high"].values.astype(float)
@@ -193,11 +196,18 @@ def compute_outlook(df: pd.DataFrame) -> dict:
 
         n = len(occurrences)
         meta = next((p for p in PATTERNS if p[0] == func_name), None)
-        pat_label = meta[1] if meta else func_name
+        # CDLENGULFING/CDLHARAMI/CDLMARUBOZU resolve to a different label ("BE" not "E", etc.)
+        # when the actual recent hit was bearish — detect_patterns() already worked that out
+        # correctly, so reuse its label/bias here instead of recomputing generic defaults
+        # (which always assume the bullish variant and would never match recent_patterns).
+        recent_hit = recent_hit_by_func.get(func_name)
+        pat_label = recent_hit["label"] if recent_hit else (meta[1] if meta else func_name)
         pat_name  = meta[2].split(" — ")[0] if meta else func_name
-        # Tuple: (func, label, name, bull_bias, bear_bias)
-        # bearish-only pattern → bull_bias is None, bear_bias is "bearish"
-        pat_direction = "bearish" if (meta and meta[3] is None and meta[4] is not None) else "bullish"
+        pat_direction = recent_hit["bias"] if recent_hit else (
+            # Tuple: (func, label, name, bull_bias, bear_bias)
+            # bearish-only pattern → bull_bias is None, bear_bias is "bearish"
+            "bearish" if (meta and meta[3] is None and meta[4] is not None) else "bullish"
+        )
 
         def _avg(lst): return round(sum(lst) / len(lst), 2) if lst else None
 

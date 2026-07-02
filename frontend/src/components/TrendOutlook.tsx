@@ -298,8 +298,11 @@ function Body({ symbol, data, candle }: { symbol: string; data: OutlookData; can
 
       {/* Trade setup cards — only for patterns that actually formed recently */}
       {(() => {
+        // recent_patterns holds short display codes (e.g. "E", "SS"); pattern_stats[].pattern
+        // is the TA-Lib function name (e.g. "CDLENGULFING") — join on .label instead, which
+        // uses the same short-code format, or this filter never matches anything.
         const recentCodes = new Set(data.recent_patterns);
-        const activeStats = data.pattern_stats.filter(ps => recentCodes.has(ps.pattern));
+        const activeStats = data.pattern_stats.filter(ps => recentCodes.has(ps.label));
         return activeStats.length > 0 ? (
           <div>
             <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Trade Setup</div>
