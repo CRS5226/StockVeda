@@ -2,9 +2,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
 import { api, ConditionRow } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult } from "../store/useBacktestStore";
-import BacktestChart from "../components/BacktestChart";
+import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
-import MacroLineChart from "../components/MacroLineChart";
 import FnoFetchPanel, { INDEX_SYMBOLS } from "../components/FnoFetchPanel";
 import type { PatternHit } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
@@ -34,6 +33,16 @@ function tradeStats(trades: BacktestTradeV2[]) {
   const slHits     = trades.filter((t) => t.exit_reason === "sl").length;
   const timeStops  = trades.length - targetHits - slHits;
   return { profitFactor: pf, expectancy: exp, targetHits, slHits, timeStops };
+}
+
+/** Reward zone (entry→target) and risk zone (SL→entry) boxes for long-only trades. */
+function tradeBoxZones(trades: BacktestTradeV2[]): BoxZone[] {
+  return trades.flatMap((t) => [
+    { entry_date: t.entry_date, exit_date: t.exit_date, top: t.target_price, bottom: t.entry_price,
+      fill: "rgba(16,185,129,0.15)", border: "#10b981" },
+    { entry_date: t.entry_date, exit_date: t.exit_date, top: t.entry_price, bottom: t.sl_price,
+      fill: "rgba(239,68,68,0.12)", border: "#ef4444" },
+  ]);
 }
 
 // ── Strategy presets ───────────────────────────────────────────────────────
@@ -1119,9 +1128,11 @@ function OptionsStraddlePanel({
                 symbol={straddle.symbol}
                 ohlcv={results.ohlcv}
                 hLines={false}
-                strikeLines={results.trades.map((t) => ({
+                boxZones={results.trades.map((t) => ({
                   entry_date: t.entry_date, exit_date: t.exit_date,
-                  call_strike: t.call_strike, put_strike: t.put_strike,
+                  top: t.call_strike, bottom: t.put_strike,
+                  fill: isShort ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.12)",
+                  border: isShort ? "#10b981" : "#ef4444",
                 }))}
                 trades={results.trades.map((t) => ({
                   entry_date: t.entry_date, exit_date: t.exit_date,
@@ -1130,51 +1141,13 @@ function OptionsStraddlePanel({
                   pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
                 }))}
               />
+              <div className="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50">
+                Shaded zone = call strike ↔ put strike. {isShort
+                  ? "Short strategy: spot staying inside the zone favors theta decay (green)."
+                  : "Long strategy: spot needs to break outside the zone to profit (needs a big move)."}
+              </div>
             </div>
           )}
-
-          {/* Premium chart with entry/target/stop-loss lines — the scale-correct equivalent
-              of the entry/target/SL lines other algos draw on the spot candle chart. */}
-          {results.trades.length > 0 && (() => {
-            const trade = results.trades[selectedTradeIdx] ?? results.trades[0];
-            const entryPremium = trade.entry_premium;
-            const targetPremium = isShort
-              ? entryPremium * (1 - straddle.target_pct / 100)
-              : entryPremium * (1 + straddle.target_pct / 100);
-            const slPremium = isShort
-              ? entryPremium * (1 + straddle.sl_pct / 100)
-              : entryPremium * (1 - straddle.sl_pct / 100);
-            const path = trade.premium_path.length ? trade.premium_path : [
-              { date: trade.entry_date, premium: trade.entry_premium },
-              { date: trade.exit_date, premium: trade.exit_premium },
-            ];
-            const premiumSeries = [
-              { label: "Combined Premium", color: "#3b82f6", data: path.map((p) => ({ date: p.date, value: p.premium })) },
-              { label: "Entry", color: "#94a3b8", data: path.map((p) => ({ date: p.date, value: entryPremium })) },
-              { label: "Target", color: "#22c55e", data: path.map((p) => ({ date: p.date, value: Math.max(0, targetPremium) })) },
-              { label: "Stop-Loss", color: "#ef4444", data: path.map((p) => ({ date: p.date, value: slPremium })) },
-            ];
-            return (
-              <div className="mb-4">
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  <span className="text-xs font-semibold text-slate-600">Premium chart:</span>
-                  {results.trades.map((t, i) => (
-                    <button key={i} onClick={() => setSelectedTradeIdx(i)}
-                      className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-colors ${
-                        i === selectedTradeIdx
-                          ? "bg-blue-500 text-white border-blue-500"
-                          : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300"
-                      }`}>
-                      {t.entry_date} → {t.exit_date}
-                    </button>
-                  ))}
-                </div>
-                <div className="border border-slate-200 rounded-lg p-2">
-                  <MacroLineChart series={premiumSeries} height={220} />
-                </div>
-              </div>
-            );
-          })()}
 
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -2048,6 +2021,7 @@ export default function Backtest() {
                     ohlcv={activeData.ohlcv}
                     trades={activeData.trades}
                     patternHits={activePatternHits}
+                    boxZones={tradeBoxZones(activeData.trades)}
                   />
 
                   {activeData.trades.length > 0 ? (
@@ -2451,7 +2425,7 @@ export default function Backtest() {
                   </div>
                   <div className="h-80 shrink-0 border-b border-slate-100">
                     {ohlcv.length > 0
-                      ? <BacktestChart symbol={symbol} ohlcv={ohlcv} trades={trades} />
+                      ? <BacktestChart symbol={symbol} ohlcv={ohlcv} trades={trades} boxZones={tradeBoxZones(trades)} />
                       : <div className="flex items-center justify-center h-full text-slate-400 text-sm">No chart data</div>
                     }
                   </div>

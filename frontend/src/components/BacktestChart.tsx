@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChart, type IChartApi, type ISeriesApi,
   type CandlestickData, type LineData, type Time,
@@ -24,6 +24,16 @@ export interface StrikeLine {
   put_strike: number;
 }
 
+/** A shaded rectangle drawn directly on the candle chart, spanning a date range and a price band. */
+export interface BoxZone {
+  entry_date: string;
+  exit_date: string;
+  top: number;
+  bottom: number;
+  fill: string;    // rgba background
+  border: string;  // hex/rgb border
+}
+
 interface Props {
   ohlcv: OhlcvRow[];
   symbol: string;
@@ -42,6 +52,8 @@ interface Props {
   hLines?: boolean;
   /** Call/put strike reference lines (straddle/strangle) — these ARE on the spot price scale. */
   strikeLines?: StrikeLine[];
+  /** Shaded trade-zone rectangles (e.g. entry→target, entry→SL, or a straddle's strike band). */
+  boxZones?: BoxZone[];
 }
 
 const BG   = "#ffffff";
@@ -55,14 +67,37 @@ function hexWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+interface ZoneRect { left: number; top: number; width: number; height: number; fill: string; border: string }
+
 export default function BacktestChart({
-  ohlcv, trades = [], algoTrades, patternHits = [], hLines = true, strikeLines = [],
+  ohlcv, trades = [], algoTrades, patternHits = [], hLines = true, strikeLines = [], boxZones = [],
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
   const candleRef     = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const tradeLines    = useRef<ISeriesApi<"Line">[]>([]);
   const loadedSymRef  = useRef<string>("");  // tracks which symbol's candles are loaded
+  const boxZonesRef   = useRef<BoxZone[]>([]);
+  const [zoneRects, setZoneRects] = useState<ZoneRect[]>([]);
+
+  const recomputeZones = () => {
+    const chart = chartRef.current, series = candleRef.current;
+    if (!chart || !series) { setZoneRects([]); return; }
+    const rects: ZoneRect[] = [];
+    boxZonesRef.current.forEach((z) => {
+      const x1 = chart.timeScale().timeToCoordinate(z.entry_date.slice(0, 10) as Time);
+      const x2 = chart.timeScale().timeToCoordinate(z.exit_date.slice(0, 10) as Time);
+      const y1 = series.priceToCoordinate(z.top);
+      const y2 = series.priceToCoordinate(z.bottom);
+      if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+      rects.push({
+        left: Math.min(x1, x2), width: Math.max(2, Math.abs(x2 - x1)),
+        top: Math.min(y1, y2), height: Math.max(1, Math.abs(y2 - y1)),
+        fill: z.fill, border: z.border,
+      });
+    });
+    setZoneRects(rects);
+  };
 
   // Init chart once
   useEffect(() => {
@@ -85,14 +120,26 @@ export default function BacktestChart({
     });
     candleRef.current = cs;
 
+    chart.timeScale().subscribeVisibleTimeRangeChange(recomputeZones);
+
     const ro = new ResizeObserver(() => {
       if (containerRef.current)
         chart.applyOptions({ width: containerRef.current.clientWidth });
+      recomputeZones();
     });
     ro.observe(containerRef.current);
 
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+    return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(recomputeZones);
+      ro.disconnect(); chart.remove(); chartRef.current = null;
+    };
   }, []);
+
+  // Keep the ref in sync so the stable subscribed callback always sees current zones.
+  useEffect(() => {
+    boxZonesRef.current = boxZones;
+    recomputeZones();
+  }, [boxZones]);
 
   // Update candle data — only fitContent() when the underlying symbol/data changes,
   // not when the caller swaps ohlcv references for the same stock data.
@@ -110,6 +157,7 @@ export default function BacktestChart({
       chartRef.current?.timeScale().fitContent();
       loadedSymRef.current = identity;
     }
+    recomputeZones();
   }, [ohlcv]);
 
   // Draw trade markers and h-lines
@@ -215,7 +263,18 @@ export default function BacktestChart({
 
   return (
     <div>
-      <div ref={containerRef} className="w-full" />
+      <div className="relative">
+        <div ref={containerRef} className="w-full" />
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {zoneRects.map((r, i) => (
+            <div key={i} className="absolute rounded-sm"
+              style={{
+                left: r.left, top: r.top, width: r.width, height: r.height,
+                backgroundColor: r.fill, border: `1px dashed ${r.border}`,
+              }} />
+          ))}
+        </div>
+      </div>
       <div className="flex gap-3 px-3 py-1 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50 flex-wrap">
         {isMultiAlgo ? (
           <>
