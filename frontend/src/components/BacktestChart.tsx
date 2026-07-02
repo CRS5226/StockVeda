@@ -99,6 +99,17 @@ export default function BacktestChart({
     setZoneRects(rects);
   };
 
+  // priceToCoordinate/timeToCoordinate can return null until the chart has actually
+  // completed a layout pass — calling recomputeZones() synchronously right after
+  // setData()/fitContent() often computes against a not-yet-ready scale. Defer to
+  // next paint (and once more after, since fitContent's layout can take >1 frame).
+  const scheduleRecompute = () => {
+    requestAnimationFrame(() => {
+      recomputeZones();
+      requestAnimationFrame(recomputeZones);
+    });
+  };
+
   // Init chart once
   useEffect(() => {
     if (!containerRef.current) return;
@@ -125,7 +136,7 @@ export default function BacktestChart({
     const ro = new ResizeObserver(() => {
       if (containerRef.current)
         chart.applyOptions({ width: containerRef.current.clientWidth });
-      recomputeZones();
+      scheduleRecompute();
     });
     ro.observe(containerRef.current);
 
@@ -138,7 +149,7 @@ export default function BacktestChart({
   // Keep the ref in sync so the stable subscribed callback always sees current zones.
   useEffect(() => {
     boxZonesRef.current = boxZones;
-    recomputeZones();
+    scheduleRecompute();
   }, [boxZones]);
 
   // Update candle data — only fitContent() when the underlying symbol/data changes,
@@ -157,7 +168,7 @@ export default function BacktestChart({
       chartRef.current?.timeScale().fitContent();
       loadedSymRef.current = identity;
     }
-    recomputeZones();
+    scheduleRecompute();
   }, [ohlcv]);
 
   // Draw trade markers and h-lines

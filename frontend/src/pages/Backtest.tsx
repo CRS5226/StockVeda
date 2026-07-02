@@ -1130,7 +1130,11 @@ function OptionsStraddlePanel({
                 hLines={false}
                 boxZones={results.trades.map((t) => ({
                   entry_date: t.entry_date, exit_date: t.exit_date,
-                  top: t.call_strike, bottom: t.put_strike,
+                  // Breakeven levels, not raw strikes — for a straddle call_strike === put_strike
+                  // (same ATM strike), so the strikes alone give zero box height. The premium
+                  // collected/paid is what actually cushions the position, so that's the real edge.
+                  top: t.call_strike + t.entry_premium,
+                  bottom: t.put_strike - t.entry_premium,
                   fill: isShort ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.12)",
                   border: isShort ? "#10b981" : "#ef4444",
                 }))}
@@ -1142,7 +1146,7 @@ function OptionsStraddlePanel({
                 }))}
               />
               <div className="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50">
-                Shaded zone = call strike ↔ put strike. {isShort
+                Shaded zone = breakeven range (strike ± premium collected/paid). {isShort
                   ? "Short strategy: spot staying inside the zone favors theta decay (green)."
                   : "Long strategy: spot needs to break outside the zone to profit (needs a big move)."}
               </div>
