@@ -394,6 +394,7 @@ export const api = {
         expiry: string; entry_date: string; exit_date: string;
         call_strike: number; put_strike: number;
         entry_premium: number; exit_premium: number;
+        entry_ce: number; entry_pe: number; exit_ce: number; exit_pe: number;
         pnl_pct: number; pnl_amount: number; exit_reason: string;
         premium_path: Array<{ date: string; premium: number }>;
       }>;

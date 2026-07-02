@@ -1128,32 +1128,13 @@ function OptionsStraddlePanel({
                 symbol={straddle.symbol}
                 ohlcv={results.ohlcv}
                 hLines={false}
-                boxZones={results.trades.map((t) => ({
-                  entry_date: t.entry_date, exit_date: t.exit_date,
-                  // Breakeven levels, not raw strikes — for a straddle call_strike === put_strike
-                  // (same ATM strike), so the strikes alone give zero box height. The premium
-                  // collected/paid is what actually cushions the position, so that's the real edge.
-                  top: t.call_strike + t.entry_premium,
-                  bottom: t.put_strike - t.entry_premium,
-                  fill: isShort ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.12)",
-                  border: isShort ? "#10b981" : "#ef4444",
-                }))}
                 trades={results.trades.map((t) => ({
                   entry_date: t.entry_date, exit_date: t.exit_date,
                   entry_price: 0, target_price: 0, sl_price: 0, exit_price: 0,
                   exit_reason: t.exit_reason === "target" ? "target" : t.exit_reason === "sl" ? "sl" : "timeout",
                   pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
                 }))}
-                tradeLabels={results.trades.map((t) => ({
-                  entryText: isStrangle ? `${t.call_strike}/${t.put_strike}` : String(t.call_strike),
-                  exitText: `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct}%`,
-                }))}
               />
-              <div className="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50">
-                Shaded zone = breakeven range (strike ± premium collected/paid). {isShort
-                  ? "Short strategy: spot staying inside the zone favors theta decay (green)."
-                  : "Long strategy: spot needs to break outside the zone to profit (needs a big move)."}
-              </div>
             </div>
           )}
 
@@ -1165,6 +1146,8 @@ function OptionsStraddlePanel({
                   <th className="text-left px-3 py-2 font-semibold">Entry</th>
                   <th className="text-left px-3 py-2 font-semibold">Exit</th>
                   <th className="text-right px-3 py-2 font-semibold">{isStrangle ? "Call / Put Strike" : "Strike"}</th>
+                  <th className="text-right px-3 py-2 font-semibold" title="CE leg premium, entry → exit">CE Premium</th>
+                  <th className="text-right px-3 py-2 font-semibold" title="PE leg premium, entry → exit">PE Premium</th>
                   <th className="text-right px-3 py-2 font-semibold">Entry Premium</th>
                   <th className="text-right px-3 py-2 font-semibold" title="Premium level that closes the trade in profit">Target Premium</th>
                   <th className="text-right px-3 py-2 font-semibold" title="Premium level that closes the trade at a loss">Stop-Loss Premium</th>
@@ -1194,6 +1177,8 @@ function OptionsStraddlePanel({
                     <td className="text-right px-3 py-1.5 font-semibold">
                       {isStrangle ? `${t.call_strike} / ${t.put_strike}` : t.call_strike}
                     </td>
+                    <td className="text-right px-3 py-1.5">{t.entry_ce} → {t.exit_ce}</td>
+                    <td className="text-right px-3 py-1.5">{t.entry_pe} → {t.exit_pe}</td>
                     <td className="text-right px-3 py-1.5">{t.entry_premium}</td>
                     <td className="text-right px-3 py-1.5 text-emerald-600">{Math.max(0, targetPremium).toFixed(2)}</td>
                     <td className="text-right px-3 py-1.5 text-red-600">{slPremium.toFixed(2)}</td>

@@ -102,44 +102,52 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
             continue
         call_strike, put_strike = picked
 
-        def _premium(day_chain: pd.DataFrame) -> float | None:
+        def _premium(day_chain: pd.DataFrame) -> tuple[float, float, float] | None:
+            """Returns (combined, ce_leg, pe_leg) or None if either leg has no quote that day."""
             ce = day_chain[(day_chain.option_type == "CE") & (day_chain.strike == call_strike)]["close"]
             pe = day_chain[(day_chain.option_type == "PE") & (day_chain.strike == put_strike)]["close"]
             if ce.empty or pe.empty:
                 return None
-            return float(ce.iloc[0]) + float(pe.iloc[0])
+            ce_val, pe_val = float(ce.iloc[0]), float(pe.iloc[0])
+            return ce_val + pe_val, ce_val, pe_val
 
-        entry_premium = _premium(entry_chain)
-        if not entry_premium or entry_premium <= 0:
+        entry_result = _premium(entry_chain)
+        if not entry_result or entry_result[0] <= 0:
             continue
+        entry_premium, entry_ce, entry_pe = entry_result
 
         remaining = [d for d in dates if d >= entry_date]
-        exit_date, exit_premium, exit_reason = None, None, None
+        exit_date, exit_premium, exit_ce, exit_pe, exit_reason = None, None, None, None, None
         premium_path: list[dict] = []
 
         for d in remaining:
-            cur_premium = _premium(chain[chain["date"] == d])
-            if cur_premium is None:
+            day_result = _premium(chain[chain["date"] == d])
+            if day_result is None:
                 continue
+            cur_premium, cur_ce, cur_pe = day_result
             premium_path.append({"date": d, "premium": round(cur_premium, 2)})
             pnl_pct = ((entry_premium - cur_premium) / entry_premium * 100) if is_short \
                 else ((cur_premium - entry_premium) / entry_premium * 100)
             dte_now = (expiry_ts - pd.Timestamp(d)).days
 
             if pnl_pct >= params.target_pct:
-                exit_date, exit_premium, exit_reason = d, cur_premium, "target"
+                exit_date, exit_premium, exit_ce, exit_pe, exit_reason = d, cur_premium, cur_ce, cur_pe, "target"
                 break
             if pnl_pct <= -params.sl_pct:
-                exit_date, exit_premium, exit_reason = d, cur_premium, "sl"
+                exit_date, exit_premium, exit_ce, exit_pe, exit_reason = d, cur_premium, cur_ce, cur_pe, "sl"
                 break
             if dte_now <= params.force_exit_dte:
-                exit_date, exit_premium, exit_reason = d, cur_premium, "expiry"
+                exit_date, exit_premium, exit_ce, exit_pe, exit_reason = d, cur_premium, cur_ce, cur_pe, "expiry"
                 break
 
         if exit_date is None:
             # Ran out of fetched data before any exit condition fired — close at the last known price.
             if premium_path:
-                exit_date, exit_premium, exit_reason = premium_path[-1]["date"], premium_path[-1]["premium"], "data_end"
+                last_day = premium_path[-1]["date"]
+                last_result = _premium(chain[chain["date"] == last_day])
+                if last_result:
+                    exit_date, exit_premium, exit_ce, exit_pe = last_day, last_result[0], last_result[1], last_result[2]
+                    exit_reason = "data_end"
         if exit_date is None:
             continue
 
@@ -151,6 +159,8 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
             "expiry": expiry, "entry_date": entry_date, "exit_date": exit_date,
             "call_strike": call_strike, "put_strike": put_strike,
             "entry_premium": round(entry_premium, 2), "exit_premium": round(exit_premium, 2),
+            "entry_ce": round(entry_ce, 2), "entry_pe": round(entry_pe, 2),
+            "exit_ce": round(exit_ce, 2), "exit_pe": round(exit_pe, 2),
             "pnl_pct": round(pnl_pct, 2), "pnl_amount": pnl_amount, "exit_reason": exit_reason,
             "premium_path": premium_path,
         })

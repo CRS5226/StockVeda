@@ -34,12 +34,6 @@ export interface BoxZone {
   border: string;  // hex/rgb border
 }
 
-/** Overrides the generic "B"/"T"/"SL" marker text with real per-trade numbers (e.g. strike, P&L%). */
-export interface TradeLabel {
-  entryText: string;
-  exitText: string;
-}
-
 interface Props {
   ohlcv: OhlcvRow[];
   symbol: string;
@@ -60,8 +54,6 @@ interface Props {
   strikeLines?: StrikeLine[];
   /** Shaded trade-zone rectangles (e.g. entry→target, entry→SL, or a straddle's strike band). */
   boxZones?: BoxZone[];
-  /** Parallel to `trades` (same order/length) — real numbers instead of generic B/T/SL marker text. */
-  tradeLabels?: TradeLabel[];
 }
 
 const BG   = "#ffffff";
@@ -79,7 +71,6 @@ interface ZoneRect { left: number; top: number; width: number; height: number; f
 
 export default function BacktestChart({
   ohlcv, trades = [], algoTrades, patternHits = [], hLines = true, strikeLines = [], boxZones = [],
-  tradeLabels,
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
@@ -207,16 +198,15 @@ export default function BacktestChart({
     const markers: SeriesMarker<Time>[] = [];
 
     const drawTrades = (
-      tradeset: BacktestTradeV2[], color: string, active: boolean, multiAlgo: boolean, labels?: TradeLabel[]
+      tradeset: BacktestTradeV2[], color: string, active: boolean, multiAlgo: boolean
     ) => {
       // Active algo: size 2 (prominent). Inactive: size 1 (visible but dimmer).
       // Exit colors are per-algo so inactive markers are still identifiable by color.
       const markerSize = active ? 2 : 1;
-      tradeset.forEach((t, i) => {
+      tradeset.forEach((t) => {
         const entryDate = t.entry_date.slice(0, 10);
         const exitDate  = t.exit_date.slice(0, 10);
         if (!dateSet.has(entryDate)) return;
-        const label = labels?.[i];
 
         // H-lines only for the active algo to avoid clutter — and only when the
         // trade's price fields share the candle's scale (see hLines prop doc).
@@ -229,7 +219,7 @@ export default function BacktestChart({
         markers.push({
           time: entryDate as Time,
           position: "belowBar", shape: "arrowUp",
-          color, text: label?.entryText ?? "B", size: markerSize,
+          color, text: "B", size: markerSize,
         });
 
         // In multi-algo mode use the algo's own color for exits so you can
@@ -243,7 +233,7 @@ export default function BacktestChart({
           position: "aboveBar",
           shape: t.exit_reason === "target" ? "circle" : "arrowDown",
           color: exitColor,
-          text: label?.exitText ?? (t.exit_reason === "target" ? "T" : t.exit_reason === "sl" ? "SL" : "⏱"),
+          text: t.exit_reason === "target" ? "T" : t.exit_reason === "sl" ? "SL" : "⏱",
           size: markerSize,
         });
       });
@@ -252,7 +242,7 @@ export default function BacktestChart({
     if (algoTrades && algoTrades.length > 0) {
       algoTrades.forEach((at) => drawTrades(at.trades, at.color, at.active, true));
     } else {
-      drawTrades(trades, "#3b82f6", true, false, tradeLabels);
+      drawTrades(trades, "#3b82f6", true, false);
     }
 
     // Straddle/strangle strike reference lines — these ARE on the candle's price scale.
@@ -276,7 +266,7 @@ export default function BacktestChart({
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, tradeLabels]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
