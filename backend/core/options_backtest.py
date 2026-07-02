@@ -115,11 +115,13 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
 
         remaining = [d for d in dates if d >= entry_date]
         exit_date, exit_premium, exit_reason = None, None, None
+        premium_path: list[dict] = []
 
         for d in remaining:
             cur_premium = _premium(chain[chain["date"] == d])
             if cur_premium is None:
                 continue
+            premium_path.append({"date": d, "premium": round(cur_premium, 2)})
             pnl_pct = ((entry_premium - cur_premium) / entry_premium * 100) if is_short \
                 else ((cur_premium - entry_premium) / entry_premium * 100)
             dte_now = (expiry_ts - pd.Timestamp(d)).days
@@ -136,11 +138,8 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
 
         if exit_date is None:
             # Ran out of fetched data before any exit condition fired — close at the last known price.
-            for d in reversed(remaining):
-                cur_premium = _premium(chain[chain["date"] == d])
-                if cur_premium is not None:
-                    exit_date, exit_premium, exit_reason = d, cur_premium, "data_end"
-                    break
+            if premium_path:
+                exit_date, exit_premium, exit_reason = premium_path[-1]["date"], premium_path[-1]["premium"], "data_end"
         if exit_date is None:
             continue
 
@@ -153,6 +152,7 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
             "call_strike": call_strike, "put_strike": put_strike,
             "entry_premium": round(entry_premium, 2), "exit_premium": round(exit_premium, 2),
             "pnl_pct": round(pnl_pct, 2), "pnl_amount": pnl_amount, "exit_reason": exit_reason,
+            "premium_path": premium_path,
         })
 
     return {"trades": trades, "stats": _compute_stats(trades), "ohlcv": ohlcv_records}

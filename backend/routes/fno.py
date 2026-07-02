@@ -277,7 +277,11 @@ def search_fno_symbols(q: str = FQuery(..., min_length=1)):
 
 @router.get("/data-status/{symbol}")
 def get_data_status(symbol: str):
-    """Latest date stored locally vs the latest date NSE should have published, for the refresh button."""
+    """
+    Coverage of locally-stored option chain data for this symbol — used by the
+    refresh button (latest vs target) and by the Backtest page's Options mode
+    to show how much history is actually available before running a straddle.
+    """
     from backend.data_sync.base import last_business_day
 
     db = get_db()
@@ -285,14 +289,17 @@ def get_data_status(symbol: str):
     inst = "OPTIDX" if sym in INDEX_SYMBOLS else "OPTSTK"
 
     row = db.execute(
-        "SELECT MAX(date) FROM fno_ohlcv WHERE symbol = ? AND instrument = ?", [sym, inst]
+        "SELECT MIN(date), MAX(date), COUNT(DISTINCT date) FROM fno_ohlcv WHERE symbol = ? AND instrument = ?",
+        [sym, inst]
     ).fetchone()
-    latest_date = row[0] if row else None
+    earliest_date, latest_date, total_days = row if row else (None, None, 0)
     target_date = last_business_day(date.today())
 
     return {
         "symbol": sym,
+        "earliest_date": str(earliest_date) if earliest_date else None,
         "latest_date": str(latest_date) if latest_date else None,
+        "total_days": total_days or 0,
         "target_date": str(target_date),
         "up_to_date": bool(latest_date and latest_date >= target_date),
     }

@@ -4,6 +4,8 @@ import { api, ConditionRow } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult } from "../store/useBacktestStore";
 import BacktestChart from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
+import MacroLineChart from "../components/MacroLineChart";
+import FnoFetchPanel, { INDEX_SYMBOLS } from "../components/FnoFetchPanel";
 import type { PatternHit } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
 
@@ -934,6 +936,13 @@ const STRADDLE_STRATEGIES = [
   { key: "long_strangle" as const, label: "Long Strangle", tip: "Buy OTM CE + OTM PE — cheaper than a long straddle, needs a bigger move to profit" },
 ];
 
+const EXIT_REASON_LABELS: Record<string, string> = {
+  target: "Target Hit",
+  sl: "Stoploss Hit",
+  expiry: "Expiry Hit",
+  data_end: "NA",
+};
+
 function OptionsStraddlePanel({
   straddle, results, loading, error, onChange, onRun,
 }: {
@@ -946,6 +955,18 @@ function OptionsStraddlePanel({
 }) {
   const isStrangle = straddle.strategy.includes("strangle");
   const isShort = straddle.strategy.startsWith("short");
+
+  const [dataStatus, setDataStatus] = useState<{ earliest_date: string | null; latest_date: string | null; total_days: number } | null>(null);
+  const [showFetchPanel, setShowFetchPanel] = useState(false);
+  const [selectedTradeIdx, setSelectedTradeIdx] = useState(0);
+
+  const loadDataStatus = useCallback(() => {
+    if (!straddle.symbol) return;
+    api.fnoDataStatus(straddle.symbol).then(setDataStatus).catch(() => setDataStatus(null));
+  }, [straddle.symbol]);
+
+  useEffect(() => { loadDataStatus(); }, [loadDataStatus]);
+  useEffect(() => { setSelectedTradeIdx(0); }, [results]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -980,6 +1001,35 @@ function OptionsStraddlePanel({
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
         </div>
+
+        {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
+        {straddle.symbol && (
+          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
+            {dataStatus?.earliest_date ? (
+              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
+                Option data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_date} → {dataStatus.latest_date}</span> ({dataStatus.total_days} days)
+              </span>
+            ) : (
+              <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                No option data synced yet for {straddle.symbol}
+              </span>
+            )}
+            <button onClick={() => setShowFetchPanel((v) => !v)}
+              className="text-blue-600 hover:underline font-medium">
+              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
+            </button>
+          </div>
+        )}
+
+        {showFetchPanel && straddle.symbol && (
+          <div className="mb-4">
+            <FnoFetchPanel
+              symbol={straddle.symbol}
+              isIndex={INDEX_SYMBOLS.includes(straddle.symbol)}
+              onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
+            />
+          </div>
+        )}
 
         <div className="mb-3">
           <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
@@ -1083,6 +1133,49 @@ function OptionsStraddlePanel({
             </div>
           )}
 
+          {/* Premium chart with entry/target/stop-loss lines — the scale-correct equivalent
+              of the entry/target/SL lines other algos draw on the spot candle chart. */}
+          {results.trades.length > 0 && (() => {
+            const trade = results.trades[selectedTradeIdx] ?? results.trades[0];
+            const entryPremium = trade.entry_premium;
+            const targetPremium = isShort
+              ? entryPremium * (1 - straddle.target_pct / 100)
+              : entryPremium * (1 + straddle.target_pct / 100);
+            const slPremium = isShort
+              ? entryPremium * (1 + straddle.sl_pct / 100)
+              : entryPremium * (1 - straddle.sl_pct / 100);
+            const path = trade.premium_path.length ? trade.premium_path : [
+              { date: trade.entry_date, premium: trade.entry_premium },
+              { date: trade.exit_date, premium: trade.exit_premium },
+            ];
+            const premiumSeries = [
+              { label: "Combined Premium", color: "#3b82f6", data: path.map((p) => ({ date: p.date, value: p.premium })) },
+              { label: "Entry", color: "#94a3b8", data: path.map((p) => ({ date: p.date, value: entryPremium })) },
+              { label: "Target", color: "#22c55e", data: path.map((p) => ({ date: p.date, value: Math.max(0, targetPremium) })) },
+              { label: "Stop-Loss", color: "#ef4444", data: path.map((p) => ({ date: p.date, value: slPremium })) },
+            ];
+            return (
+              <div className="mb-4">
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className="text-xs font-semibold text-slate-600">Premium chart:</span>
+                  {results.trades.map((t, i) => (
+                    <button key={i} onClick={() => setSelectedTradeIdx(i)}
+                      className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-colors ${
+                        i === selectedTradeIdx
+                          ? "bg-blue-500 text-white border-blue-500"
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300"
+                      }`}>
+                      {t.entry_date} → {t.exit_date}
+                    </button>
+                  ))}
+                </div>
+                <div className="border border-slate-200 rounded-lg p-2">
+                  <MacroLineChart series={premiumSeries} height={220} />
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -1100,7 +1193,11 @@ function OptionsStraddlePanel({
               </thead>
               <tbody>
                 {results.trades.map((t, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
+                  <tr key={i}
+                    onClick={() => setSelectedTradeIdx(i)}
+                    className={`border-b border-slate-50 cursor-pointer transition-colors ${
+                      i === selectedTradeIdx ? "bg-blue-50" : "hover:bg-slate-50/50"
+                    }`}>
                     <td className="px-3 py-1.5 font-medium text-slate-700">{t.expiry}</td>
                     <td className="px-3 py-1.5 text-slate-500">{t.entry_date}</td>
                     <td className="px-3 py-1.5 text-slate-500">{t.exit_date}</td>
@@ -1115,7 +1212,7 @@ function OptionsStraddlePanel({
                     <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {t.pnl_amount >= 0 ? "+" : ""}₹{t.pnl_amount.toLocaleString("en-IN")}
                     </td>
-                    <td className="px-3 py-1.5 text-slate-500 capitalize">{t.exit_reason.replace("_", " ")}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{EXIT_REASON_LABELS[t.exit_reason] ?? t.exit_reason}</td>
                   </tr>
                 ))}
               </tbody>

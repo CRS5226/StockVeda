@@ -395,6 +395,7 @@ export const api = {
         call_strike: number; put_strike: number;
         entry_premium: number; exit_premium: number;
         pnl_pct: number; pnl_amount: number; exit_reason: string;
+        premium_path: Array<{ date: string; premium: number }>;
       }>;
       stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
       ohlcv: Array<{ date: string; open: number; high: number; low: number; close: number }>;
@@ -501,9 +502,10 @@ export const api = {
     ),
 
   fnoDataStatus: (symbol: string) =>
-    apiFetch<{ symbol: string; latest_date: string | null; target_date: string; up_to_date: boolean }>(
-      `/fno/data-status/${encodeURIComponent(symbol)}`
-    ),
+    apiFetch<{
+      symbol: string; earliest_date: string | null; latest_date: string | null;
+      total_days: number; target_date: string; up_to_date: boolean;
+    }>(`/fno/data-status/${encodeURIComponent(symbol)}`),
 
   fnoRefresh: (symbol: string) =>
     apiFetch<{ status?: string; job_id?: string; total_days?: number; latest_date: string | null }>(
