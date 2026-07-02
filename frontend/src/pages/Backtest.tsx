@@ -1144,6 +1144,10 @@ function OptionsStraddlePanel({
                   exit_reason: t.exit_reason === "target" ? "target" : t.exit_reason === "sl" ? "sl" : "timeout",
                   pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
                 }))}
+                tradeLabels={results.trades.map((t) => ({
+                  entryText: isStrangle ? `${t.call_strike}/${t.put_strike}` : String(t.call_strike),
+                  exitText: `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct}%`,
+                }))}
               />
               <div className="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100 bg-slate-50/50">
                 Shaded zone = breakeven range (strike ± premium collected/paid). {isShort
@@ -1162,6 +1166,8 @@ function OptionsStraddlePanel({
                   <th className="text-left px-3 py-2 font-semibold">Exit</th>
                   <th className="text-right px-3 py-2 font-semibold">{isStrangle ? "Call / Put Strike" : "Strike"}</th>
                   <th className="text-right px-3 py-2 font-semibold">Entry Premium</th>
+                  <th className="text-right px-3 py-2 font-semibold" title="Premium level that closes the trade in profit">Target Premium</th>
+                  <th className="text-right px-3 py-2 font-semibold" title="Premium level that closes the trade at a loss">Stop-Loss Premium</th>
                   <th className="text-right px-3 py-2 font-semibold">Exit Premium</th>
                   <th className="text-right px-3 py-2 font-semibold">P&L %</th>
                   <th className="text-right px-3 py-2 font-semibold">P&L ₹</th>
@@ -1169,7 +1175,14 @@ function OptionsStraddlePanel({
                 </tr>
               </thead>
               <tbody>
-                {results.trades.map((t, i) => (
+                {results.trades.map((t, i) => {
+                  const targetPremium = isShort
+                    ? t.entry_premium * (1 - straddle.target_pct / 100)
+                    : t.entry_premium * (1 + straddle.target_pct / 100);
+                  const slPremium = isShort
+                    ? t.entry_premium * (1 + straddle.sl_pct / 100)
+                    : t.entry_premium * (1 - straddle.sl_pct / 100);
+                  return (
                   <tr key={i}
                     onClick={() => setSelectedTradeIdx(i)}
                     className={`border-b border-slate-50 cursor-pointer transition-colors ${
@@ -1182,6 +1195,8 @@ function OptionsStraddlePanel({
                       {isStrangle ? `${t.call_strike} / ${t.put_strike}` : t.call_strike}
                     </td>
                     <td className="text-right px-3 py-1.5">{t.entry_premium}</td>
+                    <td className="text-right px-3 py-1.5 text-emerald-600">{Math.max(0, targetPremium).toFixed(2)}</td>
+                    <td className="text-right px-3 py-1.5 text-red-600">{slPremium.toFixed(2)}</td>
                     <td className="text-right px-3 py-1.5">{t.exit_premium}</td>
                     <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct}%
@@ -1191,7 +1206,8 @@ function OptionsStraddlePanel({
                     </td>
                     <td className="px-3 py-1.5 text-slate-500">{EXIT_REASON_LABELS[t.exit_reason] ?? t.exit_reason}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
