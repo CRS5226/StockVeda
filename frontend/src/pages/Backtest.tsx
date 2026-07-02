@@ -1123,7 +1123,7 @@ function OptionsStraddlePanel({
           </div>
 
           {results.ohlcv.length > 0 && (
-            <div className="h-80 mb-4 border border-slate-200 rounded-lg overflow-hidden">
+            <div className="mb-4 border border-slate-200 rounded-lg overflow-hidden">
               <BacktestChart
                 symbol={straddle.symbol}
                 ohlcv={results.ohlcv}
@@ -2428,7 +2428,7 @@ export default function Backtest() {
                     <span className={`font-semibold ${pnlClass(stats.total_pnl)}`}>₹{fmt(stats.total_pnl)}</span>
                     <span className={pnlClass(stats.avg_pnl_pct)}>avg {stats.avg_pnl_pct > 0 ? "+" : ""}{stats.avg_pnl_pct.toFixed(1)}%</span>
                   </div>
-                  <div className="h-80 shrink-0 border-b border-slate-100">
+                  <div className="h-96 shrink-0 border-b border-slate-100 overflow-hidden">
                     {ohlcv.length > 0
                       ? <BacktestChart symbol={symbol} ohlcv={ohlcv} trades={trades} boxZones={tradeBoxZones(trades)} />
                       : <div className="flex items-center justify-center h-full text-slate-400 text-sm">No chart data</div>
