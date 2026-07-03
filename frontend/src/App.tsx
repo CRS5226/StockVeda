@@ -1,5 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 import MarketDashboard from "./pages/MarketDashboard";
 import StockDetail from "./pages/StockDetail";
 import Screener from "./pages/Screener";
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="/fno" element={<FnO />} />
         </Routes>
       </main>
+      <Footer />
     </div>
   );
 }
