@@ -20,6 +20,7 @@ from backend.core.futures_continuous import build_continuous_futures
 from backend.core.options_backtest import run_straddle_backtest, StraddleParams, STRATEGIES
 from backend.core.options_spreads import run_spread_backtest, SpreadParams, SPREAD_STRATEGIES
 from backend.core.markov_chain import attach_markov_signals
+from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
 import pandas as pd
 
 
@@ -579,5 +580,50 @@ def run_spread(req: SpreadRequest):
             400,
             f"No {req.strategy.replace('_', ' ')} cycles found for {req.symbol.upper()} in this range — "
             "fetch its option chain data across at least one full expiry cycle on the F&O page first."
+        )
+    return result
+
+
+# ── Opening Range Breakout (Phase 10) ───────────────────────────────────────
+
+class ORBRequest(BaseModel):
+    symbol: str
+    from_date: str
+    to_date: str
+    or_minutes: int = Field(15, ge=1, le=120)
+    direction: Literal["long_only", "short_only", "both"] = "long_only"
+    target_pct: float = Field(1.0, gt=0)
+    sl_pct: float = Field(0.5, gt=0)
+    force_exit_time: str = "15:20"
+    capital_per_trade: float = Field(50_000.0, gt=0)
+    interval: str = "5m"
+
+
+@router.get("/orb-directions")
+def get_orb_directions():
+    return {"directions": list(DIRECTIONS)}
+
+
+@router.post("/run-orb")
+def run_orb(req: ORBRequest):
+    params = ORBParams(
+        or_minutes=req.or_minutes,
+        direction=req.direction,
+        target_pct=req.target_pct,
+        sl_pct=req.sl_pct,
+        force_exit_time=req.force_exit_time,
+        capital_per_trade=req.capital_per_trade,
+        interval=req.interval,
+    )
+    try:
+        result = run_orb_backtest(req.symbol, req.from_date, req.to_date, params)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    if result["stats"]["total_trades"] == 0:
+        raise HTTPException(
+            400,
+            f"No ORB trades found for {req.symbol.upper()} in this range — "
+            "fetch intraday data for this symbol/interval on the ORB page first."
         )
     return result
