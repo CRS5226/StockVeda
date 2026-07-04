@@ -571,4 +571,19 @@ export const api = {
         up5d_pct: number; up10d_pct: number; up20d_pct: number; avg_move5d: number;
       }[];
     }>(`/v1/outlook/${symbol}`),
+
+  getMarkovAnalysis: (symbol: string, params: {
+    from_date?: string; to_date?: string; n_states?: number;
+    flat_band_pct?: number; lookback_days?: number; horizon_days?: number;
+  }) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v != null) p.set(k, String(v)); });
+    return apiFetch<{
+      symbol: string; n_states: number; current_state: number;
+      transition_matrix: number[][];
+      projection: Array<Record<string, number>>;
+      history: Array<{ date: string; state: number }>;
+      lookback_days_used: number;
+    }>(`/v1/markov/${symbol}?${p}`);
+  },
 };
