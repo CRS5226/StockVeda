@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
 from backend.core.indicators import add_indicators
+from backend.core.beta_analysis import get_current_beta, rolling_beta, BetaParams
 import pandas as pd
 import yfinance as yf
 
@@ -615,8 +616,18 @@ def get_ratios(symbol: str):
         except Exception:
             pass
 
+        # Beta computed from our own OHLCV data (independent of yfinance's "beta" field above)
+        beta_computed = None
+        try:
+            bc = get_current_beta(sym, BetaParams())
+            if "error" not in bc:
+                beta_computed = bc
+        except Exception:
+            pass
+
         return {
             "symbol":                  sym,
+            "beta_computed":           beta_computed,
             "market_cap_cr":           _f("marketCap", 1 / 1e7),
             "pe_ratio":                _f("trailingPE"),
             "forward_pe":              _f("forwardPE"),
@@ -663,6 +674,28 @@ def get_ratios(symbol: str):
         }
     except Exception as e:
         return {"symbol": sym, "error": str(e)}
+
+
+@router.get("/beta-history/{symbol}")
+def get_beta_history(
+    symbol: str,
+    index: str = Query("NIFTY"),
+    window_days: int = Query(252, ge=20, le=1000),
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to 2 years ago"),
+    to_date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
+):
+    """Rolling beta time series (computed from our own OHLCV data) for a sparkline/chart."""
+    td = to_date or date.today().isoformat()
+    fd = from_date or (date.today() - timedelta(days=730)).isoformat()
+    df = rolling_beta(symbol, index, fd, td, window_days=window_days)
+    if df.empty:
+        raise HTTPException(404, f"No overlapping OHLCV data for {symbol} vs {index}")
+    return {
+        "symbol": symbol.upper(),
+        "index_symbol": index.upper(),
+        "window_days": window_days,
+        "history": df.to_dict(orient="records"),
+    }
 
 
 @router.get("/fno/{symbol}")

@@ -63,7 +63,9 @@ export interface StockRatios {
   peg_ratio?: number; div_streak?: number; eps_history?: EpsHistoryItem[];
   ev_to_ebitda?: number; debt_to_equity?: number; price_to_sales?: number;
   fcf_cr?: number; sales_cagr_3y?: number; profit_cagr_3y?: number;
-  beta?: number; "52w_high"?: number; "52w_low"?: number;
+  beta?: number;
+  beta_computed?: { beta: number; alpha: number; r_squared: number; n_obs: number; index_symbol: string; as_of_date: string } | null;
+  "52w_high"?: number; "52w_low"?: number;
   avg_volume?: number; shares_outstanding?: number;
   revenue_growth_pct?: number; earnings_growth_pct?: number;
   target_high?: number; target_low?: number; target_mean?: number;
@@ -267,6 +269,14 @@ export const api = {
 
   getRatios: (symbol: string) =>
     apiFetch<StockRatios>(`/stock/ratios/${symbol}`),
+
+  getBetaHistory: (symbol: string, params: { index?: string; window_days?: number; from_date?: string; to_date?: string } = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v != null) p.set(k, String(v)); });
+    return apiFetch<{ symbol: string; index_symbol: string; window_days: number; history: { date: string; beta: number }[] }>(
+      `/stock/beta-history/${symbol}?${p}`
+    );
+  },
 
   getSectorCompare: (symbol: string, days = 252) =>
     apiFetch<SectorCompareData>(`/stock/sector-compare/${symbol}?days=${days}`),

@@ -115,6 +115,7 @@ export default function StockDetail() {
   const [optionChain, setOptionChain] = useState<OptionChainData | null>(null);
   const [optionExpiry, setOptionExpiry] = useState<string | null>(null);
   const [optionLoading, setOptionLoading] = useState(false);
+  const [betaHistory, setBetaHistory] = useState<{ date: string; beta: number }[] | null>(null);
 
   useEffect(() => { fetchCandles(sym, fromDate(range), true); }, [sym, range]);
 
@@ -160,6 +161,9 @@ export default function StockDetail() {
 
     // Fetch live ratios from yfinance info (non-blocking)
     api.getRatios(sym).then(setRatios).catch(() => {});
+
+    setBetaHistory(null);
+    api.getBetaHistory(sym, { window_days: 60 }).then((r) => setBetaHistory(r.history)).catch(() => {});
 
     // Fetch bank financials (GNPA, NPA, NII etc.) — only for banking stocks
     api.getBankFinancials(sym).then(setBankFinancials).catch(() => {});
@@ -359,6 +363,10 @@ export default function StockDetail() {
                 <MetricCard label="Fwd EPS" value={ratios?.eps_forward != null ? `₹${fmt(ratios.eps_forward)}` : "—"} />
                 <MetricCard label="Face Value" value={ratios?.face_value != null ? `₹${ratios.face_value}` : "—"} />
                 <MetricCard label="Beta" value={ratios?.beta != null ? fmt(ratios.beta) : "—"} />
+                <MetricCard
+                  label={`Beta vs ${ratios?.beta_computed?.index_symbol ?? "NIFTY"}`}
+                  value={ratios?.beta_computed?.beta != null ? fmt(ratios.beta_computed.beta) : "—"}
+                />
               </>)}
 
               {metricsTab === "returns" && (<>
@@ -415,6 +423,18 @@ export default function StockDetail() {
                 )}
               </>)}
             </div>
+
+            {metricsTab === "valuation" && betaHistory && betaHistory.length > 1 && (
+              <div className="mt-3">
+                <div className="text-xs text-slate-400 mb-1">
+                  Rolling 60-day Beta vs {ratios?.beta_computed?.index_symbol ?? "NIFTY"} (computed from our own OHLCV data)
+                </div>
+                <MacroLineChart
+                  height={140}
+                  series={[{ label: "Beta", color: "#60a5fa", data: betaHistory.map((h) => ({ date: h.date, value: h.beta })) }]}
+                />
+              </div>
+            )}
 
             {/* Bank KPIs — GNPA, NPA, NII, CET1 (only on ownership tab) */}
             {metricsTab === "ownership" && bankFinancials && bankFinancials.length > 0 && (() => {
