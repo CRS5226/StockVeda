@@ -14,10 +14,18 @@ export default function Footer() {
           >
             Chitraksh
           </a>
-          . All rights reserved.
+          . All rights reserved. ·{" "}
+          <a
+            href="https://github.com/CRS5226/StockVeda"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-blue-600 hover:underline"
+          >
+            GitHub
+          </a>
         </div>
         <div className="text-[11px] text-slate-400">
-          Made with <span className="text-red-500">♥</span> for the Indian market community
+          Made with <span className="text-purple-500">♥</span> for the Indian market community
         </div>
       </div>
     </footer>
