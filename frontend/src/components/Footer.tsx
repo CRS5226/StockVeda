@@ -27,6 +27,9 @@ export default function Footer() {
         <div className="text-[11px] text-slate-400">
           Made with <span className="text-purple-500">♥</span> for the Indian market community
         </div>
+        <div className="text-[10px] text-slate-300">
+          For educational purposes only — not investment advice.
+        </div>
       </div>
     </footer>
   );
