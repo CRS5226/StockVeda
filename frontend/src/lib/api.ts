@@ -622,4 +622,18 @@ export const api = {
       lookback_days_used: number;
     }>(`/v1/markov/${symbol}?${p}`);
   },
+
+  getMonteCarloAnalysis: (symbol: string, params: {
+    from_date?: string; to_date?: string; n_simulations?: number;
+    horizon_days?: number; lookback_days?: number; seed?: number;
+  }) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v != null) p.set(k, String(v)); });
+    return apiFetch<{
+      symbol: string; drift_annualized: number; volatility_annualized: number;
+      horizon_days: number; n_simulations: number;
+      percentile_paths: { p5: number[]; p50: number[]; p95: number[] };
+      last_price: number; as_of_date: string; lookback_days_used: number;
+    }>(`/v1/monte-carlo/${symbol}?${p}`);
+  },
 };

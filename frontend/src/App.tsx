@@ -7,6 +7,7 @@ import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
 import FnO from "./pages/FnO";
 import MarkovAnalysis from "./pages/MarkovAnalysis";
+import MonteCarloSimulation from "./pages/MonteCarloSimulation";
 import IndexReplication from "./pages/IndexReplication";
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/fno" element={<FnO />} />
           <Route path="/markov" element={<MarkovAnalysis />} />
+          <Route path="/monte-carlo" element={<MonteCarloSimulation />} />
           <Route path="/index-fund" element={<IndexReplication />} />
         </Routes>
       </main>
