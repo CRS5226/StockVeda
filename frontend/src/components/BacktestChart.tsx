@@ -78,9 +78,12 @@ export default function BacktestChart({
   const tradeLines    = useRef<ISeriesApi<"Line">[]>([]);
   const loadedSymRef  = useRef<string>("");  // tracks which symbol's candles are loaded
   const boxZonesRef   = useRef<BoxZone[]>([]);
+  const pendingTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const mountedRef    = useRef(true);
   const [zoneRects, setZoneRects] = useState<ZoneRect[]>([]);
 
   const recomputeZones = () => {
+    if (!mountedRef.current) return;
     const chart = chartRef.current, series = candleRef.current;
     if (!chart || !series) { setZoneRects([]); return; }
     const rects: ZoneRect[] = [];
@@ -105,7 +108,8 @@ export default function BacktestChart({
   // frame-count guess wasn't enough. Poll for up to ~1s instead — cheap (setZoneRects
   // is idempotent) and self-healing regardless of the exact internal timing.
   const scheduleRecompute = () => {
-    [0, 50, 150, 300, 600, 1000].forEach((delay) => setTimeout(recomputeZones, delay));
+    const ids = [0, 50, 150, 300, 600, 1000].map((delay) => setTimeout(recomputeZones, delay));
+    pendingTimeouts.current.push(...ids);
   };
 
   // Init chart once
@@ -139,6 +143,9 @@ export default function BacktestChart({
     ro.observe(containerRef.current);
 
     return () => {
+      mountedRef.current = false;
+      pendingTimeouts.current.forEach(clearTimeout);
+      pendingTimeouts.current = [];
       chart.timeScale().unsubscribeVisibleTimeRangeChange(recomputeZones);
       ro.disconnect(); chart.remove(); chartRef.current = null;
     };
