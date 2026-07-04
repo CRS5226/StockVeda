@@ -492,6 +492,7 @@ class StraddleRequest(BaseModel):
     sl_pct: float = Field(50.0, gt=0)
     force_exit_dte: int = Field(0, ge=0, le=5)
     capital_per_trade: float = Field(50_000.0, gt=0)
+    data_source: Literal["cash", "futures"] = "cash"
 
 
 @router.get("/straddle-strategies")
@@ -509,6 +510,7 @@ def run_straddle(req: StraddleRequest):
         sl_pct=req.sl_pct,
         force_exit_dte=req.force_exit_dte,
         capital_per_trade=req.capital_per_trade,
+        data_source=req.data_source,
     )
     try:
         result = run_straddle_backtest(req.symbol, req.from_date, req.to_date, params)
@@ -542,6 +544,7 @@ class SpreadRequest(BaseModel):
     sl_pct: float = Field(100.0, gt=0)
     force_exit_dte: int = Field(1, ge=0, le=5)
     capital_per_trade: float = Field(50_000.0, gt=0)
+    data_source: Literal["cash", "futures"] = "cash"
 
 
 @router.get("/spread-strategies")
@@ -564,6 +567,7 @@ def run_spread(req: SpreadRequest):
         sl_pct=req.sl_pct,
         force_exit_dte=req.force_exit_dte,
         capital_per_trade=req.capital_per_trade,
+        data_source=req.data_source,
     )
     try:
         result = run_spread_backtest(req.symbol, req.from_date, req.to_date, params)

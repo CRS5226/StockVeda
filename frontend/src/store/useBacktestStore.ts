@@ -49,6 +49,7 @@ export interface StraddleConfig {
   sl_pct: number;
   force_exit_dte: number;
   capital_per_trade: number;
+  data_source: "cash" | "futures";
 }
 
 export type StraddleResult = Awaited<ReturnType<typeof api.runStraddleBacktest>>;
@@ -71,6 +72,7 @@ export interface SpreadConfig {
   sl_pct: number;
   force_exit_dte: number;
   capital_per_trade: number;
+  data_source: "cash" | "futures";
 }
 
 export type SpreadResult = Awaited<ReturnType<typeof api.runSpreadBacktest>>;
@@ -109,6 +111,7 @@ const DEFAULT_STRADDLE: StraddleConfig = {
   sl_pct: 50,
   force_exit_dte: 0,
   capital_per_trade: 50000,
+  data_source: "cash",
 };
 
 const DEFAULT_SPREAD: SpreadConfig = {
@@ -127,6 +130,7 @@ const DEFAULT_SPREAD: SpreadConfig = {
   sl_pct: 100,
   force_exit_dte: 1,
   capital_per_trade: 50000,
+  data_source: "cash",
 };
 
 const DEFAULT_STRATEGY: StrategyV2 = {

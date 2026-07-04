@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from typing import Literal
 import pandas as pd
 from backend.db.connection import get_db
-from backend.core.fno_signals import INDEX_SYMBOLS, _get_spot_series, get_spot_ohlcv
+from backend.core.fno_signals import INDEX_SYMBOLS, get_spot_ohlcv
+from backend.core.options_price_source import get_price_series
 
 SPREAD_STRATEGIES = ("bull_call_spread", "bear_put_spread", "iron_condor")
 
@@ -44,6 +45,7 @@ class SpreadParams:
     sl_pct: float = 100.0               # % of max loss incurred
     force_exit_dte: int = 1
     capital_per_trade: float = 50_000.0
+    data_source: Literal["cash", "futures"] = "cash"  # underlying reference price for ATM/offset selection + P&L
 
 
 def _pick_spread_strikes(strikes: list[float], spot: float, params: SpreadParams) -> dict[str, float] | None:
@@ -150,7 +152,7 @@ def run_spread_backtest(symbol: str, from_date: str, to_date: str, params: Sprea
     if not expiries:
         return {"trades": [], "stats": _empty_stats(), "ohlcv": ohlcv_records}
 
-    spot_df = _get_spot_series(sym, from_date, to_date)
+    spot_df = get_price_series(sym, from_date, to_date, params.data_source)
     spot_map = dict(zip(spot_df["date"], spot_df["close"])) if not spot_df.empty else {}
 
     trades = []

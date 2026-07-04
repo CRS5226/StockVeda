@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import Literal
 import pandas as pd
 from backend.db.connection import get_db
-from backend.core.fno_signals import INDEX_SYMBOLS, _get_spot_series, get_spot_ohlcv
+from backend.core.fno_signals import INDEX_SYMBOLS, get_spot_ohlcv
+from backend.core.options_price_source import get_price_series
 
 STRATEGIES = ("short_straddle", "long_straddle", "short_strangle", "long_strangle")
 
@@ -26,6 +27,7 @@ class StraddleParams:
     sl_pct: float = 50.0              # % adverse move in combined premium that stops the trade out
     force_exit_dte: int = 0           # force-close at/near expiry regardless of P&L
     capital_per_trade: float = 50_000.0  # notional per trade, for ₹ P&L reporting only
+    data_source: Literal["cash", "futures"] = "cash"  # underlying reference price for ATM/offset selection + P&L
 
 
 def _pick_strikes(strikes: list[float], spot: float, params: StraddleParams) -> tuple[float, float] | None:
@@ -65,7 +67,7 @@ def run_straddle_backtest(symbol: str, from_date: str, to_date: str, params: Str
     if not expiries:
         return {"trades": [], "stats": _empty_stats(), "ohlcv": ohlcv_records}
 
-    spot_df = _get_spot_series(sym, from_date, to_date)
+    spot_df = get_price_series(sym, from_date, to_date, params.data_source)
     spot_map = dict(zip(spot_df["date"], spot_df["close"])) if not spot_df.empty else {}
 
     trades = []

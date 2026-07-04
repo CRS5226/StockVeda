@@ -421,7 +421,7 @@ export const api = {
     symbol: string; from_date: string; to_date: string;
     strategy: "short_straddle" | "long_straddle" | "short_strangle" | "long_strangle";
     strangle_width_pct?: number; entry_dte?: number; target_pct?: number; sl_pct?: number;
-    force_exit_dte?: number; capital_per_trade?: number;
+    force_exit_dte?: number; capital_per_trade?: number; data_source?: "cash" | "futures";
   }) =>
     apiFetch<{
       trades: Array<{
@@ -447,7 +447,7 @@ export const api = {
     condor_call_short_pct?: number; condor_call_long_pct?: number;
     condor_put_short_pct?: number; condor_put_long_pct?: number;
     entry_dte?: number; target_pct?: number; sl_pct?: number;
-    force_exit_dte?: number; capital_per_trade?: number;
+    force_exit_dte?: number; capital_per_trade?: number; data_source?: "cash" | "futures";
   }) =>
     apiFetch<{
       trades: Array<{

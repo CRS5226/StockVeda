@@ -1009,6 +1009,22 @@ function OptionsStraddlePanel({
               onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block"
+              title="Cash = true spot/index price. Futures = continuous roll-adjusted near-month futures close. This only changes the reference price used for ATM/offset strike selection and P&L mark-to-market — the option chain and available strikes are always the exchange's real (spot-relative) strikes and are unchanged either way.">
+              Data Source
+            </label>
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
+              {(["cash", "futures"] as const).map((ds) => (
+                <button key={ds} onClick={() => onChange({ data_source: ds })}
+                  className={`flex-1 font-medium transition-colors ${
+                    straddle.data_source === ds ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
+                  }`}>
+                  {ds === "cash" ? "Cash" : "Futures"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
@@ -1200,6 +1216,7 @@ function OptionsStraddlePanel({
           <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
             {isShort ? "Short strategy: profit = premium decay (entry − exit)." : "Long strategy: profit = premium gain (exit − entry)."}
             {" "}IV/premium data is EOD-only (no intraday fills) — real slippage and bid/ask spread aren't modeled.
+            {straddle.data_source === "futures" && " Reference price for this run: continuous roll-adjusted futures close, not spot."}
           </div>
         </section>
       )}
@@ -1270,6 +1287,22 @@ function OptionsSpreadPanel({
             <input type="number" value={spread.capital_per_trade}
               onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block"
+              title="Cash = true spot/index price. Futures = continuous roll-adjusted near-month futures close. This only changes the reference price used for ATM/offset strike selection and P&L mark-to-market — the option chain and available strikes are always the exchange's real (spot-relative) strikes and are unchanged either way.">
+              Data Source
+            </label>
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
+              {(["cash", "futures"] as const).map((ds) => (
+                <button key={ds} onClick={() => onChange({ data_source: ds })}
+                  className={`flex-1 font-medium transition-colors ${
+                    spread.data_source === ds ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
+                  }`}>
+                  {ds === "cash" ? "Cash" : "Futures"}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1521,6 +1554,7 @@ function OptionsSpreadPanel({
           <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
             P&L % is relative to max profit for the strategy (a defined-risk trade), not to premium paid/received.
             {" "}IV/premium data is EOD-only (no intraday fills) — real slippage and bid/ask spread aren't modeled.
+            {spread.data_source === "futures" && " Reference price for this run: continuous roll-adjusted futures close, not spot."}
           </div>
         </section>
       )}
