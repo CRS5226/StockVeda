@@ -248,6 +248,20 @@ def bootstrap():
     except Exception as e:  # noqa: BLE001
         results["fii_dii"] = f"failed: {e}"
 
+    # nifty_pe/pb/div_yield share market_breadth with independently-populated columns
+    # (advances/declines/etc.), so use a column-specific presence check rather than _seed's
+    # whole-table-empty check.
+    try:
+        n_pe = db.execute("SELECT COUNT(*) FROM market_breadth WHERE nifty_pe IS NOT NULL").fetchone()[0]
+        if n_pe == 0:
+            from backend.data_sync import sync_index_fundamentals
+            sync_index_fundamentals.run()
+            results["index_fundamentals"] = "ok"
+        else:
+            results["index_fundamentals"] = "already_present"
+    except Exception as e:  # noqa: BLE001
+        results["index_fundamentals"] = f"failed: {e}"
+
     n_idx = db.execute("SELECT COUNT(*) FROM index_ohlcv").fetchone()[0]
     n_sym = db.execute("SELECT COUNT(*) FROM nse_symbols").fetchone()[0]
     return {"status": "ok", "index_rows": n_idx, "symbol_rows": n_sym, "sources": results}

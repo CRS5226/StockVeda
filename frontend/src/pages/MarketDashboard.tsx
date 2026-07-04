@@ -10,7 +10,7 @@ import {
   DollarSign, Activity, BarChart2, Globe, SlidersHorizontal,
   FlaskConical, Zap, Newspaper,
 } from "lucide-react";
-import { api, type DashboardData, type NewsItem } from "../lib/api";
+import { api, type DashboardData, type NewsItem, type MarketBreadthRow } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 
 type FiiRow = { date: string; fii_net: number; dii_net: number };
@@ -419,6 +419,7 @@ export default function MarketDashboard() {
   const [fiiHistory, setFiiHistory] = useState<FiiRow[]>(_snap?.fiiHistory ?? []);
   const [fnoHistory, setFnoHistory] = useState<FiiRow[]>(_snap?.fnoHistory ?? []);
   const [fiiTab, setFiiTab] = useState<"equity" | "futures">("futures");
+  const [breadth, setBreadth] = useState<MarketBreadthRow | null>(null);
 
   // Chart tab: "perf" = normalized % chart, or an index name
   const [chartTab, setChartTab] = useState<string>("perf");
@@ -507,6 +508,10 @@ export default function MarketDashboard() {
   useEffect(() => {
     if (_snap !== null) return; // already cached — instant render
     fetchAll(false);
+  }, []);
+
+  useEffect(() => {
+    api.getMarketBreadth(1).then((rows) => setBreadth(rows[0] ?? null)).catch(() => {});
   }, []);
 
   // Listen for sync → refresh event dispatched by Navbar
@@ -611,6 +616,29 @@ export default function MarketDashboard() {
           {headline.map((idx) => <IndexTile key={idx.name} idx={idx} />)}
         </div>
       </section>
+
+      {breadth && (breadth.nifty_pe != null || breadth.nifty_pb != null || breadth.nifty_div_yield != null) && (
+        <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Nifty 50 Valuation (computed proxy)</span>
+            <span className="text-[10px] text-slate-300">as of {fmtDate(breadth.date)}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <div className="text-[10px] text-slate-400">P/E</div>
+              <div className="text-lg font-bold text-slate-800">{breadth.nifty_pe != null ? breadth.nifty_pe.toFixed(1) : "—"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-400">P/B</div>
+              <div className="text-lg font-bold text-slate-800">{breadth.nifty_pb != null ? breadth.nifty_pb.toFixed(1) : "—"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-400">Div Yield</div>
+              <div className="text-lg font-bold text-slate-800">{breadth.nifty_div_yield != null ? `${breadth.nifty_div_yield.toFixed(2)}%` : "—"}</div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── Chart section with tabs ── */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">

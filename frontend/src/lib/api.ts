@@ -193,6 +193,12 @@ export interface DashboardData {
   global_markets: { name: string; close: number; change: number; change_pct: number; region: string; date?: string }[];
 }
 
+export interface MarketBreadthRow {
+  date: string; advances?: number; declines?: number; unchanged?: number;
+  new_52wk_high?: number; new_52wk_low?: number; above_200dma?: number; above_50dma?: number;
+  total_turnover_cr?: number; nifty_pe?: number; nifty_pb?: number; nifty_div_yield?: number;
+}
+
 export interface NewsItem { title: string; link: string; source: string; published_at: string }
 
 export interface OptionChainRow {
@@ -493,6 +499,8 @@ export const api = {
   syncStatus: () => apiFetch<Record<string, unknown>[]>("/sync/status"),
 
   getDashboard: () => apiFetch<DashboardData>("/macro/dashboard"),
+  getMarketBreadth: (limit = 1) =>
+    apiFetch<MarketBreadthRow[]>(`/macro/market-breadth?limit=${limit}`),
   getMarketNews: () => apiFetch<NewsItem[]>("/macro/market-news"),
   getGlobalNews: () => apiFetch<NewsItem[]>("/macro/global-news"),
   getIndexOHLCV: (indexName: string, limit = 252) =>
