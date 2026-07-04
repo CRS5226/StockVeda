@@ -53,6 +53,28 @@ export interface StraddleConfig {
 
 export type StraddleResult = Awaited<ReturnType<typeof api.runStraddleBacktest>>;
 
+// ── Options spreads mode (bull call / bear put / iron condor) ──────────────
+
+export interface SpreadConfig {
+  symbol: string;
+  from_date: string;
+  to_date: string;
+  strategy: "bull_call_spread" | "bear_put_spread" | "iron_condor";
+  long_offset_pct: number;
+  short_offset_pct: number;
+  condor_call_short_pct: number;
+  condor_call_long_pct: number;
+  condor_put_short_pct: number;
+  condor_put_long_pct: number;
+  entry_dte: number;
+  target_pct: number;
+  sl_pct: number;
+  force_exit_dte: number;
+  capital_per_trade: number;
+}
+
+export type SpreadResult = Awaited<ReturnType<typeof api.runSpreadBacktest>>;
+
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
 export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
 
@@ -86,6 +108,24 @@ const DEFAULT_STRADDLE: StraddleConfig = {
   target_pct: 30,
   sl_pct: 50,
   force_exit_dte: 0,
+  capital_per_trade: 50000,
+};
+
+const DEFAULT_SPREAD: SpreadConfig = {
+  symbol: "NIFTY",
+  from_date: TWO_YEARS_AGO,
+  to_date: TODAY,
+  strategy: "bull_call_spread",
+  long_offset_pct: 0,
+  short_offset_pct: 3,
+  condor_call_short_pct: 3,
+  condor_call_long_pct: 6,
+  condor_put_short_pct: 3,
+  condor_put_long_pct: 6,
+  entry_dte: 20,
+  target_pct: 50,
+  sl_pct: 100,
+  force_exit_dte: 1,
   capital_per_trade: 50000,
 };
 
@@ -165,6 +205,16 @@ interface BacktestState {
   straddleError: string | null;
   setStraddle: (p: Partial<StraddleConfig>) => void;
   runStraddle: () => Promise<void>;
+
+  // options spreads mode
+  optionsFamily: "straddle" | "spread";
+  setOptionsFamily: (f: "straddle" | "spread") => void;
+  spread: SpreadConfig;
+  spreadResults: SpreadResult | null;
+  spreadLoading: boolean;
+  spreadError: string | null;
+  setSpread: (p: Partial<SpreadConfig>) => void;
+  runSpread: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -441,6 +491,29 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       set({ straddleResults: res, straddleLoading: false });
     } catch (e) {
       set({ straddleLoading: false, straddleError: String(e) });
+    }
+  },
+
+  // ── Options spreads mode ──────────────────────────────────────────────────
+  optionsFamily: "straddle",
+  setOptionsFamily: (f) => set({ optionsFamily: f }),
+
+  spread: DEFAULT_SPREAD,
+  spreadResults: null,
+  spreadLoading: false,
+  spreadError: null,
+
+  setSpread: (p) => set((s) => ({ spread: { ...s.spread, ...p } })),
+
+  runSpread: async () => {
+    const { spread } = get();
+    if (!spread.symbol) return;
+    set({ spreadLoading: true, spreadError: null, spreadResults: null });
+    try {
+      const res = await api.runSpreadBacktest(spread);
+      set({ spreadResults: res, spreadLoading: false });
+    } catch (e) {
+      set({ spreadLoading: false, spreadError: String(e) });
     }
   },
 

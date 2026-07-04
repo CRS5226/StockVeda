@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
 import { api, ConditionRow } from "../lib/api";
-import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult } from "../store/useBacktestStore";
+import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
 import FnoFetchPanel, { INDEX_SYMBOLS } from "../components/FnoFetchPanel";
@@ -1207,6 +1207,327 @@ function OptionsStraddlePanel({
   );
 }
 
+const SPREAD_STRATEGIES = [
+  { key: "bull_call_spread" as const, label: "Bull Call Spread", tip: "Buy a call, sell a further OTM call — defined-risk bullish bet, cheaper than a naked call" },
+  { key: "bear_put_spread" as const, label: "Bear Put Spread", tip: "Buy a put, sell a further OTM put — defined-risk bearish bet, cheaper than a naked put" },
+  { key: "iron_condor" as const, label: "Iron Condor", tip: "Sell an OTM call + OTM put, buy further OTM wings for protection — defined-risk bet that price stays range-bound" },
+];
+
+function OptionsSpreadPanel({
+  spread, results, loading, error, onChange, onRun,
+}: {
+  spread: SpreadConfig;
+  results: SpreadResult | null;
+  loading: boolean;
+  error: string | null;
+  onChange: (p: Partial<SpreadConfig>) => void;
+  onRun: () => void;
+}) {
+  const isCondor = spread.strategy === "iron_condor";
+
+  const [dataStatus, setDataStatus] = useState<{ earliest_date: string | null; latest_date: string | null; total_days: number } | null>(null);
+  const [showFetchPanel, setShowFetchPanel] = useState(false);
+  const [selectedTradeIdx, setSelectedTradeIdx] = useState(0);
+
+  const loadDataStatus = useCallback(() => {
+    if (!spread.symbol) return;
+    api.fnoDataStatus(spread.symbol).then(setDataStatus).catch(() => setDataStatus(null));
+  }, [spread.symbol]);
+
+  useEffect(() => { loadDataStatus(); }, [loadDataStatus]);
+  useEffect(() => { setSelectedTradeIdx(0); }, [results]);
+
+  const selectedTrade = results?.trades[selectedTradeIdx] ?? results?.trades[0];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
+          <span className="text-sm font-semibold text-slate-700">Options Spread Backtest</span>
+          <span className="text-xs text-slate-400 ml-1">— defined-risk multi-leg strategies, one trade per expiry cycle</span>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
+            <input value={spread.symbol} onChange={(e) => onChange({ symbol: e.target.value.toUpperCase() })}
+              placeholder="NIFTY, RELIANCE…"
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">From Date</label>
+            <input type="date" value={spread.from_date} onChange={(e) => onChange({ from_date: e.target.value })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">To Date</label>
+            <input type="date" value={spread.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
+            <input type="number" value={spread.capital_per_trade}
+              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+        </div>
+
+        {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
+        {spread.symbol && (
+          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
+            {dataStatus?.earliest_date ? (
+              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
+                Option data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_date} → {dataStatus.latest_date}</span> ({dataStatus.total_days} days)
+              </span>
+            ) : (
+              <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                No option data synced yet for {spread.symbol}
+              </span>
+            )}
+            <button onClick={() => setShowFetchPanel((v) => !v)}
+              className="text-blue-600 hover:underline font-medium">
+              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
+            </button>
+          </div>
+        )}
+
+        {showFetchPanel && spread.symbol && (
+          <div className="mb-4">
+            <FnoFetchPanel
+              symbol={spread.symbol}
+              isIndex={INDEX_SYMBOLS.includes(spread.symbol)}
+              onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
+            />
+          </div>
+        )}
+
+        <div className="mb-3">
+          <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
+          <div className="flex flex-wrap gap-1.5">
+            {SPREAD_STRATEGIES.map((s) => (
+              <button key={s.key} title={s.tip} onClick={() => onChange({ strategy: s.key })}
+                className={`px-2.5 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
+                  spread.strategy === s.key
+                    ? "bg-blue-500 text-white border-blue-500"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                }`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isCondor ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the short call (closer to spot)">Short Call OTM %</label>
+              <input type="number" step="0.5" value={spread.condor_call_short_pct}
+                onChange={(e) => onChange({ condor_call_short_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the protective long call (further out)">Long Call OTM %</label>
+              <input type="number" step="0.5" value={spread.condor_call_long_pct}
+                onChange={(e) => onChange({ condor_call_long_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the short put (closer to spot)">Short Put OTM %</label>
+              <input type="number" step="0.5" value={spread.condor_put_short_pct}
+                onChange={(e) => onChange({ condor_put_short_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the protective long put (further out)">Long Put OTM %</label>
+              <input type="number" step="0.5" value={spread.condor_put_long_pct}
+                onChange={(e) => onChange({ condor_put_long_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="ATM/OTM distance for the long (directional) leg">Long Leg Offset %</label>
+              <input type="number" step="0.5" value={spread.long_offset_pct}
+                onChange={(e) => onChange({ long_offset_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the short leg">Short Leg Offset %</label>
+              <input type="number" step="0.5" value={spread.short_offset_pct}
+                onChange={(e) => onChange({ short_offset_pct: parseFloat(e.target.value) })}
+                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="Enter once days-to-expiry drops to this many">Entry DTE</label>
+            <input type="number" value={spread.entry_dte}
+              onChange={(e) => onChange({ entry_dte: parseInt(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="% of max profit captured before closing">Target % (of max profit)</label>
+            <input type="number" step="1" value={spread.target_pct}
+              onChange={(e) => onChange({ target_pct: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="% of max loss incurred before closing">Stop-Loss % (of max loss)</label>
+            <input type="number" step="1" value={spread.sl_pct}
+              onChange={(e) => onChange({ sl_pct: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block" title="Force-close once days-to-expiry drops to this many, regardless of P&L">Force Exit DTE</label>
+            <input type="number" value={spread.force_exit_dte}
+              onChange={(e) => onChange({ force_exit_dte: parseInt(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+        </div>
+
+        <button onClick={onRun} disabled={!spread.symbol || loading}
+          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+          {loading
+            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running…</>
+            : <><Play size={13} /> Run Backtest</>}
+        </button>
+      </section>
+
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {results && (
+        <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            {[
+              { label: "Total Trades", value: results.stats.total_trades },
+              { label: "Win Rate", value: `${results.stats.win_rate_pct}%` },
+              { label: "Total P&L", value: `₹${results.stats.total_pnl.toLocaleString("en-IN")}`, color: results.stats.total_pnl >= 0 ? "text-emerald-600" : "text-red-600" },
+              { label: "Avg P&L %", value: `${results.stats.avg_pnl_pct}%`, color: results.stats.avg_pnl_pct >= 0 ? "text-emerald-600" : "text-red-600" },
+            ].map((m) => (
+              <div key={m.label} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">{m.label}</div>
+                <div className={`text-lg font-bold ${m.color ?? "text-slate-800"}`}>{m.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {results.ohlcv.length > 0 && selectedTrade && (
+            <div className="mb-4 border border-slate-200 rounded-lg overflow-hidden">
+              <BacktestChart
+                symbol={spread.symbol}
+                ohlcv={results.ohlcv}
+                hLines={false}
+                trades={results.trades.map((t) => ({
+                  entry_date: t.entry_date, exit_date: t.exit_date,
+                  entry_price: 0, target_price: 0, sl_price: 0, exit_price: 0,
+                  exit_reason: t.exit_reason === "target" ? "target" : t.exit_reason === "sl" ? "sl" : "timeout",
+                  pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
+                }))}
+                strikeLines={[{
+                  entry_date: selectedTrade.entry_date, exit_date: selectedTrade.exit_date,
+                  call_strike: Math.max(...selectedTrade.legs.map((l) => l.strike)),
+                  put_strike: Math.min(...selectedTrade.legs.map((l) => l.strike)),
+                }]}
+              />
+            </div>
+          )}
+
+          <div className="overflow-x-auto mb-4">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-3 py-2 font-semibold">Expiry</th>
+                  <th className="text-left px-3 py-2 font-semibold">Entry</th>
+                  <th className="text-left px-3 py-2 font-semibold">Exit</th>
+                  <th className="text-right px-3 py-2 font-semibold" title="Net debit paid (positive) or credit received (negative)">Entry Value</th>
+                  <th className="text-right px-3 py-2 font-semibold">Exit Value</th>
+                  <th className="text-right px-3 py-2 font-semibold">Max Profit</th>
+                  <th className="text-right px-3 py-2 font-semibold">Max Loss</th>
+                  <th className="text-right px-3 py-2 font-semibold">P&L %</th>
+                  <th className="text-right px-3 py-2 font-semibold">P&L ₹</th>
+                  <th className="text-left px-3 py-2 font-semibold">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.trades.map((t, i) => (
+                  <tr key={i}
+                    onClick={() => setSelectedTradeIdx(i)}
+                    className={`border-b border-slate-50 cursor-pointer transition-colors ${
+                      i === selectedTradeIdx ? "bg-blue-50" : "hover:bg-slate-50/50"
+                    }`}>
+                    <td className="px-3 py-1.5 font-medium text-slate-700">{t.expiry}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{t.entry_date}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{t.exit_date}</td>
+                    <td className="text-right px-3 py-1.5">{t.entry_value}</td>
+                    <td className="text-right px-3 py-1.5">{t.exit_value}</td>
+                    <td className="text-right px-3 py-1.5 text-emerald-600">{t.max_profit}</td>
+                    <td className="text-right px-3 py-1.5 text-red-600">{t.max_loss}</td>
+                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct}%
+                    </td>
+                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {t.pnl_amount >= 0 ? "+" : ""}₹{t.pnl_amount.toLocaleString("en-IN")}
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-500">{EXIT_REASON_LABELS[t.exit_reason] ?? t.exit_reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedTrade && (
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-600">
+                Legs — {selectedTrade.entry_date} → {selectedTrade.exit_date}
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] text-slate-400 uppercase border-b border-slate-100">
+                    <th className="text-left px-3 py-1.5 font-semibold">Leg</th>
+                    <th className="text-left px-3 py-1.5 font-semibold">Type</th>
+                    <th className="text-left px-3 py-1.5 font-semibold">Direction</th>
+                    <th className="text-right px-3 py-1.5 font-semibold">Strike</th>
+                    <th className="text-right px-3 py-1.5 font-semibold">Entry Premium</th>
+                    <th className="text-right px-3 py-1.5 font-semibold">Exit Premium</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedTrade.legs.map((l, i) => (
+                    <tr key={i} className="border-b border-slate-50 last:border-0">
+                      <td className="px-3 py-1.5 text-slate-600 capitalize">{l.leg.replace("_", " ")}</td>
+                      <td className="px-3 py-1.5 text-slate-600">{l.option_type}</td>
+                      <td className={`px-3 py-1.5 font-medium ${l.direction > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        {l.direction > 0 ? "Buy" : "Sell"}
+                      </td>
+                      <td className="text-right px-3 py-1.5 font-semibold">{l.strike}</td>
+                      <td className="text-right px-3 py-1.5">{l.entry_price}</td>
+                      <td className="text-right px-3 py-1.5">{l.exit_price}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
+            P&L % is relative to max profit for the strategy (a defined-risk trade), not to premium paid/received.
+            {" "}IV/premium data is EOD-only (no intraday fills) — real slippage and bid/ask spread aren't modeled.
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -1226,6 +1547,10 @@ export default function Backtest() {
     // options straddle/strangle
     straddle, straddleResults, straddleLoading, straddleError,
     setStraddle, runStraddle,
+    // options spreads
+    optionsFamily, setOptionsFamily,
+    spread, spreadResults, spreadLoading, spreadError,
+    setSpread, runSpread,
   } = store;
 
   const [algoSymbolSearch, setAlgoSymbolSearch] = useState("");
@@ -1425,16 +1750,46 @@ export default function Backtest() {
         />
       )}
 
-      {/* ── Options mode: straddle/strangle backtest ── */}
+      {/* ── Options mode: straddle/strangle or spread backtest ── */}
       {mode === "options" && (
-        <OptionsStraddlePanel
-          straddle={straddle}
-          results={straddleResults}
-          loading={straddleLoading}
-          error={straddleError}
-          onChange={setStraddle}
-          onRun={runStraddle}
-        />
+        <>
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3">
+            <span className="text-xs font-semibold text-slate-500 mr-1">Options Strategy Family</span>
+            {([
+              { key: "straddle" as const, label: "Straddle / Strangle" },
+              { key: "spread" as const, label: "Spreads" },
+            ]).map((f) => (
+              <button key={f.key} onClick={() => setOptionsFamily(f.key)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                  optionsFamily === f.key
+                    ? "bg-blue-500 text-white border-blue-500"
+                    : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
+                }`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {optionsFamily === "straddle" ? (
+            <OptionsStraddlePanel
+              straddle={straddle}
+              results={straddleResults}
+              loading={straddleLoading}
+              error={straddleError}
+              onChange={setStraddle}
+              onRun={runStraddle}
+            />
+          ) : (
+            <OptionsSpreadPanel
+              spread={spread}
+              results={spreadResults}
+              loading={spreadLoading}
+              error={spreadError}
+              onChange={setSpread}
+              onRun={runSpread}
+            />
+          )}
+        </>
       )}
 
       {/* ── Section 2: Strategy (Multi-Stock mode only) ── */}

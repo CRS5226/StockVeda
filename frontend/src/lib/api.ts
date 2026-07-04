@@ -406,6 +406,32 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  runSpreadBacktest: (params: {
+    symbol: string; from_date: string; to_date: string;
+    strategy: "bull_call_spread" | "bear_put_spread" | "iron_condor";
+    long_offset_pct?: number; short_offset_pct?: number;
+    condor_call_short_pct?: number; condor_call_long_pct?: number;
+    condor_put_short_pct?: number; condor_put_long_pct?: number;
+    entry_dte?: number; target_pct?: number; sl_pct?: number;
+    force_exit_dte?: number; capital_per_trade?: number;
+  }) =>
+    apiFetch<{
+      trades: Array<{
+        expiry: string; entry_date: string; exit_date: string;
+        legs: Array<{ leg: string; option_type: string; direction: number; strike: number; entry_price: number; exit_price: number }>;
+        entry_value: number; exit_value: number;
+        max_profit: number; max_loss: number;
+        pnl_pct: number; pnl_amount: number; exit_reason: string;
+        value_path: Array<{ date: string; value: number }>;
+      }>;
+      stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
+      ohlcv: Array<{ date: string; open: number; high: number; low: number; close: number }>;
+    }>("/backtest/run-spread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });
     if (indexName) p.set("index_name", indexName);

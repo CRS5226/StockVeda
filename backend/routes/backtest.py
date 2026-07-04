@@ -18,6 +18,7 @@ from backend.core.backtest_engine import (
 from backend.core.fno_signals import attach_fno_signals
 from backend.core.futures_continuous import build_continuous_futures
 from backend.core.options_backtest import run_straddle_backtest, StraddleParams, STRATEGIES
+from backend.core.options_spreads import run_spread_backtest, SpreadParams, SPREAD_STRATEGIES
 import pandas as pd
 
 
@@ -509,6 +510,61 @@ def run_straddle(req: StraddleRequest):
     )
     try:
         result = run_straddle_backtest(req.symbol, req.from_date, req.to_date, params)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    if result["stats"]["total_trades"] == 0:
+        raise HTTPException(
+            400,
+            f"No {req.strategy.replace('_', ' ')} cycles found for {req.symbol.upper()} in this range — "
+            "fetch its option chain data across at least one full expiry cycle on the F&O page first."
+        )
+    return result
+
+
+# ── Options spreads (Phase 4) ───────────────────────────────────────────────
+
+class SpreadRequest(BaseModel):
+    symbol: str
+    from_date: str
+    to_date: str
+    strategy: Literal["bull_call_spread", "bear_put_spread", "iron_condor"] = "bull_call_spread"
+    long_offset_pct: float = Field(0.0, ge=0, le=20)
+    short_offset_pct: float = Field(3.0, gt=0, le=20)
+    condor_call_short_pct: float = Field(3.0, gt=0, le=20)
+    condor_call_long_pct: float = Field(6.0, gt=0, le=30)
+    condor_put_short_pct: float = Field(3.0, gt=0, le=20)
+    condor_put_long_pct: float = Field(6.0, gt=0, le=30)
+    entry_dte: int = Field(20, ge=1, le=45)
+    target_pct: float = Field(50.0, gt=0, le=100)
+    sl_pct: float = Field(100.0, gt=0)
+    force_exit_dte: int = Field(1, ge=0, le=5)
+    capital_per_trade: float = Field(50_000.0, gt=0)
+
+
+@router.get("/spread-strategies")
+def get_spread_strategies():
+    return {"strategies": list(SPREAD_STRATEGIES)}
+
+
+@router.post("/run-spread")
+def run_spread(req: SpreadRequest):
+    params = SpreadParams(
+        strategy=req.strategy,
+        long_offset_pct=req.long_offset_pct,
+        short_offset_pct=req.short_offset_pct,
+        condor_call_short_pct=req.condor_call_short_pct,
+        condor_call_long_pct=req.condor_call_long_pct,
+        condor_put_short_pct=req.condor_put_short_pct,
+        condor_put_long_pct=req.condor_put_long_pct,
+        entry_dte=req.entry_dte,
+        target_pct=req.target_pct,
+        sl_pct=req.sl_pct,
+        force_exit_dte=req.force_exit_dte,
+        capital_per_trade=req.capital_per_trade,
+    )
+    try:
+        result = run_spread_backtest(req.symbol, req.from_date, req.to_date, params)
     except Exception as e:
         raise HTTPException(500, str(e))
 
