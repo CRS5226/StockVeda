@@ -18,6 +18,19 @@ CREATE TABLE IF NOT EXISTS stock_ohlcv (
     PRIMARY KEY (date, symbol)
 );
 
+CREATE TABLE IF NOT EXISTS stock_intraday_ohlcv (
+    datetime TIMESTAMP,
+    symbol VARCHAR,
+    interval VARCHAR,   -- '1m','5m','15m', etc. — included in PK since a 5m bar and
+                        -- a 1m bar at the same wall-clock timestamp are different rows
+    open DOUBLE,
+    high DOUBLE,
+    low DOUBLE,
+    close DOUBLE,
+    volume BIGINT,
+    PRIMARY KEY (datetime, symbol, interval)
+);
+
 CREATE TABLE IF NOT EXISTS index_ohlcv (
     date DATE,
     index_name VARCHAR,

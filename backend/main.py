@@ -1,7 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
-from backend.routes import stock, screener, macro, backtest, analysis, fno, index_fund
+from backend.routes import stock, screener, macro, backtest, analysis, fno, index_fund, intraday
 
 app = FastAPI(title="StockVeda API", version="0.1.0")
 
@@ -24,6 +24,7 @@ app.include_router(backtest.router, prefix="/api")
 app.include_router(analysis.router)
 app.include_router(fno.router, prefix="/api")
 app.include_router(index_fund.router, prefix="/api")
+app.include_router(intraday.router, prefix="/api")
 
 
 @app.get("/api/health")
