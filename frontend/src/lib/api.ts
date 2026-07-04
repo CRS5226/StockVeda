@@ -466,6 +466,36 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  fetchIntraday: (symbol: string, interval: string, days: number) =>
+    apiFetch<{ job_id: string; symbol: string; interval: string; days: number; max_lookback_days: number }>(
+      `/intraday/fetch?symbol=${symbol}&interval=${interval}&days=${days}`, { method: "POST" }
+    ),
+  intradayFetchJob: (jobId: string) =>
+    apiFetch<{ total: number; done: number; inserted: number; status: string; error?: string }>(`/intraday/fetch-job/${jobId}`),
+  intradayDataStatus: (symbol: string, interval: string) =>
+    apiFetch<{ earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }>(
+      `/intraday/data-status/${symbol}?interval=${interval}`
+    ),
+
+  runOrbBacktest: (params: {
+    symbol: string; from_date: string; to_date: string; or_minutes?: number;
+    direction?: "long_only" | "short_only" | "both"; target_pct?: number; sl_pct?: number;
+    force_exit_time?: string; capital_per_trade?: number; interval?: string;
+  }) =>
+    apiFetch<{
+      trades: Array<{
+        trade_date: string; direction: string; or_high: number; or_low: number;
+        entry_time: string; entry_price: number; target_price: number; sl_price: number;
+        exit_time: string; exit_price: number; pnl_pct: number; pnl_amount: number; exit_reason: string;
+      }>;
+      stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
+      note?: string;
+    }>("/backtest/run-orb", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });
     if (indexName) p.set("index_name", indexName);

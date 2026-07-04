@@ -9,6 +9,7 @@ import FnO from "./pages/FnO";
 import MarkovAnalysis from "./pages/MarkovAnalysis";
 import MonteCarloSimulation from "./pages/MonteCarloSimulation";
 import IndexReplication from "./pages/IndexReplication";
+import OrbBacktest from "./pages/OrbBacktest";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/markov" element={<MarkovAnalysis />} />
           <Route path="/monte-carlo" element={<MonteCarloSimulation />} />
           <Route path="/index-fund" element={<IndexReplication />} />
+          <Route path="/orb" element={<OrbBacktest />} />
         </Routes>
       </main>
       <Footer />

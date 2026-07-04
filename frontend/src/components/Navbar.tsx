@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, GitBranch, Layers, Dices } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, GitBranch, Layers, Dices, Zap } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -102,6 +102,7 @@ export default function Navbar() {
     { to: "/markov", label: "Markov", icon: GitBranch },
     { to: "/monte-carlo", label: "Monte Carlo", icon: Dices },
     { to: "/index-fund", label: "Index Fund", icon: Layers },
+    { to: "/orb", label: "ORB", icon: Zap },
   ];
 
   return (
