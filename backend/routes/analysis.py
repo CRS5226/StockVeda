@@ -4,6 +4,7 @@ from backend.db.connection import get_db
 from backend.core.patterns import detect_patterns
 from backend.core.outlook import compute_outlook
 from backend.core.markov_chain import run_markov_analysis, MarkovParams
+from backend.core.monte_carlo import run_monte_carlo_analysis, MonteCarloParams
 import pandas as pd
 
 router = APIRouter(prefix="/api/v1", tags=["analysis"])
@@ -89,6 +90,31 @@ def get_markov(
     fd = from_date or (date.today() - timedelta(days=730)).isoformat()
     params = MarkovParams(n_states=n_states, flat_band_pct=flat_band_pct, lookback_days=lookback_days, horizon_days=horizon_days)
     result = run_markov_analysis(symbol, fd, td, params)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/monte-carlo/{symbol}")
+def get_monte_carlo(
+    symbol: str,
+    from_date: str | None = Query(None, description="YYYY-MM-DD, defaults to 2 years ago"),
+    to_date: str | None = Query(None, description="YYYY-MM-DD, defaults to today"),
+    n_simulations: int = Query(1000, ge=100, le=10000),
+    horizon_days: int = Query(30, ge=1, le=252),
+    lookback_days: int = Query(252, ge=20, le=2000),
+    seed: int | None = Query(None, description="Optional RNG seed for reproducible runs"),
+):
+    """
+    Monte Carlo GBM price-path snapshot: simulates n_simulations forward paths from
+    the latest close using drift/volatility estimated from the trailing lookback_days
+    of daily returns, returns p5/p50/p95 percentile bands over horizon_days. A plain
+    historical-drift scenario simulator — not risk-neutral option pricing.
+    """
+    td = to_date or date.today().isoformat()
+    fd = from_date or (date.today() - timedelta(days=730)).isoformat()
+    params = MonteCarloParams(n_simulations=n_simulations, horizon_days=horizon_days, lookback_days=lookback_days, seed=seed)
+    result = run_monte_carlo_analysis(symbol, fd, td, params)
     if "error" in result:
         raise HTTPException(404, result["error"])
     return result
