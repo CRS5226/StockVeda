@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, GitBranch } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, GitBranch, Layers } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -100,6 +100,7 @@ export default function Navbar() {
     { to: "/backtest", label: "Backtest", icon: FlaskConical },
     { to: "/fno", label: "F&O", icon: BarChart2 },
     { to: "/markov", label: "Markov", icon: GitBranch },
+    { to: "/index-fund", label: "Index Fund", icon: Layers },
   ];
 
   return (

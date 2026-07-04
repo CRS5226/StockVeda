@@ -278,6 +278,24 @@ export const api = {
     );
   },
 
+  getIndexFundIndices: () => apiFetch<{ indices: string[] }>(`/index-fund/indices`),
+
+  getIndexWeights: (indexName: string, forceRefresh = false) =>
+    apiFetch<{
+      index_name: string; source: string; total_weight_pct: number;
+      constituents: { symbol: string; weight_pct: number; market_cap_cr: number | null; source: string }[];
+    }>(`/index-fund/weights/${encodeURIComponent(indexName)}?force_refresh=${forceRefresh}`),
+
+  replicateIndex: (req: { index_name: string; capital: number; rebalance_frequency?: string; from_date?: string; to_date?: string }) =>
+    apiFetch<{
+      index_name: string; capital: number; total_allocated: number; cash_remaining: number;
+      constituents: { symbol: string; weight_pct: number; target_allocation: number; price: number; shares: number; actual_allocation: number; source: string }[];
+      value_path: { date: string; value: number }[];
+      value_path_coverage: { included_symbols: number; excluded_symbols: string[]; note: string | null };
+      tracking_error: { tracking_error_annualized_pct?: number; correlation?: number; cumulative_drift_pct?: number };
+      source: string;
+    }>(`/index-fund/replicate`, { method: "POST", body: JSON.stringify(req) }),
+
   getSectorCompare: (symbol: string, days = 252) =>
     apiFetch<SectorCompareData>(`/stock/sector-compare/${symbol}?days=${days}`),
 
