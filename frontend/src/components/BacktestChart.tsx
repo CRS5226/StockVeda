@@ -69,8 +69,18 @@ function hexWithAlpha(hex: string, alpha: number): string {
 
 interface ZoneRect { left: number; top: number; width: number; height: number; fill: string; border: string }
 
+// Stable empty-array references — an inline `= []` default parameter creates a NEW
+// array every render, which fed into a useEffect([boxZones]) that calls setZoneRects()
+// (a state update triggering a re-render, which recreates the default, re-firing the
+// effect forever) — a genuine infinite render loop whenever a caller omits boxZones.
+const EMPTY_TRADES: BacktestTradeV2[] = [];
+const EMPTY_PATTERNS: PatternHit[] = [];
+const EMPTY_STRIKE_LINES: StrikeLine[] = [];
+const EMPTY_BOX_ZONES: BoxZone[] = [];
+
 export default function BacktestChart({
-  ohlcv, trades = [], algoTrades, patternHits = [], hLines = true, strikeLines = [], boxZones = [],
+  ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS, hLines = true,
+  strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES,
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
