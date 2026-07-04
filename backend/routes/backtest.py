@@ -19,6 +19,7 @@ from backend.core.fno_signals import attach_fno_signals
 from backend.core.futures_continuous import build_continuous_futures
 from backend.core.options_backtest import run_straddle_backtest, StraddleParams, STRATEGIES
 from backend.core.options_spreads import run_spread_backtest, SpreadParams, SPREAD_STRATEGIES
+from backend.core.markov_chain import attach_markov_signals
 import pandas as pd
 
 
@@ -192,6 +193,7 @@ def run_v2(req: BacktestV2Request):
         if len(df) < 30:
             continue
         df = attach_fno_signals(df, sym, req.from_date, req.to_date)
+        df = attach_markov_signals(df, sym, req.from_date, req.to_date)
         try:
             per_symbol[sym] = run_backtest_v2(df, params)
         except Exception:
@@ -253,7 +255,7 @@ def run_matrix(req: MatrixRequest):
         s = sym.upper()
         df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
         if len(df) >= 30:
-            ohlcv[s] = attach_fno_signals(df, s, req.from_date, req.to_date)
+            ohlcv[s] = attach_markov_signals(attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date)
 
     if not ohlcv:
         raise HTTPException(400, "No data found for any symbol in the given date range. Sync data first via the Screener.")
@@ -426,7 +428,7 @@ def run_matrix_stream(req: MatrixRequest):
         s = sym.upper()
         df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
         if len(df) >= 30:
-            ohlcv[s] = attach_fno_signals(df, s, req.from_date, req.to_date)
+            ohlcv[s] = attach_markov_signals(attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date)
 
     if not ohlcv:
         raise HTTPException(400, "No data found for any symbol in the given date range.")

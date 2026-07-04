@@ -220,6 +220,10 @@ VALID_INDICATORS = [
     # Options IV (Phase 3) — ATM IV solved via Black-Scholes/Newton-Raphson, plus its
     # trailing-60-session percentile rank.
     "atm_iv", "iv_rank",
+    # Markov chain (Phase 5) — walk-forward transition-matrix probabilities. Computed
+    # causally (each day's value only uses transitions up to and including that day),
+    # so these are safe to use as ordinary backtest conditions.
+    "markov_p_up", "markov_p_down", "markov_confidence",
 ]
 
 VALID_OPERATORS = ["crosses_above", "crosses_below", "above", "below"]
