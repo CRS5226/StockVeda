@@ -300,7 +300,11 @@ export const api = {
       value_path_coverage: { included_symbols: number; excluded_symbols: string[]; note: string | null };
       tracking_error: { tracking_error_annualized_pct?: number; correlation?: number; cumulative_drift_pct?: number };
       source: string;
-    }>(`/index-fund/replicate`, { method: "POST", body: JSON.stringify(req) }),
+    }>(`/index-fund/replicate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }),
 
   getSectorCompare: (symbol: string, days = 252) =>
     apiFetch<SectorCompareData>(`/stock/sector-compare/${symbol}?days=${days}`),
