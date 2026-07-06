@@ -6,6 +6,7 @@ import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
 import FnoFetchPanel, { INDEX_SYMBOLS } from "../components/FnoFetchPanel";
 import IntradayFetchPanel from "../components/IntradayFetchPanel";
+import OrbTradeChart from "../components/OrbTradeChart";
 import type { PatternHit } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
 
@@ -1578,6 +1579,7 @@ function OrbPanel({
 }) {
   const [dataStatus, setDataStatus] = useState<{ earliest_datetime: string | null; latest_datetime: string | null; total_bars: number } | null>(null);
   const [showFetchPanel, setShowFetchPanel] = useState(false);
+  const [selectedTradeIdx, setSelectedTradeIdx] = useState(0);
 
   const loadDataStatus = useCallback(() => {
     if (!orb.symbol) return;
@@ -1585,6 +1587,9 @@ function OrbPanel({
   }, [orb.symbol, orb.interval]);
 
   useEffect(() => { loadDataStatus(); }, [loadDataStatus]);
+  useEffect(() => { setSelectedTradeIdx(0); }, [results]);
+
+  const selectedTrade = results?.trades[selectedTradeIdx] ?? results?.trades[0];
 
   return (
     <div className="flex flex-col gap-4">
@@ -1731,6 +1736,30 @@ function OrbPanel({
             </div>
           </section>
 
+          {selectedTrade && selectedTrade.bars.length > 0 && (
+            <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+              <div className="text-sm font-semibold text-slate-700 mb-1">
+                {selectedTrade.trade_date} — {selectedTrade.direction} trade ({orb.interval} bars)
+              </div>
+              <div className="text-[10px] text-slate-400 mb-3">Click a row in the table below to view a different trading day</div>
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <OrbTradeChart
+                  bars={selectedTrade.bars}
+                  orHigh={selectedTrade.or_high}
+                  orLow={selectedTrade.or_low}
+                  direction={selectedTrade.direction as "long" | "short"}
+                  entryTime={selectedTrade.entry_time}
+                  entryPrice={selectedTrade.entry_price}
+                  targetPrice={selectedTrade.target_price}
+                  slPrice={selectedTrade.sl_price}
+                  exitTime={selectedTrade.exit_time}
+                  exitPrice={selectedTrade.exit_price}
+                  exitReason={selectedTrade.exit_reason}
+                />
+              </div>
+            </section>
+          )}
+
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
             <div className="text-sm font-semibold text-slate-700 mb-3">Trades</div>
             <div className="overflow-x-auto">
@@ -1752,7 +1781,11 @@ function OrbPanel({
                 </thead>
                 <tbody>
                   {results.trades.map((t, i) => (
-                    <tr key={i} className="border-b border-slate-50">
+                    <tr key={i}
+                      onClick={() => setSelectedTradeIdx(i)}
+                      className={`border-b border-slate-50 cursor-pointer transition-colors ${
+                        i === selectedTradeIdx ? "bg-blue-50" : "hover:bg-slate-50/50"
+                      }`}>
                       <td className="py-1.5 pr-3 font-semibold text-slate-700">{t.trade_date}</td>
                       <td className="py-1.5 pr-3 capitalize">{t.direction}</td>
                       <td className="py-1.5 pr-3 text-right text-slate-500">{t.or_high}</td>

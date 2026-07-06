@@ -487,6 +487,7 @@ export const api = {
         trade_date: string; direction: string; or_high: number; or_low: number;
         entry_time: string; entry_price: number; target_price: number; sl_price: number;
         exit_time: string; exit_price: number; pnl_pct: number; pnl_amount: number; exit_reason: string;
+        bars: Array<{ time: string; open: number; high: number; low: number; close: number }>;
       }>;
       stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
       note?: string;

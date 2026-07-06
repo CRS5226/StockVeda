@@ -121,6 +121,15 @@ def run_orb_backtest(symbol: str, from_date: str, to_date: str, params: ORBParam
         pnl_pct = direction * (exit_price - entry_price) / entry_price * 100
         pnl_amount = round(params.capital_per_trade * pnl_pct / 100, 2)
 
+        bars = [
+            {
+                "time": str(row["datetime"]),
+                "open": round(float(row["open"]), 2), "high": round(float(row["high"]), 2),
+                "low": round(float(row["low"]), 2), "close": round(float(row["close"]), 2),
+            }
+            for _, row in day_df.iterrows()
+        ]
+
         trades.append({
             "trade_date": trade_date,
             "direction": "long" if direction == 1 else "short",
@@ -129,6 +138,7 @@ def run_orb_backtest(symbol: str, from_date: str, to_date: str, params: ORBParam
             "target_price": round(target_price, 2), "sl_price": round(sl_price, 2),
             "exit_time": str(exit_time), "exit_price": round(exit_price, 2),
             "pnl_pct": round(pnl_pct, 2), "pnl_amount": pnl_amount, "exit_reason": exit_reason,
+            "bars": bars,
         })
 
     return {"trades": trades, "stats": _compute_stats(trades)}
