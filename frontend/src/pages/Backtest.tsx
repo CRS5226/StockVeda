@@ -1122,10 +1122,6 @@ function OptionsStraddlePanel({
               symbol={straddle.symbol}
               isIndex={INDEX_SYMBOLS.includes(straddle.symbol)}
               onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
-              fromDate={straddle.from_date}
-              toDate={straddle.to_date}
-              onFromDateChange={(d) => onChange({ from_date: d })}
-              onToDateChange={(d) => onChange({ to_date: d })}
             />
           </div>
         )}
@@ -1403,10 +1399,6 @@ function OptionsSpreadPanel({
               symbol={spread.symbol}
               isIndex={INDEX_SYMBOLS.includes(spread.symbol)}
               onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
-              fromDate={spread.from_date}
-              toDate={spread.to_date}
-              onFromDateChange={(d) => onChange({ from_date: d })}
-              onToDateChange={(d) => onChange({ to_date: d })}
             />
           </div>
         )}
