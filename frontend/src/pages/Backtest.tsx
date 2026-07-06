@@ -238,6 +238,76 @@ function SymbolSearch({ onAdd }: { onAdd: (sym: string) => void }) {
   );
 }
 
+// ── Single-value symbol combobox (search-as-you-type + keyboard nav) ───────
+// For fields like straddle/spread/ORB's "Symbol" input, where typing should both
+// filter suggestions AND directly update the bound value (unlike SymbolSearch
+// above, which clears itself after adding to a list).
+
+function SymbolCombobox({ value, onChange, placeholder }: {
+  value: string;
+  onChange: (sym: string) => void;
+  placeholder?: string;
+}) {
+  const [results, setResults] = useState<{ symbol: string; name: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(-1);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const search = useCallback((val: string) => {
+    if (debounce.current) clearTimeout(debounce.current);
+    if (val.length < 1) { setResults([]); setOpen(false); return; }
+    debounce.current = setTimeout(async () => {
+      try {
+        const res = await api.searchSymbols(val);
+        setResults(res.slice(0, 8));
+        setOpen(res.length > 0);
+        setHighlighted(0);
+      } catch { setResults([]); }
+    }, 180);
+  }, []);
+
+  const pick = (sym: string) => { onChange(sym); setResults([]); setOpen(false); setHighlighted(-1); };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || !results.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlighted((h) => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlighted((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); const i = highlighted >= 0 ? highlighted : 0; if (results[i]) pick(results[i].symbol); }
+    else if (e.key === "Escape") { setOpen(false); setHighlighted(-1); }
+  };
+
+  useEffect(() => {
+    if (highlighted >= 0 && listRef.current)
+      (listRef.current.children[highlighted] as HTMLElement)?.scrollIntoView({ block: "nearest" });
+  }, [highlighted]);
+
+  return (
+    <div className="relative">
+      <input value={value}
+        onChange={(e) => { const v = e.target.value.toUpperCase(); onChange(v); search(v); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder ?? "NIFTY, RELIANCE…"}
+        className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+      {open && results.length > 0 && (
+        <ul ref={listRef} className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {results.map((r, i) => (
+            <li key={r.symbol}>
+              <button onMouseDown={() => pick(r.symbol)} onMouseEnter={() => setHighlighted(i)}
+                className={`w-full text-left px-3 py-2 text-sm flex items-center gap-3 transition-colors ${i === highlighted ? "bg-blue-50" : "hover:bg-blue-50"}`}>
+                <span className="font-semibold text-blue-700 w-24 shrink-0">{r.symbol}</span>
+                <span className="text-slate-500 text-xs truncate">{r.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Load watchlist dropdown ────────────────────────────────────────────────
 
 function LoadWatchlistMenu() {
@@ -991,9 +1061,7 @@ function OptionsStraddlePanel({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
-            <input value={straddle.symbol} onChange={(e) => onChange({ symbol: e.target.value.toUpperCase() })}
-              placeholder="NIFTY, RELIANCE…"
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+            <SymbolCombobox value={straddle.symbol} onChange={(sym) => onChange({ symbol: sym })} />
           </div>
           <div>
             <label className="text-xs text-slate-500 mb-1 block">From Date</label>
@@ -1054,6 +1122,10 @@ function OptionsStraddlePanel({
               symbol={straddle.symbol}
               isIndex={INDEX_SYMBOLS.includes(straddle.symbol)}
               onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
+              fromDate={straddle.from_date}
+              toDate={straddle.to_date}
+              onFromDateChange={(d) => onChange({ from_date: d })}
+              onToDateChange={(d) => onChange({ to_date: d })}
             />
           </div>
         )}
@@ -1270,9 +1342,7 @@ function OptionsSpreadPanel({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
-            <input value={spread.symbol} onChange={(e) => onChange({ symbol: e.target.value.toUpperCase() })}
-              placeholder="NIFTY, RELIANCE…"
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+            <SymbolCombobox value={spread.symbol} onChange={(sym) => onChange({ symbol: sym })} />
           </div>
           <div>
             <label className="text-xs text-slate-500 mb-1 block">From Date</label>
@@ -1333,6 +1403,10 @@ function OptionsSpreadPanel({
               symbol={spread.symbol}
               isIndex={INDEX_SYMBOLS.includes(spread.symbol)}
               onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
+              fromDate={spread.from_date}
+              toDate={spread.to_date}
+              onFromDateChange={(d) => onChange({ from_date: d })}
+              onToDateChange={(d) => onChange({ to_date: d })}
             />
           </div>
         )}
@@ -1603,9 +1677,7 @@ function OrbPanel({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
-            <input value={orb.symbol} onChange={(e) => onChange({ symbol: e.target.value.toUpperCase() })}
-              placeholder="RELIANCE, NIFTY…"
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+            <SymbolCombobox value={orb.symbol} onChange={(sym) => onChange({ symbol: sym })} placeholder="RELIANCE, NIFTY…" />
           </div>
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Interval</label>

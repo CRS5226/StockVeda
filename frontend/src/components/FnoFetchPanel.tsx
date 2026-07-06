@@ -8,17 +8,42 @@ export function toIso(d: Date) {
 
 export const INDEX_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
 
+interface Props {
+  symbol: string;
+  isIndex: boolean;
+  onDone: () => void;
+  /**
+   * Controlled from/to date range — pass these (with the setters) when the caller
+   * already shows its own From Date/To Date fields (e.g. the Backtest page's
+   * straddle/spread panels), so this panel doesn't duplicate a second, separate
+   * date range. The 1W/1M/3M/6M presets then write directly into the caller's
+   * own fields instead of an internal, hidden copy. Omit both to fall back to an
+   * internal default (used by the standalone F&O option-chain page).
+   */
+  fromDate?: string;
+  toDate?: string;
+  onFromDateChange?: (d: string) => void;
+  onToDateChange?: (d: string) => void;
+}
+
 /**
  * Shared "fetch NSE bhavcopy for a date range" panel — used by the F&O page's
  * option chain view and the Backtest page's Options (straddle/strangle) mode.
  */
-export default function FnoFetchPanel({ symbol, isIndex, onDone }: { symbol: string; isIndex: boolean; onDone: () => void }) {
+export default function FnoFetchPanel({ symbol, isIndex, onDone, fromDate: fromDateProp, toDate: toDateProp, onFromDateChange, onToDateChange }: Props) {
   const today = new Date();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(today.getDate() - 30);
 
-  const [fromDate, setFromDate] = useState(toIso(thirtyDaysAgo));
-  const [toDate, setToDate] = useState(toIso(today));
+  const controlled = fromDateProp != null && toDateProp != null;
+  const [internalFromDate, setInternalFromDate] = useState(toIso(thirtyDaysAgo));
+  const [internalToDate, setInternalToDate] = useState(toIso(today));
+
+  const fromDate = controlled ? fromDateProp! : internalFromDate;
+  const toDate = controlled ? toDateProp! : internalToDate;
+  const setFromDate = controlled ? onFromDateChange! : setInternalFromDate;
+  const setToDate = controlled ? onToDateChange! : setInternalToDate;
+
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number; inserted: number; status: string; current_date: string } | null>(null);
   const [fetching, setFetching] = useState(false);
@@ -66,26 +91,33 @@ export default function FnoFetchPanel({ symbol, isIndex, onDone }: { symbol: str
         <div>
           <div className="font-semibold text-blue-800 text-sm">Fetch Historical F&O Data{symbol ? ` — ${symbol}` : ""}</div>
           <div className="text-xs text-blue-600 mt-0.5 leading-relaxed">
-            Downloads NSE bhavcopy and extracts {symbol ? `${symbol}'s` : ""} option chain (all expiries) for the selected date range. Data is stored locally so it loads instantly after.
+            Downloads NSE bhavcopy and extracts {symbol ? `${symbol}'s` : ""} option chain (all expiries) for the
+            {controlled
+              ? " From Date / To Date range set above."
+              : " selected date range."} Data is stored locally so it loads instantly after.
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">From</label>
-          <input
-            type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-            disabled={fetching}
-            className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">To</label>
-          <input
-            type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-            disabled={fetching}
-            className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
-        </div>
+        {!controlled && (
+          <>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">From</label>
+              <input
+                type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                disabled={fetching}
+                className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">To</label>
+              <input
+                type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                disabled={fetching}
+                className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
+            </div>
+          </>
+        )}
         <div className="flex gap-2 items-end">
           {(["1W", "1M", "3M", "6M"] as const).map(label => {
             const days = label === "1W" ? 7 : label === "1M" ? 30 : label === "3M" ? 90 : 180;
