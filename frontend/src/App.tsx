@@ -6,10 +6,7 @@ import StockDetail from "./pages/StockDetail";
 import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
 import FnO from "./pages/FnO";
-import MarkovAnalysis from "./pages/MarkovAnalysis";
-import MonteCarloSimulation from "./pages/MonteCarloSimulation";
-import IndexReplication from "./pages/IndexReplication";
-import OrbBacktest from "./pages/OrbBacktest";
+import Analysis from "./pages/Analysis";
 
 export default function App() {
   return (
@@ -22,10 +19,7 @@ export default function App() {
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/fno" element={<FnO />} />
-          <Route path="/markov" element={<MarkovAnalysis />} />
-          <Route path="/monte-carlo" element={<MonteCarloSimulation />} />
-          <Route path="/index-fund" element={<IndexReplication />} />
-          <Route path="/orb" element={<OrbBacktest />} />
+          <Route path="/analysis" element={<Analysis />} />
         </Routes>
       </main>
       <Footer />

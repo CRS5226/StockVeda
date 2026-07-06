@@ -77,6 +77,23 @@ export interface SpreadConfig {
 
 export type SpreadResult = Awaited<ReturnType<typeof api.runSpreadBacktest>>;
 
+// ── Opening Range Breakout (ORB) mode ───────────────────────────────────────
+
+export interface ORBConfig {
+  symbol: string;
+  interval: "1m" | "5m" | "15m" | "30m" | "60m";
+  from_date: string;
+  to_date: string;
+  or_minutes: number;
+  direction: "long_only" | "short_only" | "both";
+  target_pct: number;
+  sl_pct: number;
+  force_exit_time: string;
+  capital_per_trade: number;
+}
+
+export type ORBResult = Awaited<ReturnType<typeof api.runOrbBacktest>>;
+
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
 export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
 
@@ -133,6 +150,19 @@ const DEFAULT_SPREAD: SpreadConfig = {
   data_source: "cash",
 };
 
+const DEFAULT_ORB: ORBConfig = {
+  symbol: "RELIANCE",
+  interval: "5m",
+  from_date: new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10),
+  to_date: TODAY,
+  or_minutes: 15,
+  direction: "long_only",
+  target_pct: 1.0,
+  sl_pct: 0.5,
+  force_exit_time: "15:20",
+  capital_per_trade: 50000,
+};
+
 const DEFAULT_STRATEGY: StrategyV2 = {
   entry_conditions: [{ left: "macd", operator: "crosses_above", right: "macd_signal" }],
   exit_conditions: [],
@@ -178,11 +208,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix" | "options";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -219,6 +249,14 @@ interface BacktestState {
   spreadError: string | null;
   setSpread: (p: Partial<SpreadConfig>) => void;
   runSpread: () => Promise<void>;
+
+  // ORB mode
+  orb: ORBConfig;
+  orbResults: ORBResult | null;
+  orbLoading: boolean;
+  orbError: string | null;
+  setOrb: (p: Partial<ORBConfig>) => void;
+  runOrb: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -518,6 +556,26 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       set({ spreadResults: res, spreadLoading: false });
     } catch (e) {
       set({ spreadLoading: false, spreadError: String(e) });
+    }
+  },
+
+  // ── ORB mode ───────────────────────────────────────────────────────────────
+  orb: DEFAULT_ORB,
+  orbResults: null,
+  orbLoading: false,
+  orbError: null,
+
+  setOrb: (p) => set((s) => ({ orb: { ...s.orb, ...p } })),
+
+  runOrb: async () => {
+    const { orb } = get();
+    if (!orb.symbol) return;
+    set({ orbLoading: true, orbError: null, orbResults: null });
+    try {
+      const res = await api.runOrbBacktest(orb);
+      set({ orbResults: res, orbLoading: false });
+    } catch (e) {
+      set({ orbLoading: false, orbError: String(e) });
     }
   },
 
