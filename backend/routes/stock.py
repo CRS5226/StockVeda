@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
 from backend.core.indicators import add_indicators
 from backend.core.beta_analysis import get_current_beta, rolling_beta, BetaParams
+from backend.core.fno_signals import IDX_NAME_MAP
 import pandas as pd
 import yfinance as yf
 
@@ -131,22 +132,38 @@ def get_candle_stats(symbols: str = Query(..., description="Comma-separated symb
     return [result.get(s, {"symbol": s, "candles": 0, "from_date": None, "to_date": None}) for s in syms]
 
 
+
+# Index pseudo-symbols used across F&O features (options/futures/ORB) — these aren't
+# equities, so they never appear in nse_symbols and would otherwise be unfindable by
+# search (e.g. "NIFTY" would only surface unrelated ETF tickers like NIFTYBEES).
+_INDEX_SEARCH_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
+
+
 @router.get("/search")
 def search_symbols(q: str = Query(..., min_length=1)):
     db = get_db()
+    q_upper = q.upper()
+    index_matches = [
+        {"symbol": s, "name": IDX_NAME_MAP.get(s, s)}
+        for s in _INDEX_SEARCH_SYMBOLS if s.startswith(q_upper)
+    ]
+
     # Primary: nse_symbols table (always populated via seed_symbols)
     rows = db.execute(
         "SELECT symbol, company_name FROM nse_symbols WHERE symbol ILIKE ? ORDER BY symbol LIMIT 20",
-        [f"{q.upper()}%"]
+        [f"{q_upper}%"]
     ).fetchall()
     if rows:
-        return [{"symbol": r[0], "name": r[1]} for r in rows]
-    # Fallback: stock_ohlcv if symbols table not yet seeded
-    rows = db.execute(
-        "SELECT DISTINCT symbol FROM stock_ohlcv WHERE symbol ILIKE ? ORDER BY symbol LIMIT 20",
-        [f"{q.upper()}%"]
-    ).fetchall()
-    return [{"symbol": r[0], "name": ""} for r in rows]
+        equity_matches = [{"symbol": r[0], "name": r[1]} for r in rows]
+    else:
+        # Fallback: stock_ohlcv if symbols table not yet seeded
+        rows = db.execute(
+            "SELECT DISTINCT symbol FROM stock_ohlcv WHERE symbol ILIKE ? ORDER BY symbol LIMIT 20",
+            [f"{q_upper}%"]
+        ).fetchall()
+        equity_matches = [{"symbol": r[0], "name": ""} for r in rows]
+
+    return index_matches + equity_matches
 
 
 @router.get("/info/{symbol}")
