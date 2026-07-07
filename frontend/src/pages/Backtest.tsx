@@ -557,6 +557,64 @@ function DataPanel() {
   );
 }
 
+// ── ATM Delta snapshot (Options mode, Step 1 only — ORB has no option chain) ─
+
+function AtmDeltaSnapshot({ symbol, hasData }: { symbol: string; hasData: boolean }) {
+  const [snap, setSnap] = useState<import("../lib/api").OptionChainData | null>(null);
+
+  useEffect(() => {
+    if (!symbol || !hasData) { setSnap(null); return; }
+    api.getOptionChain(symbol).then(setSnap).catch(() => setSnap(null));
+  }, [symbol, hasData]);
+
+  if (!snap?.atm_greeks) return null; // silent — the coverage pill above already communicates "no data"
+  const atmRow = snap.chain.find((r) => r.is_atm);
+  const fmtDelta = (d: number | null) => (d === null ? "—" : d.toFixed(3));
+  const fmtIv = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`);
+
+  return (
+    <div className="mb-3 flex flex-wrap items-stretch gap-2">
+      <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-1.5">
+        <span className="font-semibold text-slate-600">ATM Snapshot</span>
+        <span className="text-slate-400">— {snap.expiry} ({snap.atm_greeks.dte_days}d) · strike {atmRow?.strike} · spot {snap.spot.toFixed(2)}</span>
+      </div>
+      <div className="flex items-center gap-3 text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+        <span className="font-semibold text-emerald-700">CE</span>
+        <span className="text-slate-500">premium <span className="font-medium text-slate-700">{atmRow?.ce_ltp ?? "—"}</span></span>
+        <span className="text-slate-500">IV <span className="font-medium text-slate-700">{fmtIv(snap.atm_greeks.ce.iv)}</span></span>
+        <span className="text-slate-500">Δ <span className="font-semibold text-emerald-700">{fmtDelta(snap.atm_greeks.ce.delta)}</span></span>
+      </div>
+      <div className="flex items-center gap-3 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <span className="font-semibold text-red-700">PE</span>
+        <span className="text-slate-500">premium <span className="font-medium text-slate-700">{atmRow?.pe_ltp ?? "—"}</span></span>
+        <span className="text-slate-500">IV <span className="font-medium text-slate-700">{fmtIv(snap.atm_greeks.pe.iv)}</span></span>
+        <span className="text-slate-500">Δ <span className="font-semibold text-red-700">{fmtDelta(snap.atm_greeks.pe.delta)}</span></span>
+      </div>
+    </div>
+  );
+}
+
+// ── Timeline preset buttons (shared across Options/ORB Step 1) ─────────────
+
+function TimelinePresetButtons({ onPick }: { onPick: (fromDate: string, toDate: string) => void }) {
+  const pick = (days: number) => {
+    const to = new Date();
+    const from = new Date(); from.setDate(from.getDate() - days);
+    onPick(from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
+  };
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-xs text-slate-400">Quick range:</span>
+      {SYNC_DAY_OPTIONS.map((o) => (
+        <button key={o.days} onClick={() => pick(o.days)}
+          className="px-2 py-1 text-[11px] font-medium bg-slate-50 border border-slate-200 rounded-md hover:border-blue-300 hover:bg-blue-50 text-slate-600 transition-colors">
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Multi-Algo Panel (Section 1+2 combined for multi-algo mode) ──────────────
 
 function MultiAlgoPanel({
@@ -1057,11 +1115,11 @@ function OptionsStraddlePanel({
       <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
-          <span className="text-sm font-semibold text-slate-700">Straddle / Strangle Backtest</span>
-          <span className="text-xs text-slate-400 ml-1">— one trade per expiry cycle, tracking combined CE+PE premium</span>
+          <span className="text-sm font-semibold text-slate-700">Pick Symbol & Data</span>
+          <span className="text-xs text-slate-400 ml-1">— choose a symbol, confirm option-chain coverage, and set your backtest window</span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
             <SymbolCombobox value={straddle.symbol} onChange={(sym) => onChange({ symbol: sym })} />
@@ -1074,12 +1132,6 @@ function OptionsStraddlePanel({
           <div>
             <label className="text-xs text-slate-500 mb-1 block">To Date</label>
             <input type="date" value={straddle.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
-            <input type="number" value={straddle.capital_per_trade}
-              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
           <div>
@@ -1098,6 +1150,10 @@ function OptionsStraddlePanel({
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="mb-3">
+          <TimelinePresetButtons onPick={(f, t) => onChange({ from_date: f, to_date: t })} />
         </div>
 
         {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
@@ -1129,6 +1185,16 @@ function OptionsStraddlePanel({
           </div>
         )}
 
+        <AtmDeltaSnapshot symbol={straddle.symbol} hasData={!!dataStatus?.earliest_date} />
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+          <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
+          <span className="text-xs text-slate-400 ml-1">— one trade per expiry cycle, tracking combined CE+PE premium</span>
+        </div>
+
         <div className="mb-3">
           <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
           <div className="flex flex-wrap gap-1.5">
@@ -1146,6 +1212,12 @@ function OptionsStraddlePanel({
         </div>
 
         <div className={`grid gap-3 mb-4 ${isStrangle ? "grid-cols-2 md:grid-cols-5" : "grid-cols-2 md:grid-cols-4"}`}>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
+            <input type="number" value={straddle.capital_per_trade}
+              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
           {isStrangle && (
             <div>
               <label className="text-xs text-slate-500 mb-1 block">Strangle Width %</label>
@@ -1334,11 +1406,11 @@ function OptionsSpreadPanel({
       <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
-          <span className="text-sm font-semibold text-slate-700">Options Spread Backtest</span>
-          <span className="text-xs text-slate-400 ml-1">— defined-risk multi-leg strategies, one trade per expiry cycle</span>
+          <span className="text-sm font-semibold text-slate-700">Pick Symbol & Data</span>
+          <span className="text-xs text-slate-400 ml-1">— choose a symbol, confirm option-chain coverage, and set your backtest window</span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
             <SymbolCombobox value={spread.symbol} onChange={(sym) => onChange({ symbol: sym })} />
@@ -1351,12 +1423,6 @@ function OptionsSpreadPanel({
           <div>
             <label className="text-xs text-slate-500 mb-1 block">To Date</label>
             <input type="date" value={spread.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
-            <input type="number" value={spread.capital_per_trade}
-              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
           <div>
@@ -1375,6 +1441,10 @@ function OptionsSpreadPanel({
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="mb-3">
+          <TimelinePresetButtons onPick={(f, t) => onChange({ from_date: f, to_date: t })} />
         </div>
 
         {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
@@ -1405,6 +1475,25 @@ function OptionsSpreadPanel({
             />
           </div>
         )}
+
+        <AtmDeltaSnapshot symbol={spread.symbol} hasData={!!dataStatus?.earliest_date} />
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+          <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
+          <span className="text-xs text-slate-400 ml-1">— defined-risk multi-leg strategies, one trade per expiry cycle</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
+            <input type="number" value={spread.capital_per_trade}
+              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
+              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+          </div>
+        </div>
 
         <div className="mb-3">
           <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
@@ -1665,11 +1754,11 @@ function OrbPanel({
       <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
-          <span className="text-sm font-semibold text-slate-700">Opening Range Breakout</span>
-          <span className="text-xs text-slate-400 ml-1">— intraday, one trade per day max, no overnight holds</span>
+          <span className="text-sm font-semibold text-slate-700">Pick Symbol & Data</span>
+          <span className="text-xs text-slate-400 ml-1">— choose a symbol/interval, confirm intraday coverage, and set your backtest window</span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
             <SymbolCombobox value={orb.symbol} onChange={(sym) => onChange({ symbol: sym })} placeholder="RELIANCE, NIFTY…" />
@@ -1691,6 +1780,47 @@ function OrbPanel({
             <input type="date" value={orb.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
               className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
           </div>
+        </div>
+
+        <div className="mb-3">
+          <TimelinePresetButtons onPick={(f, t) => onChange({ from_date: f, to_date: t })} />
+        </div>
+
+        {/* Intraday data coverage for this symbol/interval */}
+        {orb.symbol && (
+          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
+            {dataStatus?.earliest_datetime ? (
+              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
+                Intraday data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_datetime} → {dataStatus.latest_datetime}</span> ({dataStatus.total_bars} bars)
+              </span>
+            ) : (
+              <span className="text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">No intraday data synced yet for {orb.symbol} ({orb.interval})</span>
+            )}
+            <button onClick={() => setShowFetchPanel((s) => !s)}
+              className="text-blue-600 hover:text-blue-700 font-medium underline underline-offset-2">
+              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
+            </button>
+          </div>
+        )}
+
+        {showFetchPanel && orb.symbol && (
+          <div className="mb-3">
+            <IntradayFetchPanel symbol={orb.symbol} interval={orb.interval} onDone={() => { setShowFetchPanel(false); loadDataStatus(); }} />
+          </div>
+        )}
+
+        <div className="text-[10px] text-slate-400 leading-relaxed">
+          Opening Range Breakout requires intraday data fetched on-demand via Yahoo Finance — lookback is
+          limited (~7 days for 1-minute bars, ~60 days for 5/15/30-minute bars). This is a standalone intraday
+          backtester, separate from the daily-bar condition-based Backtest engine.
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+          <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
+          <span className="text-xs text-slate-400 ml-1">— intraday, one trade per day max, no overnight holds</span>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
@@ -1732,41 +1862,12 @@ function OrbPanel({
           </div>
         </div>
 
-        {/* Intraday data coverage for this symbol/interval */}
-        {orb.symbol && (
-          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
-            {dataStatus?.earliest_datetime ? (
-              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
-                Intraday data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_datetime} → {dataStatus.latest_datetime}</span> ({dataStatus.total_bars} bars)
-              </span>
-            ) : (
-              <span className="text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">No intraday data synced yet for {orb.symbol} ({orb.interval})</span>
-            )}
-            <button onClick={() => setShowFetchPanel((s) => !s)}
-              className="text-blue-600 hover:text-blue-700 font-medium underline underline-offset-2">
-              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
-            </button>
-          </div>
-        )}
-
-        {showFetchPanel && orb.symbol && (
-          <div className="mb-3">
-            <IntradayFetchPanel symbol={orb.symbol} interval={orb.interval} onDone={() => { setShowFetchPanel(false); loadDataStatus(); }} />
-          </div>
-        )}
-
         <button onClick={onRun} disabled={!orb.symbol || loading}
           className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
           {loading
             ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running…</>
             : <><Play size={13} /> Run ORB Backtest</>}
         </button>
-
-        <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
-          Opening Range Breakout requires intraday data fetched on-demand via Yahoo Finance — lookback is
-          limited (~7 days for 1-minute bars, ~60 days for 5/15/30-minute bars). This is a standalone intraday
-          backtester, separate from the daily-bar condition-based Backtest engine.
-        </div>
       </section>
 
       {error && (

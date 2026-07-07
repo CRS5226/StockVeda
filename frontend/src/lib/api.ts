@@ -211,6 +211,7 @@ export interface OptionChainData {
   symbol: string; spot: number; expiry: string; expiry_dates: string[];
   data_date?: string;
   pcr: number | null; max_pain: number; chain: OptionChainRow[];
+  atm_greeks?: { dte_days: number; ce: { iv: number | null; delta: number | null }; pe: { iv: number | null; delta: number | null } } | null;
 }
 
 export interface TopCorrelatedItem {
