@@ -9,6 +9,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi import Query as FQuery
 from backend.db.connection import get_db
+from backend.core.options_math import implied_vol, greeks, get_risk_free_rate
 
 router = APIRouter(prefix="/fno", tags=["fno"])
 
@@ -143,6 +144,26 @@ def get_option_chain(symbol: str, expiry: str | None = None):
     pcr = _compute_pcr_db(chain)
     max_pain = _compute_max_pain_db(chain)
 
+    # ATM Delta/IV snapshot — reuses the same ATM-strike-and-IV pattern already
+    # proven in fno_signals.py's _option_signals, just for a single latest-date row.
+    atm_greeks = None
+    if spot and chain:
+        atm_row = next(r for r in chain if r["is_atm"])
+        dte_days = (date.fromisoformat(chosen) - latest_date).days
+        if dte_days > 0:
+            dte_years = dte_days / 365
+            rate = get_risk_free_rate(str(latest_date))
+
+            def _leg(premium, option_type):
+                if premium is None or premium <= 0:
+                    return {"iv": None, "delta": None}
+                iv = implied_vol(premium, spot, atm_row["strike"], dte_years, rate, option_type)
+                if not iv:
+                    return {"iv": iv, "delta": None}
+                return {"iv": iv, "delta": greeks(spot, atm_row["strike"], dte_years, rate, iv, option_type)["delta"]}
+
+            atm_greeks = {"dte_days": dte_days, "ce": _leg(atm_row["ce_ltp"], "CE"), "pe": _leg(atm_row["pe_ltp"], "PE")}
+
     return {
         "symbol": sym,
         "spot": spot,
@@ -152,6 +173,7 @@ def get_option_chain(symbol: str, expiry: str | None = None):
         "pcr": pcr,
         "max_pain": max_pain,
         "chain": chain,
+        "atm_greeks": atm_greeks,
     }
 
 
