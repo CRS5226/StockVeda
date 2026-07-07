@@ -284,13 +284,16 @@ function SymbolCombobox({ value, onChange, placeholder }: {
 
   return (
     <div className="relative">
-      <input value={value}
-        onChange={(e) => { const v = e.target.value.toUpperCase(); onChange(v); search(v); }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onFocus={() => results.length > 0 && setOpen(true)}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder ?? "NIFTY, RELIANCE…"}
-        className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-semibold" />
+      <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white border border-transparent focus-within:border-blue-300 transition-all">
+        <Search size={14} className="text-slate-400 shrink-0" />
+        <input value={value}
+          onChange={(e) => { const v = e.target.value.toUpperCase(); onChange(v); search(v); }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder ?? "Search symbol…"}
+          className="flex-1 bg-transparent text-sm text-slate-800 placeholder-slate-400 outline-none min-w-0 font-semibold" />
+      </div>
       {open && results.length > 0 && (
         <ul ref={listRef} className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
           {results.map((r, i) => (
