@@ -275,6 +275,8 @@ const CANDLE_OPTIONS = [
   { days: 90,  label: "90 days" },
   { days: 180, label: "180 days" },
   { days: 252, label: "1 Year" },
+  { days: 504, label: "2 Years" },
+  { days: 756, label: "3 Years" },
 ];
 
 export default function Screener() {
