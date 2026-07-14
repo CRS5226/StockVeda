@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Plus, Play, TrendingUp, TrendingDown, BarChart2, RefreshCw, Star,
-         Search, BookmarkPlus, Trash2, CheckCircle2, ChevronDown } from "lucide-react";
+         CornerRightUp, Search, BookmarkPlus, Trash2, CheckCircle2, ChevronDown } from "lucide-react";
 import { ScreenerCondition } from "../lib/api";
 import { useScreenerStore } from "../store/useScreenerStore";
 
@@ -49,6 +49,8 @@ const ALL_FILTERS: FilterDef[] = [
   { category: "Moving Avg", label: "VWMA 20",  metric: "vwma_20",  defaultOp: "gt", defaultValue: 100, unit: "₹" },
   { category: "Moving Avg", label: "Volume SMA 20", metric: "volume_sma_20", defaultOp: "gt", defaultValue: 500000 },
   { category: "Moving Avg", label: "Volume Ratio",  metric: "volume_ratio",  defaultOp: "gt", defaultValue: 1.5, hint: "vs 20-day avg volume" },
+  { category: "Moving Avg", label: "Dist from SMA 50", metric: "dist_from_sma50_pct", defaultOp: "gte", defaultValue: -2, unit: "%", hint: "% of price above(+)/below(-) SMA50 — near 0 = retest" },
+  { category: "Moving Avg", label: "SMA50 > SMA200",   metric: "sma50_above_sma200", defaultOp: "gte", defaultValue: 1, hint: "1 = uptrend regime (50MA above 200MA), 0 = not" },
 
   // Momentum
   { category: "Momentum", label: "RSI 9",         metric: "rsi_9",      defaultOp: "lt", defaultValue: 40, hint: "<30 oversold, >70 overbought" },
@@ -153,6 +155,24 @@ const SCREENER_PRESETS: ScreenerPreset[] = [
       { metric: "pct_from_52w_low", label: "> 15% from 52W Low",    why: "KEY: Confirms prior uptrend exists. If near 52W lows = downtrend, not a dip." },
       { metric: "delivery_pct",     label: "Delivery % > 40%",      why: "Meaningful delivery component = not just intraday traders. Smart money still holding." },
       { metric: "eps_basic",        label: "EPS > 0",               why: "Profitable company. Loss-makers in a dip rarely recover cleanly." },
+    ],
+  },
+  {
+    id: "pullback", label: "Pullback", icon: CornerRightUp,
+    description: "Golden Zone: uptrend (50MA > 200MA) + price retesting the SMA50 + RSI in the 40-60 zone — the pullback is already done",
+    conditions: [
+      { metric: "sma50_above_sma200",  op: "gte", value: 1 },
+      { metric: "dist_from_sma50_pct", op: "gte", value: -2 },
+      { metric: "dist_from_sma50_pct", op: "lte", value: 5 },
+      { metric: "rsi_14",              op: "gte", value: 40 },
+      { metric: "rsi_14",              op: "lte", value: 60 },
+    ],
+    filters: [
+      { metric: "sma50_above_sma200",  label: "SMA50 > SMA200",         why: "Confirmed uptrend regime. This is what separates a pullback (buy the dip in strength) from a falling knife." },
+      { metric: "dist_from_sma50_pct", label: "Price ≥ 2% below SMA50",  why: "Price has pulled back to the 50-day line, not far under it — the retest zone, not a breakdown." },
+      { metric: "dist_from_sma50_pct", label: "Price ≤ 5% above SMA50",  why: "Fresh reclaim of the 50MA, not already extended — you're early in the bounce, not chasing." },
+      { metric: "rsi_14",              label: "RSI 14 ≥ 40",            why: "Not deeply oversold. A shallow pullback in an uptrend, not a capitulation." },
+      { metric: "rsi_14",              label: "RSI 14 ≤ 60",            why: "Not yet overbought — the golden zone where trend-continuation entries have the best odds." },
     ],
   },
   {

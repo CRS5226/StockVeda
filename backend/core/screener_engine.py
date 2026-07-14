@@ -17,6 +17,8 @@ ALLOWED_METRICS = {
     "total_debt", "total_assets", "total_equity",
     # Computed ratios
     "pe_ratio", "debt_to_equity",
+    # Pullback / trend-position (computed inline)
+    "dist_from_sma50_pct", "sma50_above_sma200",
     # Delivery / shareholding
     "delivery_pct", "promoter_pct", "fii_pct",
     # Moving averages
@@ -150,7 +152,9 @@ def run_screen(
                 s.promoter_pct, s.fii_pct,
                 {tech_cols_list},
                 CASE WHEN f.eps_basic > 0 THEN o.close / f.eps_basic ELSE NULL END AS pe_ratio,
-                CASE WHEN f.total_equity > 0 THEN f.total_debt / f.total_equity ELSE NULL END AS debt_to_equity
+                CASE WHEN f.total_equity > 0 THEN f.total_debt / f.total_equity ELSE NULL END AS debt_to_equity,
+                CASE WHEN tc.sma_50 > 0 THEN (o.close - tc.sma_50) / tc.sma_50 * 100 ELSE NULL END AS dist_from_sma50_pct,
+                CASE WHEN tc.sma_50 IS NOT NULL AND tc.sma_200 IS NOT NULL AND tc.sma_50 > tc.sma_200 THEN 1 ELSE 0 END AS sma50_above_sma200
             FROM latest_ohlcv o
             LEFT JOIN latest_fundamentals f  ON o.symbol = f.symbol
             LEFT JOIN latest_delivery d      ON o.symbol = d.symbol
@@ -182,7 +186,8 @@ def run_screen(
            eps_basic, pat, ebitda,
            change_1d, change_5d, change_20d,
            pct_from_52w_high, pct_from_52w_low,
-           rsi_9, rsi_21, adx_14, volume_ratio, cmf_20
+           rsi_9, rsi_21, adx_14, volume_ratio, cmf_20,
+           dist_from_sma50_pct, sma50_above_sma200
     FROM combined
     WHERE {where_sql}
     ORDER BY close DESC
