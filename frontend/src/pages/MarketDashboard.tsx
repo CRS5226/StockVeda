@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   createChart, type IChartApi, type ISeriesApi,
   type LineData, type CandlestickData, type HistogramData,
@@ -7,8 +6,7 @@ import {
 } from "lightweight-charts";
 import {
   TrendingUp, ArrowUpRight, ArrowDownRight,
-  DollarSign, Activity, BarChart2, Globe, SlidersHorizontal,
-  FlaskConical, Zap, Newspaper,
+  DollarSign, Activity, BarChart2, Globe, Zap, Newspaper,
 } from "lucide-react";
 import { api, type DashboardData, type NewsItem, type MarketBreadthRow } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
@@ -404,8 +402,6 @@ function NewsCard({ item }: { item: NewsItem }) {
 // ── main component ─────────────────────────────────────────────────────────
 
 export default function MarketDashboard() {
-  const navigate = useNavigate();
-
   // Hydrate from cache instantly — no loading flash on navigation back
   const [data, setData] = useState<DashboardData | null>(_snap?.data ?? null);
   const [loading, setLoading] = useState(_snap === null);
@@ -913,22 +909,6 @@ export default function MarketDashboard() {
           </div>
         </section>
       )}
-
-      {/* ── Quick nav ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => navigate("/screener")}
-          className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-left hover:border-blue-300 hover:shadow-md transition-all group">
-          <SlidersHorizontal size={18} className="text-blue-500 mb-2" />
-          <div className="text-sm font-semibold text-slate-700 group-hover:text-blue-600">Screener</div>
-          <div className="text-xs text-slate-400 mt-0.5">Filter stocks by fundamentals &amp; technicals</div>
-        </button>
-        <button onClick={() => navigate("/backtest")}
-          className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-left hover:border-blue-300 hover:shadow-md transition-all group">
-          <FlaskConical size={18} className="text-blue-500 mb-2" />
-          <div className="text-sm font-semibold text-slate-700 group-hover:text-blue-600">Backtest</div>
-          <div className="text-xs text-slate-400 mt-0.5">Test strategies on historical data</div>
-        </button>
-      </div>
 
     </div>
   );
