@@ -84,6 +84,53 @@ def add_indicators(df: pd.DataFrame, indicators: list[str] | None = None) -> pd.
     return df
 
 
+PARAMETRIC_FAMILIES = {"rsi", "sma", "ema", "atr", "adx", "willr", "cci"}
+
+
+def add_parametric_indicators(df: pd.DataFrame, names: list[str] | None) -> pd.DataFrame:
+    """
+    Add arbitrary-period indicator columns parsed from a "family_period" name,
+    e.g. "rsi_21", "sma_35", "atr_20", "adx_10". Columns already present are skipped.
+    Used by grid-search to sweep indicator *periods*. Raises ValueError on an
+    unknown family so the route can surface a 400.
+    """
+    if not names:
+        return df
+
+    for name in names:
+        if name in df.columns:
+            continue
+        family, _, period_str = name.rpartition("_")
+        if not family or not period_str.isdigit():
+            raise ValueError(f"Cannot parse parametric indicator: {name!r}")
+        if family not in PARAMETRIC_FAMILIES:
+            raise ValueError(
+                f"Unsupported parametric family {family!r} (from {name!r}); "
+                f"allowed: {sorted(PARAMETRIC_FAMILIES)}"
+            )
+        p = int(period_str)
+        if p < 2 or p > 400:
+            raise ValueError(f"Period out of range (2-400) for {name!r}")
+
+        if family == "rsi":
+            df[name] = ta.rsi(df["close"], length=p)
+        elif family == "sma":
+            df[name] = ta.sma(df["close"], length=p)
+        elif family == "ema":
+            df[name] = ta.ema(df["close"], length=p)
+        elif family == "atr":
+            df[name] = ta.atr(df["high"], df["low"], df["close"], length=p)
+        elif family == "willr":
+            df[name] = ta.willr(df["high"], df["low"], df["close"], length=p)
+        elif family == "cci":
+            df[name] = ta.cci(df["high"], df["low"], df["close"], length=p)
+        elif family == "adx":
+            adx = ta.adx(df["high"], df["low"], df["close"], length=p)
+            df[name] = adx.iloc[:, 0] if adx is not None and not adx.empty else pd.NA
+
+    return df
+
+
 def compute_returns(df: pd.DataFrame) -> pd.DataFrame:
     """Add daily_return and cumulative_return columns."""
     df = df.copy().sort_values("date")

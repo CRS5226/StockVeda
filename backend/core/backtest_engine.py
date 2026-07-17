@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 import pandas as pd
 import numpy as np
-from backend.core.indicators import add_indicators
+from backend.core.indicators import add_indicators, add_parametric_indicators
 
 
 @dataclass
@@ -387,23 +387,38 @@ def _eval_conditions(df: pd.DataFrame, rows: list) -> pd.Series:
     return result.fillna(False)
 
 
-def run_backtest_v2(df: pd.DataFrame, params: BacktestParamsV2) -> dict:
+def prepare_frame(
+    df: pd.DataFrame,
+    timeframe: str = "1D",
+    extra_indicators: list[str] | None = None,
+) -> pd.DataFrame:
     """
-    Multi-condition target/SL based backtester.
-    Entry fires when ALL entry_conditions are True on the same bar.
-    Exit fires on: target%, SL%, max_bars timeout, OR (if set) all exit_conditions True.
-    Returns ohlcv array + trades + per-symbol stats.
+    Build the fully-featured DataFrame the V2 engine trades on:
+    weekly aggregation (if 1W) → standard indicators → derived cols/candles →
+    optional arbitrary-period indicators (for grid-search period sweeps).
+    Reused by run_backtest_v2, grid_search, and ml_backtest so every path
+    shares identical feature semantics.
     """
-    if params.timeframe == "1W":
+    if timeframe == "1W":
         df = aggregate_weekly(df.copy())
     df = add_indicators(df.copy(), list(ALL_INDICATORS_NEEDED))
     df = _add_derived(df)
-    df = df.reset_index(drop=True)
+    df = add_parametric_indicators(df, extra_indicators)
+    return df.reset_index(drop=True)
 
-    signals = _eval_conditions(df, params.entry_conditions)
-    exit_signals = _eval_conditions(df, params.exit_conditions) if params.exit_conditions else None
 
-    trades = []
+def _run_trades(
+    df: pd.DataFrame,
+    signals: pd.Series,
+    exit_signals: Optional[pd.Series],
+    params: BacktestParamsV2,
+) -> tuple[list[dict], dict]:
+    """
+    The core bar loop: walk bars, open one position at a time on `signals`,
+    close on target/SL/indicator/timeout. `df` must already be prepared and
+    index-aligned with the signal series. Returns (trades, stats).
+    """
+    trades: list[dict] = []
     in_trade = False
     entry_idx = 0
     entry_price = 0.0
@@ -472,7 +487,6 @@ def run_backtest_v2(df: pd.DataFrame, params: BacktestParamsV2) -> dict:
             "pnl_pct":      round((close / entry_price - 1) * 100, 2),
         })
 
-    # Stats
     winners = [t for t in trades if t["exit_reason"] == "target"]
     total_pnl = sum(t["pnl"] for t in trades)
     stats = {
@@ -481,12 +495,32 @@ def run_backtest_v2(df: pd.DataFrame, params: BacktestParamsV2) -> dict:
         "total_pnl":     round(total_pnl, 2),
         "avg_pnl_pct":   round(sum(t["pnl_pct"] for t in trades) / len(trades), 2) if trades else 0,
     }
+    return trades, stats
+
+
+def simulate(df_prepared: pd.DataFrame, params: BacktestParamsV2) -> dict:
+    """Run entry/exit conditions + trade loop on an already-prepared frame."""
+    signals = _eval_conditions(df_prepared, params.entry_conditions)
+    exit_signals = (
+        _eval_conditions(df_prepared, params.exit_conditions)
+        if params.exit_conditions else None
+    )
+    trades, stats = _run_trades(df_prepared, signals, exit_signals, params)
 
     ohlcv = [
         {"date": str(r["date"]), "open": r["open"], "high": r["high"],
          "low": r["low"], "close": r["close"]}
-        for _, r in df.iterrows()
+        for _, r in df_prepared.iterrows()
         if not pd.isna(r["close"])
     ]
-
     return {"ohlcv": ohlcv, "trades": trades, "stats": stats}
+
+
+def run_backtest_v2(df: pd.DataFrame, params: BacktestParamsV2) -> dict:
+    """
+    Multi-condition target/SL based backtester.
+    Entry fires when ALL entry_conditions are True on the same bar.
+    Exit fires on: target%, SL%, max_bars timeout, OR (if set) all exit_conditions True.
+    Returns ohlcv array + trades + per-symbol stats.
+    """
+    return simulate(prepare_frame(df, params.timeframe), params)
