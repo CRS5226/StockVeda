@@ -23,6 +23,9 @@ from backend.core.markov_chain import attach_markov_signals
 from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
 from backend.core.backtest_engine import prepare_frame
 from backend.core import grid_search as gs
+from backend.core import ml_backtest as mlb
+import importlib.util
+import numpy as np
 import pandas as pd
 
 
@@ -769,6 +772,126 @@ def run_grid_search(req: GridSearchRequest):
             "symbols_used": list(raw.keys()),
             "split": {"train_ratio": req.train_ratio, "boundary_dates": boundaries},
             "leaderboard": leaderboard,
+        }
+        yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+# ── ML Models (classification / meta-labeling entry filter) ──────────────────
+
+class MlRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1, max_length=gs.MAX_SYMBOLS)
+    from_date: str
+    to_date: str
+    entry_conditions: list[ConditionRowIn] = []
+    sample_mode: Literal["entry_signals", "all_bars"] = "entry_signals"
+    models: list[str] = Field(..., min_length=1)
+    prob_threshold: float = Field(0.6, ge=0.5, le=0.95)
+    train_ratio: float = Field(0.7, ge=0.5, le=0.9)
+    target_pct: float = 15.0
+    sl_pct: float = 7.0
+    max_bars: int = Field(30, ge=1, le=252)
+    capital_per_trade: float = Field(10_000.0, gt=0)
+    timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
+
+
+@router.get("/ml-models")
+def get_ml_models():
+    xgb_ok = importlib.util.find_spec("xgboost") is not None
+    return [
+        {**m, "available": (m["id"] != "xgb") or xgb_ok}
+        for m in mlb.ML_MODELS
+    ]
+
+
+@router.post("/run-ml-stream")
+def run_ml_stream(req: MlRequest):
+    """SSE endpoint — builds the triple-barrier dataset, trains each model, simulates
+    trades on the held-out test period, streams progress then the comparison result."""
+    model_ids = [m for m in req.models if m in mlb.ML_MODEL_IDS]
+    if not model_ids:
+        raise HTTPException(400, "No valid models selected.")
+    if req.sample_mode == "entry_signals" and not req.entry_conditions:
+        raise HTTPException(400, "Entry conditions are required unless sample mode is 'all bars'.")
+
+    entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
+
+    db = get_db()
+    raw: dict[str, pd.DataFrame] = {}
+    for sym in req.symbols:
+        s = sym.upper()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
+        if len(df) >= 60:
+            raw[s] = attach_markov_signals(
+                attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
+            )
+    if not raw:
+        raise HTTPException(400, "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
+
+    base_params = BacktestParamsV2(
+        entry_conditions=entry_rows, exit_conditions=[],
+        target_pct=req.target_pct, sl_pct=req.sl_pct, max_bars=req.max_bars,
+        capital_per_trade=req.capital_per_trade, timeframe=req.timeframe,
+    )
+
+    def generate():
+        # Phase 1: prepare + feature-engineer each symbol.
+        feat_frames: dict[str, pd.DataFrame] = {}
+        n_sym = len(raw)
+        for i, (sym, df) in enumerate(raw.items(), 1):
+            try:
+                feat_frames[sym] = mlb.build_features(prepare_frame(df, req.timeframe))
+            except Exception:
+                pass
+            yield f"data: {json.dumps({'phase': 'dataset', 'done': i, 'total': n_sym})}\n\n"
+
+        ds = mlb.build_dataset(
+            feat_frames, entry_rows, req.sample_mode,
+            req.target_pct, req.sl_pct, req.max_bars, req.train_ratio,
+        )
+        if ds.error:
+            yield f"data: {json.dumps({'phase': 'error', 'error': ds.error})}\n\n"
+            return
+
+        # Test-slice OHLCV for the chart (model-independent).
+        ohlcv: dict[str, list] = {}
+        for sym, frame in feat_frames.items():
+            k = ds.split_idx.get(sym)
+            if k is None:
+                continue
+            test_slice = frame.iloc[k:]
+            ohlcv[sym] = [
+                {"date": str(r["date"]), "open": r["open"], "high": r["high"],
+                 "low": r["low"], "close": r["close"]}
+                for _, r in test_slice.iterrows() if not pd.isna(r["close"])
+            ]
+
+        baseline = mlb.run_baseline(ds, feat_frames, base_params)
+
+        models_out: dict = {}
+        for j, mid in enumerate(model_ids, 1):
+            models_out[mid] = mlb.train_and_evaluate(mid, ds, feat_frames, base_params, req.prob_threshold)
+            yield f"data: {json.dumps({'phase': 'train', 'model': mid, 'done': j, 'total': len(model_ids)})}\n\n"
+
+        result = {
+            "dataset": {
+                "n_train": int(len(ds.y_train)),
+                "n_test": int(len(ds.y_test)),
+                "n_features": len(ds.features),
+                "features": ds.features,
+                "pos_rate_train": round(float(np.mean(ds.y_train)), 3) if len(ds.y_train) else 0.0,
+                "pos_rate_test": round(float(np.mean(ds.y_test)), 3) if len(ds.y_test) else 0.0,
+                "split_dates": ds.split_dates,
+            },
+            "ohlcv": ohlcv,
+            "baseline": baseline,
+            "models": models_out,
         }
         yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
 
