@@ -30,7 +30,7 @@ from backend.core.backtest_engine import (
 MAX_COMBOS = 500
 MAX_DIMS = 4
 MAX_VALUES_PER_DIM = 10
-MAX_SYMBOLS = 20
+MAX_SYMBOLS = 50
 MAX_TOP_N = 50
 
 # Base indicator columns whose period can be swept. The family (before "_") must
