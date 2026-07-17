@@ -166,6 +166,51 @@ export interface MatrixResponse {
   };
 }
 export interface ConditionRow { left: string; operator: string; right: string }
+
+// ── Grid search ─────────────────────────────────────────────────────────────
+export interface SweepDim {
+  kind: "threshold" | "indicator_period";
+  condition_index: number;
+  column: string;
+  values: number[];
+}
+export interface GridComboStats { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number }
+export interface GridComboRow {
+  combo_id: string;
+  params: Record<string, number>;
+  conditions: ConditionRow[];
+  train: GridComboStats;
+  test: GridComboStats | null;
+  gap: { win_rate_gap: number; avg_pnl_gap: number } | null;
+}
+export interface GridSearchResult {
+  total_combos: number;
+  symbols_used: string[];
+  split: { train_ratio: number; boundary_dates: Record<string, string> };
+  leaderboard: GridComboRow[];
+}
+
+// ── ML models ───────────────────────────────────────────────────────────────
+export interface MlModelInfo { id: string; label: string; available: boolean }
+export interface MlMetrics { accuracy: number; precision: number; recall: number; f1: number; roc_auc: number | null }
+export interface MlModelResult {
+  label: string;
+  error: string | null;
+  ml_metrics: MlMetrics | null;
+  stats: GridComboStats | null;
+  per_symbol: Record<string, { trades: BacktestTradeV2[]; stats: GridComboStats }>;
+  feature_importance: { feature: string; importance: number }[] | null;
+}
+export interface MlResult {
+  dataset: {
+    n_train: number; n_test: number; n_features: number; features: string[];
+    pos_rate_train: number; pos_rate_test: number; split_dates: Record<string, string>;
+  };
+  ohlcv: Record<string, { date: string; open: number; high: number; low: number; close: number }[]>;
+  baseline: { stats: GridComboStats };
+  models: Record<string, MlModelResult>;
+}
+
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -501,6 +546,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     }),
+
+  getGridSweepables: () =>
+    apiFetch<{ period_columns: string[]; max_combos: number; max_dims: number; max_values_per_dim: number; max_symbols: number }>(
+      "/backtest/grid-sweepables"
+    ),
+  getMlModels: () => apiFetch<MlModelInfo[]>("/backtest/ml-models"),
 
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });

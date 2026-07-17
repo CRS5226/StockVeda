@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -94,6 +94,31 @@ export interface ORBConfig {
 
 export type ORBResult = Awaited<ReturnType<typeof api.runOrbBacktest>>;
 
+// ── Grid Search mode ─────────────────────────────────────────────────────────
+
+export interface GridConfig {
+  entry_conditions: ConditionRow[];
+  sweep_dims: SweepDim[];
+  train_ratio: number;   // 0.5–0.9
+  top_n: number;
+  target_pct: number;
+  sl_pct: number;
+  max_bars: number;
+}
+
+// ── ML Models mode ───────────────────────────────────────────────────────────
+
+export interface MlConfig {
+  entry_conditions: ConditionRow[];
+  sample_mode: "entry_signals" | "all_bars";
+  models: string[];
+  prob_threshold: number;   // 0.5–0.95
+  train_ratio: number;
+  target_pct: number;
+  sl_pct: number;
+  max_bars: number;
+}
+
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
 export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
 
@@ -176,6 +201,29 @@ const DEFAULT_STRATEGY: StrategyV2 = {
   data_source: "cash",
 };
 
+const DEFAULT_GRID: GridConfig = {
+  entry_conditions: [{ left: "rsi_14", operator: "crosses_above", right: "30" }],
+  sweep_dims: [{ kind: "threshold", condition_index: 0, column: "", values: [25, 30, 35, 40] }],
+  train_ratio: 0.7,
+  top_n: 20,
+  target_pct: 15,
+  sl_pct: 7,
+  max_bars: 30,
+};
+
+// Balanced barriers (6%/4%/25) keep the triple-barrier labels from collapsing to
+// all-loss the way 15%/7%/30 does — a more useful default for the ML demo.
+const DEFAULT_ML: MlConfig = {
+  entry_conditions: [{ left: "rsi_14", operator: "above", right: "50" }],
+  sample_mode: "entry_signals",
+  models: ["logreg", "rf", "xgb"],
+  prob_threshold: 0.6,
+  train_ratio: 0.7,
+  target_pct: 6,
+  sl_pct: 4,
+  max_bars: 25,
+};
+
 // ── Combined store ─────────────────────────────────────────────────────────
 
 interface BacktestState {
@@ -208,11 +256,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -257,6 +305,28 @@ interface BacktestState {
   orbError: string | null;
   setOrb: (p: Partial<ORBConfig>) => void;
   runOrb: () => Promise<void>;
+
+  // Grid Search mode
+  grid: GridConfig;
+  gridResults: GridSearchResult | null;
+  gridLoading: boolean;
+  gridError: string | null;
+  gridProgress: { phase: string; done: number; total: number } | null;
+  gridSweepables: { period_columns: string[]; max_combos: number } | null;
+  setGrid: (p: Partial<GridConfig>) => void;
+  loadGridSweepables: () => Promise<void>;
+  runGridSearch: () => Promise<void>;
+
+  // ML Models mode
+  ml: MlConfig;
+  mlResults: MlResult | null;
+  mlLoading: boolean;
+  mlError: string | null;
+  mlProgress: { phase: string; model?: string; done: number; total: number } | null;
+  mlModelList: MlModelInfo[];
+  setMl: (p: Partial<MlConfig>) => void;
+  loadMlModels: () => Promise<void>;
+  runMl: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -576,6 +646,139 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       set({ orbResults: res, orbLoading: false });
     } catch (e) {
       set({ orbLoading: false, orbError: String(e) });
+    }
+  },
+
+  // ── Grid Search mode ──────────────────────────────────────────────────────
+  grid: DEFAULT_GRID,
+  gridResults: null,
+  gridLoading: false,
+  gridError: null,
+  gridProgress: null,
+  gridSweepables: null,
+
+  setGrid: (p) => set((s) => ({ grid: { ...s.grid, ...p } })),
+
+  loadGridSweepables: async () => {
+    try {
+      const res = await api.getGridSweepables();
+      set({ gridSweepables: res });
+    } catch {}
+  },
+
+  runGridSearch: async () => {
+    const { pickedSymbols, grid, strategy } = get();
+    if (!pickedSymbols.length || !grid.sweep_dims.length) return;
+    set({ gridLoading: true, gridError: null, gridResults: null, gridProgress: null });
+    try {
+      const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
+      const res = await fetch(`${BASE}/backtest/run-grid-search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: pickedSymbols,
+          from_date: strategy.from_date, to_date: strategy.to_date,
+          entry_conditions: grid.entry_conditions, exit_conditions: [],
+          sweep_dims: grid.sweep_dims,
+          target_pct: grid.target_pct, sl_pct: grid.sl_pct, max_bars: grid.max_bars,
+          capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
+          data_source: strategy.data_source,
+          train_ratio: grid.train_ratio, top_n: grid.top_n,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        const msg = Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail ?? res.statusText);
+        throw new Error(String(msg));
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.result) {
+            set({ gridResults: data.result, gridLoading: false, gridProgress: null });
+          } else {
+            set({ gridProgress: { phase: data.phase, done: data.done, total: data.total } });
+          }
+        }
+      }
+    } catch (e) {
+      set({ gridLoading: false, gridError: String(e), gridProgress: null });
+    }
+  },
+
+  // ── ML Models mode ────────────────────────────────────────────────────────
+  ml: DEFAULT_ML,
+  mlResults: null,
+  mlLoading: false,
+  mlError: null,
+  mlProgress: null,
+  mlModelList: [],
+
+  setMl: (p) => set((s) => ({ ml: { ...s.ml, ...p } })),
+
+  loadMlModels: async () => {
+    try {
+      const list = await api.getMlModels();
+      set({ mlModelList: list });
+    } catch {}
+  },
+
+  runMl: async () => {
+    const { pickedSymbols, ml, strategy } = get();
+    if (!pickedSymbols.length || !ml.models.length) return;
+    set({ mlLoading: true, mlError: null, mlResults: null, mlProgress: null });
+    try {
+      const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
+      const res = await fetch(`${BASE}/backtest/run-ml-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: pickedSymbols,
+          from_date: strategy.from_date, to_date: strategy.to_date,
+          entry_conditions: ml.entry_conditions, sample_mode: ml.sample_mode,
+          models: ml.models, prob_threshold: ml.prob_threshold, train_ratio: ml.train_ratio,
+          target_pct: ml.target_pct, sl_pct: ml.sl_pct, max_bars: ml.max_bars,
+          capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
+          data_source: strategy.data_source,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        const msg = Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail ?? res.statusText);
+        throw new Error(String(msg));
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.result) {
+            set({ mlResults: data.result, mlLoading: false, mlProgress: null });
+          } else if (data.phase === "error") {
+            set({ mlLoading: false, mlError: data.error, mlProgress: null });
+          } else {
+            set({ mlProgress: { phase: data.phase, model: data.model, done: data.done, total: data.total } });
+          }
+        }
+      }
+    } catch (e) {
+      set({ mlLoading: false, mlError: String(e), mlProgress: null });
     }
   },
 

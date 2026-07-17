@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
-import { api, ConditionRow } from "../lib/api";
+import { api, ConditionRow, SweepDim } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
@@ -1977,6 +1977,480 @@ function OrbPanel({
   );
 }
 
+// ── Grid Search panel ────────────────────────────────────────────────────────
+
+function isNumericRight(right: string): boolean {
+  return right.trim() !== "" && !isNaN(Number(right));
+}
+
+function GridSearchPanel() {
+  const { pickedSymbols, grid, gridResults, gridLoading, gridError, gridProgress,
+          gridSweepables, setGrid, loadGridSweepables, runGridSearch } = useBacktestStore();
+  const [activePreset, setActivePreset] = useState<string | null>("RSI Oversold Bounce");
+  const [rawVals, setRawVals] = useState<string[]>(() => grid.sweep_dims.map((d) => d.values.join(", ")));
+
+  useEffect(() => { loadGridSweepables(); }, [loadGridSweepables]);
+
+  const periodCols = gridSweepables?.period_columns ?? [];
+  const maxCombos = gridSweepables?.max_combos ?? 500;
+  const referencedPeriodCols = periodCols.filter((c) =>
+    grid.entry_conditions.some((cnd) => cnd.left === c || cnd.right === c));
+  const numericConds = grid.entry_conditions
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => isNumericRight(c.right));
+
+  const comboCount = grid.sweep_dims.reduce((acc, d) => acc * d.values.length, 1);
+  const overCap = comboCount > maxCombos;
+
+  const parseVals = (s: string) => s.split(",").map((x) => parseFloat(x.trim())).filter((v) => !isNaN(v));
+
+  const applyPreset = (label: string, conditions: ConditionRow[]) => {
+    setActivePreset(label);
+    // Reset sweep dims to a single threshold on the first numeric condition, if any.
+    const firstNumeric = conditions.findIndex((c) => isNumericRight(c.right));
+    const dims: SweepDimLocal[] = firstNumeric >= 0
+      ? [{ kind: "threshold", condition_index: firstNumeric, column: "", values: [25, 30, 35, 40] }]
+      : [{ kind: "indicator_period", condition_index: 0, column: "rsi_14", values: [10, 14, 21] }];
+    setGrid({ entry_conditions: conditions, sweep_dims: dims });
+    setRawVals(dims.map((d) => d.values.join(", ")));
+  };
+
+  const updateDim = (idx: number, patch: Partial<SweepDimLocal>) => {
+    const dims = grid.sweep_dims.map((d, i) => i === idx ? { ...d, ...patch } : d);
+    setGrid({ sweep_dims: dims });
+  };
+  const setDimRaw = (idx: number, str: string) => {
+    setRawVals((rv) => rv.map((v, i) => i === idx ? str : v));
+    updateDim(idx, { values: parseVals(str) });
+  };
+  const addDim = () => {
+    const nd: SweepDimLocal = numericConds.length
+      ? { kind: "threshold", condition_index: numericConds[0].i, column: "", values: [10, 20, 30] }
+      : { kind: "indicator_period", condition_index: 0, column: referencedPeriodCols[0] ?? "rsi_14", values: [10, 14, 21] };
+    setGrid({ sweep_dims: [...grid.sweep_dims, nd] });
+    setRawVals([...rawVals, nd.values.join(", ")]);
+  };
+  const removeDim = (idx: number) => {
+    setGrid({ sweep_dims: grid.sweep_dims.filter((_, i) => i !== idx) });
+    setRawVals(rawVals.filter((_, i) => i !== idx));
+  };
+
+  const gapClass = (gap: number) =>
+    gap > 20 ? "text-red-600 bg-red-50" : gap > 10 ? "text-amber-600 bg-amber-50" : "text-slate-500";
+
+  const canRun = pickedSymbols.length > 0 && comboCount > 0 && !overCap && !gridLoading;
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+        <span className="text-sm font-semibold text-slate-700">Grid Search — hyperparameter sweep</span>
+        <span className="text-xs text-slate-400 ml-1">tune indicator thresholds &amp; periods, validate on held-out data</span>
+      </div>
+
+      {/* Base strategy presets */}
+      <div>
+        <div className="text-xs text-slate-400 mb-2 font-medium">Base strategy — pick one, then sweep its parameters below</div>
+        <div className="flex flex-wrap gap-1.5">
+          {PRESETS.map((p) => (
+            <button key={p.label} onClick={() => applyPreset(p.label, p.conditions)}
+              className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                activePreset === p.label ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"}`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {grid.entry_conditions.map((c, i) => (
+            <span key={i} className="text-[11px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+              {c.left} {c.operator} {c.right}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Sweep dimensions */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs text-slate-400 font-medium">Sweep dimensions</div>
+          <button onClick={addDim} disabled={grid.sweep_dims.length >= 4}
+            className="text-xs text-blue-600 hover:text-blue-700 disabled:text-slate-300 font-medium">+ Add dimension</button>
+        </div>
+        <div className="flex flex-col gap-2">
+          {grid.sweep_dims.map((d, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2">
+              <select value={d.kind} onChange={(e) => updateDim(i, { kind: e.target.value as SweepDimLocal["kind"] })}
+                className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
+                <option value="threshold">Threshold</option>
+                <option value="indicator_period">Indicator period</option>
+              </select>
+              {d.kind === "threshold" ? (
+                <select value={d.condition_index} onChange={(e) => updateDim(i, { condition_index: parseInt(e.target.value) })}
+                  className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
+                  {numericConds.length === 0 && <option>(no numeric conditions)</option>}
+                  {numericConds.map(({ c, i: ci }) => (
+                    <option key={ci} value={ci}>{c.left} {c.operator} ({c.right})</option>
+                  ))}
+                </select>
+              ) : (
+                <select value={d.column} onChange={(e) => updateDim(i, { column: e.target.value })}
+                  className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
+                  {referencedPeriodCols.length === 0 && <option value="">(condition uses no sweepable column)</option>}
+                  {referencedPeriodCols.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              )}
+              <input value={rawVals[i] ?? ""} onChange={(e) => setDimRaw(i, e.target.value)}
+                placeholder="e.g. 10, 20, 30"
+                className="flex-1 min-w-32 text-xs border border-slate-200 rounded px-2 py-1 bg-white font-mono" />
+              <span className="text-[10px] text-slate-400">{d.values.length} val{d.values.length === 1 ? "" : "s"}</span>
+              {grid.sweep_dims.length > 1 && (
+                <button onClick={() => removeDim(i)} className="text-slate-300 hover:text-red-500 text-xs">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className={`mt-2 text-xs font-medium ${overCap ? "text-red-600" : "text-slate-500"}`}>
+          {comboCount} combination{comboCount === 1 ? "" : "s"}{overCap ? ` — exceeds limit of ${maxCombos}, reduce values` : ""}
+        </div>
+      </div>
+
+      {/* Controls: split / top-N / TP / SL / bars */}
+      <div className="flex flex-wrap gap-4 items-end">
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Train split: <span className="font-semibold text-slate-700">{Math.round(grid.train_ratio * 100)}%</span></div>
+          <input type="range" min={0.5} max={0.9} step={0.05} value={grid.train_ratio}
+            onChange={(e) => setGrid({ train_ratio: parseFloat(e.target.value) })} className="w-36" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Validate top-N</div>
+          <input type="number" min={1} max={50} value={grid.top_n}
+            onChange={(e) => setGrid({ top_n: parseInt(e.target.value) || 20 })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Target %</div>
+          <input type="number" step={0.5} value={grid.target_pct}
+            onChange={(e) => setGrid({ target_pct: parseFloat(e.target.value) })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Stop-loss %</div>
+          <input type="number" step={0.5} value={grid.sl_pct}
+            onChange={(e) => setGrid({ sl_pct: parseFloat(e.target.value) })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Max bars</div>
+          <input type="number" min={1} max={252} value={grid.max_bars}
+            onChange={(e) => setGrid({ max_bars: parseInt(e.target.value) || 30 })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <button onClick={runGridSearch} disabled={!canRun}
+          className="ml-auto px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors">
+          {gridLoading ? "Running…" : `Run ${comboCount} combos`}
+        </button>
+      </div>
+
+      {gridError && <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{gridError}</div>}
+      {gridProgress && (
+        <div>
+          <div className="text-[11px] text-slate-500 mb-1 capitalize">{gridProgress.phase} · {gridProgress.done}/{gridProgress.total}</div>
+          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-blue-500 transition-all" style={{ width: `${gridProgress.total ? (gridProgress.done / gridProgress.total) * 100 : 0}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard */}
+      {gridResults && (
+        <div className="overflow-x-auto">
+          <div className="text-xs text-slate-500 mb-2">
+            {gridResults.total_combos} combos on {gridResults.symbols_used.length} symbols · train/test split{" "}
+            {Object.values(gridResults.split.boundary_dates)[0] ? `at ~${Object.values(gridResults.split.boundary_dates)[0]}` : ""}.
+            Ranked by train PnL; a large <span className="text-amber-600 font-medium">win-rate gap</span> flags overfitting.
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-400 border-b border-slate-200">
+                <th className="text-left py-1.5 pr-3">#</th>
+                <th className="text-left py-1.5 pr-3">Params</th>
+                <th className="text-right py-1.5 pr-3">Train PnL</th>
+                <th className="text-right py-1.5 pr-3">Train WR</th>
+                <th className="text-right py-1.5 pr-3">Train n</th>
+                <th className="text-right py-1.5 pr-3">Test PnL</th>
+                <th className="text-right py-1.5 pr-3">Test WR</th>
+                <th className="text-right py-1.5 pr-3">Test n</th>
+                <th className="text-right py-1.5 pr-3">WR gap</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gridResults.leaderboard.map((r, idx) => (
+                <tr key={r.combo_id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                  <td className="py-1.5 pr-3 text-slate-400">{idx + 1}</td>
+                  <td className="py-1.5 pr-3">
+                    {Object.entries(r.params).map(([k, v]) => (
+                      <span key={k} className="inline-block mr-1 font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">{k}={v}</span>
+                    ))}
+                  </td>
+                  <td className={`py-1.5 pr-3 text-right font-medium ${r.train.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>₹{fmt(r.train.total_pnl, 0)}</td>
+                  <td className="py-1.5 pr-3 text-right text-slate-500">{r.train.win_rate_pct}%</td>
+                  <td className="py-1.5 pr-3 text-right text-slate-400">{r.train.total_trades}</td>
+                  <td className={`py-1.5 pr-3 text-right font-medium ${r.test ? (r.test.total_pnl >= 0 ? "text-emerald-600" : "text-red-500") : "text-slate-300"}`}>{r.test ? `₹${fmt(r.test.total_pnl, 0)}` : "—"}</td>
+                  <td className="py-1.5 pr-3 text-right text-slate-500">{r.test ? `${r.test.win_rate_pct}%` : "—"}</td>
+                  <td className="py-1.5 pr-3 text-right text-slate-400">{r.test ? r.test.total_trades : "—"}</td>
+                  <td className="py-1.5 pr-3 text-right">
+                    {r.gap ? <span className={`px-1.5 py-0.5 rounded font-medium ${gapClass(Math.abs(r.gap.win_rate_gap))}`}>{r.gap.win_rate_gap > 0 ? "+" : ""}{r.gap.win_rate_gap}</span> : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+type SweepDimLocal = SweepDim;
+
+// ── ML Models panel ──────────────────────────────────────────────────────────
+
+function MlPanel() {
+  const { pickedSymbols, ml, mlResults, mlLoading, mlError, mlProgress, mlModelList,
+          setMl, loadMlModels, runMl } = useBacktestStore();
+  const [activePreset, setActivePreset] = useState<string | null>("RSI Midline Surge");
+  const [activeModel, setActiveModel] = useState<string | null>(null);
+  const [activeSym, setActiveSym] = useState<string | null>(null);
+
+  useEffect(() => { loadMlModels(); }, [loadMlModels]);
+  useEffect(() => {
+    if (mlResults) {
+      const ids = Object.keys(mlResults.models);
+      setActiveModel((m) => m && ids.includes(m) ? m : ids[0] ?? null);
+      const syms = Object.keys(mlResults.ohlcv);
+      setActiveSym((s) => s && syms.includes(s) ? s : syms[0] ?? null);
+    }
+  }, [mlResults]);
+
+  const toggleModel = (id: string) => {
+    setMl({ models: ml.models.includes(id) ? ml.models.filter((m) => m !== id) : [...ml.models, id] });
+  };
+  const applyPreset = (label: string, conditions: ConditionRow[]) => {
+    setActivePreset(label);
+    setMl({ entry_conditions: conditions });
+  };
+
+  const canRun = pickedSymbols.length > 0 && ml.models.length > 0 && !mlLoading &&
+    (ml.sample_mode === "all_bars" || ml.entry_conditions.length > 0);
+
+  const rows = mlResults ? [
+    { id: "__baseline__", label: "Baseline (no ML)", ml_metrics: null, stats: mlResults.baseline.stats, error: null },
+    ...Object.entries(mlResults.models).map(([id, m]) => ({ id, label: m.label, ml_metrics: m.ml_metrics, stats: m.stats, error: m.error })),
+  ] : [];
+  const bestPnl = mlResults ? Math.max(...rows.filter((r) => r.stats).map((r) => r.stats!.total_pnl)) : 0;
+
+  const selModel = mlResults && activeModel ? mlResults.models[activeModel] : null;
+  const symTrades = selModel && activeSym ? (selModel.per_symbol[activeSym]?.trades ?? []) : [];
+  const symOhlcv = mlResults && activeSym ? (mlResults.ohlcv[activeSym] ?? []) : [];
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+        <span className="text-sm font-semibold text-slate-700">ML Models — learned entry filter</span>
+        <span className="text-xs text-slate-400 ml-1">classify each setup: does it hit target before stop? (triple-barrier)</span>
+      </div>
+
+      {/* Sample mode + base setup */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-slate-400 font-medium">Sample bars from:</span>
+          {(["entry_signals", "all_bars"] as const).map((sm) => (
+            <button key={sm} onClick={() => setMl({ sample_mode: sm })}
+              className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                ml.sample_mode === sm ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+              {sm === "entry_signals" ? "Base setup signals (meta-labeling)" : "Every bar"}
+            </button>
+          ))}
+        </div>
+        {ml.sample_mode === "entry_signals" && (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => (
+                <button key={p.label} onClick={() => applyPreset(p.label, p.conditions)}
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                    activePreset === p.label ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {ml.entry_conditions.map((c, i) => (
+                <span key={i} className="text-[11px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.left} {c.operator} {c.right}</span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Models */}
+      <div>
+        <div className="text-xs text-slate-400 mb-2 font-medium">Models</div>
+        <div className="flex flex-wrap gap-2">
+          {mlModelList.map((m) => (
+            <label key={m.id}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
+                !m.available ? "opacity-40 cursor-not-allowed border-slate-200" :
+                ml.models.includes(m.id) ? "bg-blue-50 border-blue-300 text-blue-700" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+              <input type="checkbox" disabled={!m.available} checked={ml.models.includes(m.id)}
+                onChange={() => toggleModel(m.id)} className="accent-blue-500" />
+              {m.label}{!m.available && <span className="text-[10px] text-slate-400">(not installed)</span>}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-wrap gap-4 items-end">
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">P(win) threshold: <span className="font-semibold text-slate-700">{ml.prob_threshold.toFixed(2)}</span></div>
+          <input type="range" min={0.5} max={0.95} step={0.05} value={ml.prob_threshold}
+            onChange={(e) => setMl({ prob_threshold: parseFloat(e.target.value) })} className="w-36" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Train split: <span className="font-semibold text-slate-700">{Math.round(ml.train_ratio * 100)}%</span></div>
+          <input type="range" min={0.5} max={0.9} step={0.05} value={ml.train_ratio}
+            onChange={(e) => setMl({ train_ratio: parseFloat(e.target.value) })} className="w-36" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Target %</div>
+          <input type="number" step={0.5} value={ml.target_pct}
+            onChange={(e) => setMl({ target_pct: parseFloat(e.target.value) })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Stop-loss %</div>
+          <input type="number" step={0.5} value={ml.sl_pct}
+            onChange={(e) => setMl({ sl_pct: parseFloat(e.target.value) })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Max bars</div>
+          <input type="number" min={1} max={252} value={ml.max_bars}
+            onChange={(e) => setMl({ max_bars: parseInt(e.target.value) || 25 })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <button onClick={runMl} disabled={!canRun}
+          className="ml-auto px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors">
+          {mlLoading ? "Training…" : "Train & evaluate"}
+        </button>
+      </div>
+
+      {mlError && <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{mlError}</div>}
+      {mlProgress && (
+        <div className="text-[11px] text-slate-500">
+          {mlProgress.phase === "dataset" ? `Building dataset… ${mlProgress.done}/${mlProgress.total}` :
+           `Training ${mlResults?.models?.[mlProgress.model ?? ""]?.label ?? mlProgress.model ?? "model"}… ${mlProgress.done}/${mlProgress.total}`}
+        </div>
+      )}
+
+      {/* Results */}
+      {mlResults && (
+        <>
+          <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1 bg-slate-50 rounded-lg p-2">
+            <span>Train samples: <b className="text-slate-700">{mlResults.dataset.n_train}</b></span>
+            <span>Test samples: <b className="text-slate-700">{mlResults.dataset.n_test}</b></span>
+            <span>Features: <b className="text-slate-700">{mlResults.dataset.n_features}</b></span>
+            <span>Win-rate (train): <b className="text-slate-700">{Math.round(mlResults.dataset.pos_rate_train * 100)}%</b></span>
+            <span>Win-rate (test): <b className="text-slate-700">{Math.round(mlResults.dataset.pos_rate_test * 100)}%</b></span>
+          </div>
+
+          {/* Comparison table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-200">
+                  <th className="text-left py-1.5 pr-3">Model</th>
+                  <th className="text-right py-1.5 pr-3">Accuracy</th>
+                  <th className="text-right py-1.5 pr-3">Precision</th>
+                  <th className="text-right py-1.5 pr-3">Recall</th>
+                  <th className="text-right py-1.5 pr-3">AUC</th>
+                  <th className="text-right py-1.5 pr-3 border-l border-slate-100">Trades</th>
+                  <th className="text-right py-1.5 pr-3">Win rate</th>
+                  <th className="text-right py-1.5 pr-3">PnL</th>
+                  <th className="text-right py-1.5 pr-3">Avg %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className={`border-b border-slate-50 ${r.id === "__baseline__" ? "bg-slate-50/60 font-medium" : ""} ${r.stats && r.stats.total_pnl === bestPnl && r.id !== "__baseline__" ? "bg-emerald-50/60" : ""}`}>
+                    <td className="py-1.5 pr-3 text-slate-700">{r.label}{r.error && <span className="text-[10px] text-red-500 ml-1">{r.error}</span>}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{r.ml_metrics ? r.ml_metrics.accuracy.toFixed(2) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{r.ml_metrics ? r.ml_metrics.precision.toFixed(2) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{r.ml_metrics ? r.ml_metrics.recall.toFixed(2) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{r.ml_metrics ? (r.ml_metrics.roc_auc === null ? "—" : r.ml_metrics.roc_auc.toFixed(2)) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-400 border-l border-slate-100">{r.stats ? r.stats.total_trades : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{r.stats ? `${r.stats.win_rate_pct}%` : "—"}</td>
+                    <td className={`py-1.5 pr-3 text-right font-medium ${r.stats ? (r.stats.total_pnl >= 0 ? "text-emerald-600" : "text-red-500") : "text-slate-300"}`}>{r.stats ? `₹${fmt(r.stats.total_pnl, 0)}` : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{r.stats ? `${r.stats.avg_pnl_pct}%` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Per-model detail: feature importance + chart */}
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(mlResults.models).map(([id, m]) => (
+              <button key={id} onClick={() => setActiveModel(id)}
+                className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                  activeModel === id ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-600 hover:border-slate-400"}`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {selModel && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-slate-400 mb-2 font-medium">Feature importance — {selModel.label}</div>
+                {selModel.feature_importance ? (
+                  <div className="flex flex-col gap-1">
+                    {selModel.feature_importance.slice(0, 10).map((f) => (
+                      <div key={f.feature} className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-slate-500 w-28 shrink-0 text-right">{f.feature}</span>
+                        <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
+                          <div className="h-full bg-blue-400" style={{ width: `${Math.min(100, f.importance * 100 / (selModel.feature_importance![0]?.importance || 1))}%` }} />
+                        </div>
+                        <span className="text-[10px] text-slate-400 w-10">{(f.importance * 100).toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 italic">Not available for this model (e.g. RBF SVM).</div>
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-slate-400 font-medium">Test-period trades</span>
+                  <select value={activeSym ?? ""} onChange={(e) => setActiveSym(e.target.value)}
+                    className="text-xs border border-slate-200 rounded px-2 py-0.5 bg-white">
+                    {Object.keys(mlResults.ohlcv).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span className="text-[10px] text-slate-400">{symTrades.length} trade{symTrades.length === 1 ? "" : "s"}</span>
+                </div>
+                {symOhlcv.length > 0 && activeSym && (
+                  <BacktestChart symbol={activeSym} ohlcv={symOhlcv} trades={symTrades} boxZones={tradeBoxZones(symTrades)} />
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -2139,6 +2613,8 @@ export default function Backtest() {
           { key: "matrix"      as const, icon: "✦",  label: "Matrix",      desc: "M algos · N stocks" },
           { key: "options"     as const, icon: "Ω",  label: "Options",     desc: "straddle / strangle" },
           { key: "orb"         as const, icon: "📈", label: "ORB",         desc: "opening range breakout" },
+          { key: "grid"        as const, icon: "🧮", label: "Grid Search", desc: "tune thresholds & periods" },
+          { key: "ml"          as const, icon: "🤖", label: "ML Models",   desc: "learned entry filter" },
         ]).map((m) => (
           <button key={m.key} onClick={() => setMode(m.key)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
@@ -2153,8 +2629,8 @@ export default function Backtest() {
         ))}
       </div>
 
-      {/* ── Section 1: Universe (Multi-Stock and Matrix modes) ── */}
-      {(mode === "multi_stock" || mode === "matrix") && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      {/* ── Section 1: Universe (Multi-Stock, Matrix, Grid, ML modes) ── */}
+      {(mode === "multi_stock" || mode === "matrix" || mode === "grid" || mode === "ml") && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
           <span className="text-sm font-semibold text-slate-700">Pick Stocks</span>
@@ -2255,6 +2731,12 @@ export default function Backtest() {
           onRun={runOrb}
         />
       )}
+
+      {/* ── Grid Search mode ── */}
+      {mode === "grid" && <GridSearchPanel />}
+
+      {/* ── ML Models mode ── */}
+      {mode === "ml" && <MlPanel />}
 
       {/* ── Section 2: Strategy (Multi-Stock mode only) ── */}
       {mode === "multi_stock" && <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-4 transition-opacity ${pickedSymbols.length === 0 ? "opacity-40 pointer-events-none" : ""}`}>
