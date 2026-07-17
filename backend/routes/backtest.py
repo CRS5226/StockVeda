@@ -21,6 +21,8 @@ from backend.core.options_backtest import run_straddle_backtest, StraddleParams,
 from backend.core.options_spreads import run_spread_backtest, SpreadParams, SPREAD_STRATEGIES
 from backend.core.markov_chain import attach_markov_signals
 from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
+from backend.core.backtest_engine import prepare_frame
+from backend.core import grid_search as gs
 import pandas as pd
 
 
@@ -627,3 +629,151 @@ def run_orb(req: ORBRequest):
             "fetch intraday data for this symbol/interval on the ORB page first."
         )
     return result
+
+
+# ── Grid Search (hyperparameter sweep over rule-based strategies) ────────────
+
+class SweepDimIn(BaseModel):
+    kind: Literal["threshold", "indicator_period"]
+    condition_index: int = 0
+    column: str = ""
+    values: list[float] = Field(..., min_length=1, max_length=gs.MAX_VALUES_PER_DIM)
+
+
+class GridSearchRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1, max_length=gs.MAX_SYMBOLS)
+    from_date: str
+    to_date: str
+    entry_conditions: list[ConditionRowIn] = Field(..., min_length=1)
+    exit_conditions: list[ConditionRowIn] = []
+    sweep_dims: list[SweepDimIn] = Field(..., min_length=1, max_length=gs.MAX_DIMS)
+    target_pct: float = 15.0
+    sl_pct: float = 7.0
+    max_bars: int = Field(30, ge=1, le=252)
+    capital_per_trade: float = Field(10_000.0, gt=0)
+    timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
+    train_ratio: float = Field(0.7, ge=0.5, le=0.9)
+    top_n: int = Field(20, ge=1, le=gs.MAX_TOP_N)
+
+
+@router.get("/grid-sweepables")
+def get_grid_sweepables():
+    return {
+        "period_columns": gs.SWEEPABLE_PERIOD_COLUMNS,
+        "max_combos": gs.MAX_COMBOS,
+        "max_dims": gs.MAX_DIMS,
+        "max_values_per_dim": gs.MAX_VALUES_PER_DIM,
+        "max_symbols": gs.MAX_SYMBOLS,
+    }
+
+
+@router.post("/run-grid-search")
+def run_grid_search(req: GridSearchRequest):
+    """SSE endpoint — streams prep/train/test progress then the ranked leaderboard."""
+    entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
+    exit_rows  = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.exit_conditions]
+    dims = [gs.SweepDim(kind=d.kind, condition_index=d.condition_index, column=d.column, values=d.values)
+            for d in req.sweep_dims]
+
+    try:
+        combos = gs.expand_combos(entry_rows, dims)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    union_extra = sorted({c for combo in combos for c in combo.extra_indicators})
+
+    # Pre-fetch OHLCV on the main thread (DuckDB is thread-local), attach signals.
+    db = get_db()
+    raw: dict[str, pd.DataFrame] = {}
+    for sym in req.symbols:
+        s = sym.upper()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
+        if len(df) >= 60:
+            raw[s] = attach_markov_signals(
+                attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
+            )
+    if not raw:
+        raise HTTPException(400, "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
+
+    base_params = BacktestParamsV2(
+        entry_conditions=entry_rows, exit_conditions=exit_rows,
+        target_pct=req.target_pct, sl_pct=req.sl_pct, max_bars=req.max_bars,
+        capital_per_trade=req.capital_per_trade, timeframe=req.timeframe,
+    )
+
+    def generate():
+        # Phase 1: prepare + split each symbol once (shared across all combos).
+        train_frames: dict[str, pd.DataFrame] = {}
+        test_frames: dict[str, pd.DataFrame] = {}
+        boundaries: dict[str, str] = {}
+        n_sym = len(raw)
+        for i, (sym, df) in enumerate(raw.items(), 1):
+            try:
+                prepared = prepare_frame(df, req.timeframe, union_extra)
+                tr, te, bnd = gs.split_frame(prepared, req.train_ratio)
+                train_frames[sym] = tr
+                test_frames[sym] = te
+                if bnd:
+                    boundaries[sym] = bnd
+            except Exception:
+                pass
+            yield f"data: {json.dumps({'phase': 'prep', 'done': i, 'total': n_sym})}\n\n"
+
+        # Phase 2: evaluate every combo on TRAIN (threaded, pure compute).
+        n_combos = len(combos)
+        train_stats: dict[str, dict] = {}
+        done = 0
+        with ThreadPoolExecutor(max_workers=min(n_combos, 16)) as pool:
+            futures = {pool.submit(gs.evaluate_combo, train_frames, combo, base_params): combo
+                       for combo in combos}
+            for future in as_completed(futures):
+                combo = futures[future]
+                train_stats[combo.combo_id] = future.result()
+                done += 1
+                yield f"data: {json.dumps({'phase': 'train', 'done': done, 'total': n_combos})}\n\n"
+
+        # Rank by train PnL (tiebreak win rate); validate top-N on TEST.
+        ranked = sorted(
+            combos,
+            key=lambda c: (train_stats[c.combo_id]["total_pnl"], train_stats[c.combo_id]["win_rate_pct"]),
+            reverse=True,
+        )
+        top = ranked[: req.top_n]
+        test_stats: dict[str, dict] = {}
+        for j, combo in enumerate(top, 1):
+            test_stats[combo.combo_id] = gs.evaluate_combo(test_frames, combo, base_params)
+            yield f"data: {json.dumps({'phase': 'test', 'done': j, 'total': len(top)})}\n\n"
+
+        leaderboard = []
+        for combo in ranked:
+            tr = train_stats[combo.combo_id]
+            te = test_stats.get(combo.combo_id)
+            gap = None
+            if te is not None:
+                gap = {
+                    "win_rate_gap": round(tr["win_rate_pct"] - te["win_rate_pct"], 1),
+                    "avg_pnl_gap": round(tr["avg_pnl_pct"] - te["avg_pnl_pct"], 2),
+                }
+            leaderboard.append({
+                "combo_id": combo.combo_id,
+                "params": combo.params,
+                "conditions": [{"left": c.left, "operator": c.operator, "right": c.right} for c in combo.conditions],
+                "train": tr,
+                "test": te,
+                "gap": gap,
+            })
+
+        result = {
+            "total_combos": n_combos,
+            "symbols_used": list(raw.keys()),
+            "split": {"train_ratio": req.train_ratio, "boundary_dates": boundaries},
+            "leaderboard": leaderboard,
+        }
+        yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
