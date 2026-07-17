@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2 } from "lucide-react";
+import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
+         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit } from "lucide-react";
 import { api, ConditionRow, SweepDim } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
@@ -2605,28 +2606,39 @@ export default function Backtest() {
     <div className="flex flex-col gap-4">
 
       {/* ── Mode Toggle ── */}
-      <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3">
-        <span className="text-xs font-semibold text-slate-500 mr-1">Backtest Mode</span>
-        {([
-          { key: "multi_stock" as const, icon: "🔀", label: "Multi-Stock", desc: "1 algo · many stocks" },
-          { key: "multi_algo"  as const, icon: "⚡", label: "Multi-Algo",  desc: "many algos · 1 stock" },
-          { key: "matrix"      as const, icon: "✦",  label: "Matrix",      desc: "M algos · N stocks" },
-          { key: "options"     as const, icon: "Ω",  label: "Options",     desc: "straddle / strangle" },
-          { key: "orb"         as const, icon: "📈", label: "ORB",         desc: "opening range breakout" },
-          { key: "grid"        as const, icon: "🧮", label: "Grid Search", desc: "tune thresholds & periods" },
-          { key: "ml"          as const, icon: "🤖", label: "ML Models",   desc: "learned entry filter" },
-        ]).map((m) => (
-          <button key={m.key} onClick={() => setMode(m.key)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-              mode === m.key
-                ? "bg-blue-500 text-white border-blue-500"
-                : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
-            }`}>
-            <span>{m.icon}</span>
-            <span>{m.label}</span>
-            <span className={`text-[10px] ${mode === m.key ? "text-blue-100" : "text-slate-400"}`}>{m.desc}</span>
-          </button>
-        ))}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3">
+        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.08em] mb-2.5 px-1">Backtest Mode</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
+          {([
+            { key: "multi_stock" as const, Icon: Shuffle,          label: "Multi-Stock", desc: "1 algo · N stocks" },
+            { key: "multi_algo"  as const, Icon: Zap,              label: "Multi-Algo",  desc: "N algos · 1 stock" },
+            { key: "matrix"      as const, Icon: LayoutGrid,       label: "Matrix",      desc: "M algos · N stocks" },
+            { key: "options"     as const, Icon: Sigma,            label: "Options",     desc: "straddle / strangle" },
+            { key: "orb"         as const, Icon: Sunrise,          label: "ORB",         desc: "opening-range breakout" },
+            { key: "grid"        as const, Icon: SlidersHorizontal, label: "Grid Search", desc: "tune thresholds & periods" },
+            { key: "ml"          as const, Icon: BrainCircuit,     label: "ML Models",   desc: "learned entry filter" },
+          ]).map((m) => {
+            const active = mode === m.key;
+            return (
+              <button key={m.key} onClick={() => setMode(m.key)} title={m.desc}
+                className={`group flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all duration-150 ${
+                  active
+                    ? "border-blue-500 bg-blue-50/70 ring-1 ring-blue-500/15 shadow-sm"
+                    : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40"
+                }`}>
+                <span className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 transition-colors ${
+                  active ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600"
+                }`}>
+                  <m.Icon size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0">
+                  <span className={`block text-xs font-semibold leading-tight truncate ${active ? "text-blue-700" : "text-slate-700"}`}>{m.label}</span>
+                  <span className={`block text-[10px] leading-tight mt-0.5 truncate ${active ? "text-blue-500/80" : "text-slate-400"}`}>{m.desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── Section 1: Universe (Multi-Stock, Matrix, Grid, ML modes) ── */}
