@@ -2037,11 +2037,27 @@ function GridSearchPanel() {
     setGrid({ sweep_dims: grid.sweep_dims.filter((_, i) => i !== idx) });
     setRawVals(rawVals.filter((_, i) => i !== idx));
   };
+  // Switching a dimension's kind must seed a valid column / condition_index — otherwise
+  // an indicator_period dim keeps an empty column (the <select> just *shows* the first
+  // option) and the run fails with "Invalid period column ''".
+  const changeDimKind = (idx: number, kind: SweepDimLocal["kind"]) => {
+    if (kind === "indicator_period") {
+      updateDim(idx, { kind, column: referencedPeriodCols[0] ?? "" });
+    } else {
+      updateDim(idx, { kind, condition_index: numericConds[0]?.i ?? 0 });
+    }
+  };
 
   const gapClass = (gap: number) =>
     gap > 20 ? "text-red-600 bg-red-50" : gap > 10 ? "text-amber-600 bg-amber-50" : "text-slate-500";
 
-  const canRun = pickedSymbols.length > 0 && comboCount > 0 && !overCap && !gridLoading;
+  const dimsValid = grid.sweep_dims.every((d) =>
+    d.values.length > 0 && (
+      d.kind === "threshold"
+        ? numericConds.some((nc) => nc.i === d.condition_index)
+        : d.column !== "" && referencedPeriodCols.includes(d.column)
+    ));
+  const canRun = pickedSymbols.length > 0 && comboCount > 0 && !overCap && dimsValid && !gridLoading;
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
@@ -2082,7 +2098,7 @@ function GridSearchPanel() {
         <div className="flex flex-col gap-2">
           {grid.sweep_dims.map((d, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2">
-              <select value={d.kind} onChange={(e) => updateDim(i, { kind: e.target.value as SweepDimLocal["kind"] })}
+              <select value={d.kind} onChange={(e) => changeDimKind(i, e.target.value as SweepDimLocal["kind"])}
                 className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
                 <option value="threshold">Threshold</option>
                 <option value="indicator_period">Indicator period</option>
