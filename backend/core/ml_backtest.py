@@ -93,6 +93,8 @@ class MlDataset:
     test_candidates: dict[str, list[int]]      # symbol -> local test-slice indices of all eligible bars
     split_idx: dict[str, int]                  # symbol -> train/test boundary index in the full frame
     split_dates: dict[str, str]
+    train_period: dict | None = None           # {"start", "end"} date span of train bars (across symbols)
+    test_period: dict | None = None            # {"start", "end"} date span of test bars
     error: str | None = None
 
 
@@ -110,6 +112,7 @@ def build_dataset(
     test_candidates: dict[str, list[int]] = {}
     split_idx: dict[str, int] = {}
     split_dates: dict[str, str] = {}
+    tr_starts, tr_ends, te_starts, te_ends = [], [], [], []
 
     for sym, frame in frames.items():
         n = len(frame)
@@ -119,6 +122,13 @@ def build_dataset(
         split_idx[sym] = k
         if k < n:
             split_dates[sym] = str(frame.iloc[k]["date"])
+        # Track the calendar span of the train and test slices (for the UI timeline).
+        if k > 0:
+            tr_starts.append(str(frame.iloc[0]["date"]))
+            tr_ends.append(str(frame.iloc[k - 1]["date"]))
+        if k < n:
+            te_starts.append(str(frame.iloc[k]["date"]))
+            te_ends.append(str(frame.iloc[n - 1]["date"]))
         test_candidates[sym] = []
 
         close = frame["close"].to_numpy(dtype=float)
@@ -177,6 +187,8 @@ def build_dataset(
         test_candidates=test_candidates,
         split_idx=split_idx,
         split_dates=split_dates,
+        train_period={"start": min(tr_starts), "end": max(tr_ends)} if tr_starts else None,
+        test_period={"start": min(te_starts), "end": max(te_ends)} if te_starts else None,
     )
     if len(ds.y_train) < MIN_TRAIN_SAMPLES:
         ds.error = f"Not enough training samples ({len(ds.y_train)} < {MIN_TRAIN_SAMPLES}). Add symbols or widen the date range."
@@ -261,37 +273,50 @@ def _simulate_signals(frames, split_idx, sym_signal_positions, base_params) -> t
     return per_symbol, _pool_stats(all_trades)
 
 
-def train_and_evaluate(model_id: str, ds: MlDataset, frames, base_params: BacktestParamsV2,
-                       prob_threshold: float) -> dict:
+def _classification_metrics(y_true, proba) -> dict:
     from sklearn.metrics import (accuracy_score, precision_score, recall_score,
                                  f1_score, roc_auc_score)
+    preds = (proba >= 0.5).astype(int)
+    auc = None
+    if len(np.unique(y_true)) > 1:
+        auc = round(float(roc_auc_score(y_true, proba)), 3)
+    return {
+        "accuracy":  round(float(accuracy_score(y_true, preds)), 3),
+        "precision": round(float(precision_score(y_true, preds, zero_division=0)), 3),
+        "recall":    round(float(recall_score(y_true, preds, zero_division=0)), 3),
+        "f1":        round(float(f1_score(y_true, preds, zero_division=0)), 3),
+        "roc_auc":   auc,
+    }
 
+
+def _confusion(y_true, proba) -> dict:
+    from sklearn.metrics import confusion_matrix
+    preds = (proba >= 0.5).astype(int)
+    cm = confusion_matrix(y_true, preds, labels=[0, 1])
+    return {"tn": int(cm[0, 0]), "fp": int(cm[0, 1]), "fn": int(cm[1, 0]), "tp": int(cm[1, 1])}
+
+
+def train_and_evaluate(model_id: str, ds: MlDataset, frames, base_params: BacktestParamsV2,
+                       prob_threshold: float) -> dict:
     label = _ML_LABELS.get(model_id, model_id)
+    _err = lambda msg: {"label": label, "error": msg, "train_metrics": None, "test_metrics": None,
+                        "confusion": None, "stats": None, "per_symbol": {}, "feature_importance": None}
     try:
         pos = int((ds.y_train == 1).sum())
         neg = int((ds.y_train == 0).sum())
         spw = (neg / pos) if pos else 1.0
         model = make_model(model_id, scale_pos_weight=spw)
         model.fit(ds.X_train, ds.y_train)
+        proba_train = model.predict_proba(ds.X_train)[:, 1]
         proba = model.predict_proba(ds.X_test)[:, 1]
     except ImportError:
-        return {"label": label, "error": "xgboost not installed on the server.", "ml_metrics": None,
-                "stats": None, "per_symbol": {}, "feature_importance": None}
+        return _err("xgboost not installed on the server.")
     except Exception as e:
-        return {"label": label, "error": str(e), "ml_metrics": None,
-                "stats": None, "per_symbol": {}, "feature_importance": None}
+        return _err(str(e))
 
-    preds = (proba >= 0.5).astype(int)
-    auc = None
-    if len(np.unique(ds.y_test)) > 1:
-        auc = round(float(roc_auc_score(ds.y_test, proba)), 3)
-    ml_metrics = {
-        "accuracy":  round(float(accuracy_score(ds.y_test, preds)), 3),
-        "precision": round(float(precision_score(ds.y_test, preds, zero_division=0)), 3),
-        "recall":    round(float(recall_score(ds.y_test, preds, zero_division=0)), 3),
-        "f1":        round(float(f1_score(ds.y_test, preds, zero_division=0)), 3),
-        "roc_auc":   auc,
-    }
+    train_metrics = _classification_metrics(ds.y_train, proba_train)
+    test_metrics = _classification_metrics(ds.y_test, proba)
+    confusion = {"train": _confusion(ds.y_train, proba_train), "test": _confusion(ds.y_test, proba)}
 
     # Trade simulation: enter at test bars where P(win) >= threshold.
     sym_positions: dict[str, list[int]] = {}
@@ -303,7 +328,9 @@ def train_and_evaluate(model_id: str, ds: MlDataset, frames, base_params: Backte
     return {
         "label": label,
         "error": None,
-        "ml_metrics": ml_metrics,
+        "train_metrics": train_metrics,
+        "test_metrics": test_metrics,
+        "confusion": confusion,
         "stats": stats,
         "per_symbol": per_symbol,
         "feature_importance": _feature_importance(model, ds.features),

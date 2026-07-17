@@ -193,10 +193,13 @@ export interface GridSearchResult {
 // ── ML models ───────────────────────────────────────────────────────────────
 export interface MlModelInfo { id: string; label: string; available: boolean }
 export interface MlMetrics { accuracy: number; precision: number; recall: number; f1: number; roc_auc: number | null }
+export interface MlConfusion { tn: number; fp: number; fn: number; tp: number }
 export interface MlModelResult {
   label: string;
   error: string | null;
-  ml_metrics: MlMetrics | null;
+  train_metrics: MlMetrics | null;
+  test_metrics: MlMetrics | null;
+  confusion: { train: MlConfusion; test: MlConfusion } | null;
   stats: GridComboStats | null;
   per_symbol: Record<string, { trades: BacktestTradeV2[]; stats: GridComboStats }>;
   feature_importance: { feature: string; importance: number }[] | null;
@@ -205,6 +208,8 @@ export interface MlResult {
   dataset: {
     n_train: number; n_test: number; n_features: number; features: string[];
     pos_rate_train: number; pos_rate_test: number; split_dates: Record<string, string>;
+    train_period: { start: string; end: string } | null;
+    test_period: { start: string; end: string } | null;
   };
   ohlcv: Record<string, { date: string; open: number; high: number; low: number; close: number }[]>;
   baseline: { stats: GridComboStats };

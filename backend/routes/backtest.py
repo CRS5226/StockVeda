@@ -888,6 +888,8 @@ def run_ml_stream(req: MlRequest):
                 "pos_rate_train": round(float(np.mean(ds.y_train)), 3) if len(ds.y_train) else 0.0,
                 "pos_rate_test": round(float(np.mean(ds.y_test)), 3) if len(ds.y_test) else 0.0,
                 "split_dates": ds.split_dates,
+                "train_period": ds.train_period,
+                "test_period": ds.test_period,
             },
             "ohlcv": ohlcv,
             "baseline": baseline,

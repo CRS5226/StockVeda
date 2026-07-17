@@ -2246,7 +2246,7 @@ function MlPanel() {
 
   const rows = mlResults ? [
     { id: "__baseline__", label: "Baseline (no ML)", ml_metrics: null, stats: mlResults.baseline.stats, error: null },
-    ...Object.entries(mlResults.models).map(([id, m]) => ({ id, label: m.label, ml_metrics: m.ml_metrics, stats: m.stats, error: m.error })),
+    ...Object.entries(mlResults.models).map(([id, m]) => ({ id, label: m.label, ml_metrics: m.test_metrics, stats: m.stats, error: m.error })),
   ] : [];
   const bestPnl = mlResults ? Math.max(...rows.filter((r) => r.stats).map((r) => r.stats!.total_pnl)) : 0;
 
@@ -2365,9 +2365,27 @@ function MlPanel() {
             <span>Win-rate (train): <b className="text-slate-700">{Math.round(mlResults.dataset.pos_rate_train * 100)}%</b></span>
             <span>Win-rate (test): <b className="text-slate-700">{Math.round(mlResults.dataset.pos_rate_test * 100)}%</b></span>
           </div>
+          {(mlResults.dataset.train_period || mlResults.dataset.test_period) && (
+            <div className="text-[11px] flex flex-wrap gap-x-4 gap-y-1 -mt-2">
+              {mlResults.dataset.train_period && (
+                <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 rounded-md px-2 py-1">
+                  <span className="font-semibold">Train window</span>
+                  <span className="font-mono">{mlResults.dataset.train_period.start} → {mlResults.dataset.train_period.end}</span>
+                </span>
+              )}
+              {mlResults.dataset.test_period && (
+                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 rounded-md px-2 py-1">
+                  <span className="font-semibold">Test window</span>
+                  <span className="font-mono">{mlResults.dataset.test_period.start} → {mlResults.dataset.test_period.end}</span>
+                </span>
+              )}
+              <span className="text-slate-400 self-center">chronological 70/30-style split · windows span all selected stocks</span>
+            </div>
+          )}
 
           {/* Comparison table */}
           <div className="overflow-x-auto">
+            <div className="text-[11px] text-slate-400 mb-1">Classification metrics below are on the <b className="text-slate-500">held-out test set</b>. See per-model train-vs-test breakdown lower down.</div>
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-slate-400 border-b border-slate-200">
@@ -2444,6 +2462,74 @@ function MlPanel() {
                   <BacktestChart symbol={activeSym} ohlcv={symOhlcv} trades={symTrades} boxZones={tradeBoxZones(symTrades)} />
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Train vs Test metrics + confusion matrices for the selected model */}
+          {selModel && selModel.train_metrics && selModel.test_metrics && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-slate-400 mb-2 font-medium">Train vs Test — {selModel.label}</div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-200">
+                      <th className="text-left py-1.5 pr-3">Metric</th>
+                      <th className="text-right py-1.5 pr-3">Train</th>
+                      <th className="text-right py-1.5 pr-3">Test</th>
+                      <th className="text-right py-1.5 pr-3">Gap</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {([
+                      ["Accuracy",  "accuracy"],
+                      ["Precision", "precision"],
+                      ["Recall",    "recall"],
+                      ["F1",        "f1"],
+                      ["AUC",       "roc_auc"],
+                    ] as const).map(([lbl, key]) => {
+                      const tr = selModel.train_metrics![key];
+                      const te = selModel.test_metrics![key];
+                      const gap = (tr !== null && te !== null) ? tr - te : null;
+                      const gapCls = gap === null ? "text-slate-300"
+                        : gap > 0.2 ? "text-red-600 bg-red-50" : gap > 0.1 ? "text-amber-600 bg-amber-50" : "text-slate-500";
+                      return (
+                        <tr key={key} className="border-b border-slate-50">
+                          <td className="py-1.5 pr-3 text-slate-600">{lbl}</td>
+                          <td className="py-1.5 pr-3 text-right text-slate-500">{tr === null ? "—" : tr.toFixed(2)}</td>
+                          <td className="py-1.5 pr-3 text-right font-medium text-slate-700">{te === null ? "—" : te.toFixed(2)}</td>
+                          <td className="py-1.5 pr-3 text-right"><span className={`px-1.5 py-0.5 rounded ${gapCls}`}>{gap === null ? "—" : (gap > 0 ? "+" : "") + gap.toFixed(2)}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="text-[10px] text-slate-400 mt-1">A large train→test gap (amber/red) = the model overfit the training period.</div>
+              </div>
+
+              {selModel.confusion && (
+                <div>
+                  <div className="text-xs text-slate-400 mb-2 font-medium">Confusion matrices — actual (rows) × predicted (cols)</div>
+                  <div className="flex flex-wrap gap-4">
+                    {([["Train", selModel.confusion.train], ["Test", selModel.confusion.test]] as const).map(([lbl, cm]) => (
+                      <div key={lbl}>
+                        <div className="text-[11px] font-semibold text-slate-500 mb-1">{lbl}</div>
+                        <div className="grid grid-cols-[auto_auto_auto] gap-px text-[11px]">
+                          <div className="w-14" />
+                          <div className="w-16 text-center text-slate-400 pb-1">Pred Loss</div>
+                          <div className="w-16 text-center text-slate-400 pb-1">Pred Win</div>
+                          <div className="w-14 text-right text-slate-400 pr-1 self-center">Act Loss</div>
+                          <div className="h-10 flex items-center justify-center rounded bg-emerald-50 text-emerald-700 font-semibold" title="True Negative">{cm.tn}</div>
+                          <div className="h-10 flex items-center justify-center rounded bg-red-50 text-red-600 font-semibold" title="False Positive">{cm.fp}</div>
+                          <div className="w-14 text-right text-slate-400 pr-1 self-center">Act Win</div>
+                          <div className="h-10 flex items-center justify-center rounded bg-red-50 text-red-600 font-semibold" title="False Negative">{cm.fn}</div>
+                          <div className="h-10 flex items-center justify-center rounded bg-emerald-50 text-emerald-700 font-semibold" title="True Positive">{cm.tp}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">Green = correct (TN/TP), red = errors (FP = false buy signal, FN = missed winner).</div>
+                </div>
+              )}
             </div>
           )}
         </>
