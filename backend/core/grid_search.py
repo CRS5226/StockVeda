@@ -54,6 +54,7 @@ class Combo:
     conditions: list[ConditionRow]
     params: dict            # display map, e.g. {"rsi_14 crosses_above": 30, "rsi period": 21}
     extra_indicators: list[str]
+    values: list[float] = field(default_factory=list)  # sweep value per dim, in dims order (for the heatmap)
 
 
 def _fmt_num(v: float) -> str:
@@ -127,7 +128,7 @@ def expand_combos(entry_conditions: list[ConditionRow], dims: list[SweepDim]) ->
                 extra.add(newcol)
                 label[f"{fam} period"] = int(v)
 
-        combos.append(Combo(f"c{i:03d}", conds, label, sorted(extra)))
+        combos.append(Combo(f"c{i:03d}", conds, label, sorted(extra), list(value_tuple)))
 
     return combos
 

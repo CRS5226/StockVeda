@@ -178,15 +178,19 @@ export interface GridComboStats { total_trades: number; win_rate_pct: number; to
 export interface GridComboRow {
   combo_id: string;
   params: Record<string, number>;
+  dim_values: number[];
   conditions: ConditionRow[];
   train: GridComboStats;
   test: GridComboStats | null;
   gap: { win_rate_gap: number; avg_pnl_gap: number } | null;
 }
+export interface GridDim { kind: string; label: string; values: number[] }
 export interface GridSearchResult {
   total_combos: number;
   symbols_used: string[];
   split: { train_ratio: number; boundary_dates: Record<string, string> };
+  dims: GridDim[];
+  top_n: number;
   leaderboard: GridComboRow[];
 }
 

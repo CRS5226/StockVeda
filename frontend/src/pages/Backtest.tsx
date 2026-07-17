@@ -1989,6 +1989,8 @@ function GridSearchPanel() {
           gridSweepables, setGrid, loadGridSweepables, runGridSearch } = useBacktestStore();
   const [activePreset, setActivePreset] = useState<string | null>("RSI Oversold Bounce");
   const [rawVals, setRawVals] = useState<string[]>(() => grid.sweep_dims.map((d) => d.values.join(", ")));
+  const [gridView, setGridView] = useState<"table" | "heatmap">("heatmap");
+  const [heatMetric, setHeatMetric] = useState<"test_pnl" | "test_wr" | "train_pnl" | "train_wr">("test_pnl");
 
   useEffect(() => { loadGridSweepables(); }, [loadGridSweepables]);
 
@@ -2163,51 +2165,130 @@ function GridSearchPanel() {
       )}
 
       {/* Leaderboard */}
-      {gridResults && (
-        <div className="overflow-x-auto">
-          <div className="text-xs text-slate-500 mb-2">
-            {gridResults.total_combos} combos on {gridResults.symbols_used.length} symbols · train/test split{" "}
-            {Object.values(gridResults.split.boundary_dates)[0] ? `at ~${Object.values(gridResults.split.boundary_dates)[0]}` : ""}.
-            Ranked by train PnL; a large <span className="text-amber-600 font-medium">win-rate gap</span> flags overfitting.
-          </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-slate-400 border-b border-slate-200">
-                <th className="text-left py-1.5 pr-3">#</th>
-                <th className="text-left py-1.5 pr-3">Params</th>
-                <th className="text-right py-1.5 pr-3">Train PnL</th>
-                <th className="text-right py-1.5 pr-3">Train WR</th>
-                <th className="text-right py-1.5 pr-3">Train n</th>
-                <th className="text-right py-1.5 pr-3">Test PnL</th>
-                <th className="text-right py-1.5 pr-3">Test WR</th>
-                <th className="text-right py-1.5 pr-3">Test n</th>
-                <th className="text-right py-1.5 pr-3">WR gap</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gridResults.leaderboard.map((r, idx) => (
-                <tr key={r.combo_id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                  <td className="py-1.5 pr-3 text-slate-400">{idx + 1}</td>
-                  <td className="py-1.5 pr-3">
-                    {Object.entries(r.params).map(([k, v]) => (
-                      <span key={k} className="inline-block mr-1 font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">{k}={v}</span>
+      {gridResults && (() => {
+        const is2D = gridResults.dims.length === 2;
+        const showHeat = is2D && gridView === "heatmap";
+        const metricVal = (r: typeof gridResults.leaderboard[number]): number | null =>
+          heatMetric === "test_pnl"  ? (r.test ? r.test.total_pnl : null) :
+          heatMetric === "test_wr"   ? (r.test ? r.test.win_rate_pct : null) :
+          heatMetric === "train_pnl" ? r.train.total_pnl : r.train.win_rate_pct;
+        const isPnl = heatMetric.endsWith("pnl");
+        const cellVals = gridResults.leaderboard.map(metricVal).filter((v): v is number => v !== null);
+        const maxAbs = Math.max(1, ...cellVals.map((v) => Math.abs(v)));
+        const wrMin = Math.min(...cellVals), wrMax = Math.max(...cellVals);
+        const cellColor = (v: number | null): string => {
+          if (v === null) return "transparent";
+          if (isPnl) return v >= 0 ? `rgba(16,185,129,${0.1 + 0.6 * v / maxAbs})` : `rgba(239,68,68,${0.1 + 0.6 * Math.abs(v) / maxAbs})`;
+          const t = wrMax > wrMin ? (v - wrMin) / (wrMax - wrMin) : 0.5;
+          return `rgba(16,185,129,${0.08 + 0.6 * t})`;
+        };
+        const lookup = new Map(gridResults.leaderboard.map((r) => [`${r.dim_values[0]}|${r.dim_values[1]}`, r]));
+        const [dimY, dimX] = gridResults.dims; // rows, cols
+
+        return (
+          <div className="overflow-x-auto">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div className="text-xs text-slate-500">
+                {gridResults.total_combos} combos on {gridResults.symbols_used.length} symbols · split{" "}
+                {Object.values(gridResults.split.boundary_dates)[0] ? `~${Object.values(gridResults.split.boundary_dates)[0]}` : ""}.
+                {showHeat
+                  ? " A stable green block = robust; an isolated green cell = likely overfit."
+                  : <> Ranked by train PnL; large <span className="text-amber-600 font-medium">win-rate gap</span> = overfit.</>}
+              </div>
+              <div className="flex items-center gap-2">
+                {showHeat && (
+                  <select value={heatMetric} onChange={(e) => setHeatMetric(e.target.value as typeof heatMetric)}
+                    className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
+                    <option value="test_pnl">Test PnL</option>
+                    <option value="test_wr">Test Win-rate</option>
+                    <option value="train_pnl">Train PnL</option>
+                    <option value="train_wr">Train Win-rate</option>
+                  </select>
+                )}
+                {is2D && (
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                    {(["heatmap", "table"] as const).map((v) => (
+                      <button key={v} onClick={() => setGridView(v)}
+                        className={`px-2.5 py-1 text-xs font-medium capitalize ${gridView === v ? "bg-blue-500 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{v}</button>
                     ))}
-                  </td>
-                  <td className={`py-1.5 pr-3 text-right font-medium ${r.train.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>₹{fmt(r.train.total_pnl, 0)}</td>
-                  <td className="py-1.5 pr-3 text-right text-slate-500">{r.train.win_rate_pct}%</td>
-                  <td className="py-1.5 pr-3 text-right text-slate-400">{r.train.total_trades}</td>
-                  <td className={`py-1.5 pr-3 text-right font-medium ${r.test ? (r.test.total_pnl >= 0 ? "text-emerald-600" : "text-red-500") : "text-slate-300"}`}>{r.test ? `₹${fmt(r.test.total_pnl, 0)}` : "—"}</td>
-                  <td className="py-1.5 pr-3 text-right text-slate-500">{r.test ? `${r.test.win_rate_pct}%` : "—"}</td>
-                  <td className="py-1.5 pr-3 text-right text-slate-400">{r.test ? r.test.total_trades : "—"}</td>
-                  <td className="py-1.5 pr-3 text-right">
-                    {r.gap ? <span className={`px-1.5 py-0.5 rounded font-medium ${gapClass(Math.abs(r.gap.win_rate_gap))}`}>{r.gap.win_rate_gap > 0 ? "+" : ""}{r.gap.win_rate_gap}</span> : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {showHeat ? (
+              <div className="inline-block">
+                <table className="text-xs border-separate" style={{ borderSpacing: "3px" }}>
+                  <thead>
+                    <tr>
+                      <th className="text-[10px] text-slate-400 font-medium text-right pr-2 align-bottom">{dimY.label} ↓ / {dimX.label} →</th>
+                      {dimX.values.map((cv) => <th key={cv} className="text-[11px] font-mono text-slate-500 px-2 pb-1">{cv}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dimY.values.map((rv) => (
+                      <tr key={rv}>
+                        <th className="text-[11px] font-mono text-slate-500 text-right pr-2">{rv}</th>
+                        {dimX.values.map((cv) => {
+                          const r = lookup.get(`${rv}|${cv}`);
+                          const v = r ? metricVal(r) : null;
+                          return (
+                            <td key={cv} style={{ backgroundColor: cellColor(v) }}
+                              title={r ? `${dimY.label}=${rv}, ${dimX.label}=${cv}\nTrain PnL ₹${fmt(r.train.total_pnl,0)} · WR ${r.train.win_rate_pct}%\nTest PnL ₹${r.test ? fmt(r.test.total_pnl,0) : "—"} · WR ${r.test ? r.test.win_rate_pct : "—"}%` : ""}
+                              className="w-20 h-11 text-center rounded align-middle border border-slate-100">
+                              <div className="text-[11px] font-semibold text-slate-700">{v === null ? "—" : isPnl ? `₹${fmt(v,0)}` : `${v}%`}</div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-200">
+                    <th className="text-left py-1.5 pr-3">#</th>
+                    <th className="text-left py-1.5 pr-3">Params</th>
+                    <th className="text-right py-1.5 pr-3">Train PnL</th>
+                    <th className="text-right py-1.5 pr-3">Train WR</th>
+                    <th className="text-right py-1.5 pr-3">Train n</th>
+                    <th className="text-right py-1.5 pr-3">Test PnL</th>
+                    <th className="text-right py-1.5 pr-3">Test WR</th>
+                    <th className="text-right py-1.5 pr-3">Test n</th>
+                    <th className="text-right py-1.5 pr-3">WR gap</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gridResults.leaderboard.slice(0, gridResults.top_n).map((r, idx) => (
+                    <tr key={r.combo_id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                      <td className="py-1.5 pr-3 text-slate-400">{idx + 1}</td>
+                      <td className="py-1.5 pr-3">
+                        {Object.entries(r.params).map(([k, v]) => (
+                          <span key={k} className="inline-block mr-1 font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">{k}={v}</span>
+                        ))}
+                      </td>
+                      <td className={`py-1.5 pr-3 text-right font-medium ${r.train.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>₹{fmt(r.train.total_pnl, 0)}</td>
+                      <td className="py-1.5 pr-3 text-right text-slate-500">{r.train.win_rate_pct}%</td>
+                      <td className="py-1.5 pr-3 text-right text-slate-400">{r.train.total_trades}</td>
+                      <td className={`py-1.5 pr-3 text-right font-medium ${r.test ? (r.test.total_pnl >= 0 ? "text-emerald-600" : "text-red-500") : "text-slate-300"}`}>{r.test ? `₹${fmt(r.test.total_pnl, 0)}` : "—"}</td>
+                      <td className="py-1.5 pr-3 text-right text-slate-500">{r.test ? `${r.test.win_rate_pct}%` : "—"}</td>
+                      <td className="py-1.5 pr-3 text-right text-slate-400">{r.test ? r.test.total_trades : "—"}</td>
+                      <td className="py-1.5 pr-3 text-right">
+                        {r.gap ? <span className={`px-1.5 py-0.5 rounded font-medium ${gapClass(Math.abs(r.gap.win_rate_gap))}`}>{r.gap.win_rate_gap > 0 ? "+" : ""}{r.gap.win_rate_gap}</span> : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!showHeat && gridResults.leaderboard.length > gridResults.top_n && (
+              <div className="text-[10px] text-slate-400 mt-1">Showing top {gridResults.top_n} of {gridResults.leaderboard.length} combos (ranked by train PnL).</div>
+            )}
+          </div>
+        );
+      })()}
     </section>
   );
 }

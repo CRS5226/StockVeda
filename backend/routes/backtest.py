@@ -736,17 +736,25 @@ def run_grid_search(req: GridSearchRequest):
                 done += 1
                 yield f"data: {json.dumps({'phase': 'train', 'done': done, 'total': n_combos})}\n\n"
 
-        # Rank by train PnL (tiebreak win rate); validate top-N on TEST.
+        # Phase 3: evaluate every combo on TEST too (threaded) so the leaderboard and
+        # the 2-D heatmap are fully populated (every cell has a held-out value).
+        test_stats: dict[str, dict] = {}
+        done = 0
+        with ThreadPoolExecutor(max_workers=min(n_combos, 16)) as pool:
+            futures = {pool.submit(gs.evaluate_combo, test_frames, combo, base_params): combo
+                       for combo in combos}
+            for future in as_completed(futures):
+                combo = futures[future]
+                test_stats[combo.combo_id] = future.result()
+                done += 1
+                yield f"data: {json.dumps({'phase': 'test', 'done': done, 'total': n_combos})}\n\n"
+
+        # Rank by train PnL (tiebreak win rate).
         ranked = sorted(
             combos,
             key=lambda c: (train_stats[c.combo_id]["total_pnl"], train_stats[c.combo_id]["win_rate_pct"]),
             reverse=True,
         )
-        top = ranked[: req.top_n]
-        test_stats: dict[str, dict] = {}
-        for j, combo in enumerate(top, 1):
-            test_stats[combo.combo_id] = gs.evaluate_combo(test_frames, combo, base_params)
-            yield f"data: {json.dumps({'phase': 'test', 'done': j, 'total': len(top)})}\n\n"
 
         leaderboard = []
         for combo in ranked:
@@ -761,16 +769,25 @@ def run_grid_search(req: GridSearchRequest):
             leaderboard.append({
                 "combo_id": combo.combo_id,
                 "params": combo.params,
+                "dim_values": combo.values,
                 "conditions": [{"left": c.left, "operator": c.operator, "right": c.right} for c in combo.conditions],
                 "train": tr,
                 "test": te,
                 "gap": gap,
             })
 
+        def _dim_label(d: gs.SweepDim) -> str:
+            if d.kind == "threshold":
+                c = entry_rows[d.condition_index]
+                return f"{c.left} {c.operator}"
+            return f"{d.column.rpartition('_')[0]} period"
+
         result = {
             "total_combos": n_combos,
             "symbols_used": list(raw.keys()),
             "split": {"train_ratio": req.train_ratio, "boundary_dates": boundaries},
+            "dims": [{"kind": d.kind, "label": _dim_label(d), "values": d.values} for d in dims],
+            "top_n": req.top_n,
             "leaderboard": leaderboard,
         }
         yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
