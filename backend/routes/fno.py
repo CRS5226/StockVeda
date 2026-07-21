@@ -10,10 +10,9 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi import Query as FQuery
 from backend.db.connection import get_db
 from backend.core.options_math import implied_vol, greeks, get_risk_free_rate
+from backend.core.fno_universe import INDEX_SYMBOLS, FNO_STOCK_UNIVERSE as _FNO_STOCK_UNIVERSE
 
 router = APIRouter(prefix="/fno", tags=["fno"])
-
-INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "NIFTYBANK"}
 
 _lot_cache: dict | None = None
 _lot_cache_ts: float = 0.0
@@ -220,41 +219,6 @@ def get_fno_symbols():
         return {"symbols": [r[0] for r in rows]}
     except Exception:
         return {"symbols": []}
-
-
-# NSE F&O-eligible stock universe (periodically revised by NSE — hardcoded backbone,
-# merged with whatever symbols have already been synced so newly-added F&O stocks
-# still show up once fetched once).
-_FNO_STOCK_UNIVERSE = {
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "HINDUNILVR", "ITC", "SBIN",
-    "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "BAJFINANCE", "ASIANPAINT", "MARUTI",
-    "HCLTECH", "SUNPHARMA", "TITAN", "ULTRACEMCO", "NESTLEIND", "WIPRO", "ADANIENT",
-    "ADANIPORTS", "ADANIGREEN", "ADANIPOWER", "ONGC", "NTPC", "POWERGRID", "COALINDIA",
-    "TATASTEEL", "TATAMOTORS", "TATACONSUM", "TATAPOWER", "JSWSTEEL", "HINDALCO", "VEDL",
-    "GRASIM", "BAJAJFINSV", "BAJAJ-AUTO", "HEROMOTOCO", "EICHERMOT", "M&M", "DRREDDY",
-    "CIPLA", "DIVISLAB", "APOLLOHOSP", "BRITANNIA", "DABUR", "GODREJCP", "MARICO",
-    "COLPAL", "PIDILITIND", "BERGEPAINT", "HAVELLS", "VOLTAS", "SIEMENS", "ABB", "BEL",
-    "BHEL", "HAL", "IRCTC", "IRFC", "RVNL", "ZOMATO", "PAYTM", "NYKAA", "POLICYBZR",
-    "DMART", "TRENT", "JUBLFOOD", "PAGEIND", "INDIGO", "PVRINOX", "LUPIN", "AUROPHARMA",
-    "TORNTPHARM", "BIOCON", "ALKEM", "MOTHERSON", "BOSCHLTD", "EXIDEIND", "MRF",
-    "BALKRISIND", "ASHOKLEY", "TVSMOTOR", "BHARATFORG", "CUMMINSIND", "SRF", "PIIND",
-    "UPL", "DEEPAKNTR", "GNFC", "PETRONET", "GAIL", "IOC", "BPCL", "HINDPETRO", "OIL",
-    "IGL", "MGL", "INDUSINDBK", "IDFCFIRSTB", "FEDERALBNK", "BANKBARODA", "PNB", "CANBK",
-    "UNIONBANK", "RBLBANK", "AUBANK", "BANDHANBNK", "CHOLAFIN", "MUTHOOTFIN",
-    "SHRIRAMFIN", "LICHSGFIN", "PFC", "RECLTD", "HDFCLIFE", "ICICIPRULI", "ICICIGI",
-    "SBILIFE", "SBICARD", "MFSL", "HDFCAMC", "NAUKRI", "CDSL", "BSE", "MCX", "IEX",
-    "CAMS", "ANGELONE", "IIFL", "PERSISTENT", "LTIM", "MPHASIS", "COFORGE", "LTTS",
-    "TECHM", "OFSS", "TATAELXSI", "ZENSAR", "KPITTECH", "SONACOMS", "SUZLON",
-    "JINDALSTEL", "SAIL", "NMDC", "NATIONALUM", "RATNAMANI", "APLAPOLLO", "JSL",
-    "ESCORTS", "CGPOWER", "POLYCAB", "DIXON", "AMBER", "WHIRLPOOL", "CROMPTON",
-    "GODREJPROP", "DLF", "OBEROIRLTY", "PRESTIGE", "PHOENIXLTD", "LODHA", "BRIGADE",
-    "SUNTV", "ZEEL", "NAZARA", "INDHOTEL", "LEMONTREE", "CONCOR", "GMRINFRA",
-    "MANAPPURAM", "IDEA", "TATACOMM", "HFCL", "GSPL", "LAURUSLABS", "ABCAPITAL",
-    "ABFRL", "DALBHARAT", "SYNGENE", "GLENMARK", "IPCALAB", "METROPOLIS", "NAVINFLUOR",
-    "CHAMBLFERT", "COROMANDEL", "PIRAMALENT", "BATAINDIA", "RELAXO", "VBL", "UBL",
-    "RADICO", "ACC", "AMBUJACEM", "SHREECEM", "JKCEMENT", "ATUL", "TATACHEM",
-    "AARTIIND", "GRANULES", "CANFINHOME", "PEL", "M&MFIN", "L&TFH", "IEX",
-} | set(INDEX_SYMBOLS)
 
 
 @router.get("/search")
