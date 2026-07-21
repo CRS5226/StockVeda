@@ -24,6 +24,7 @@ from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
 from backend.core.backtest_engine import prepare_frame
 from backend.core import grid_search as gs
 from backend.core import ml_backtest as mlb
+from backend.core import quant_signals as qs
 import importlib.util
 import numpy as np
 import pandas as pd
@@ -911,6 +912,85 @@ def run_ml_stream(req: MlRequest):
             "ohlcv": ohlcv,
             "baseline": baseline,
             "models": models_out,
+        }
+        yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+# ── Quant Signals (Long Pullback / Short Bounce / Accumulation / Distribution) ─
+
+class QuantSignalRequest(BaseModel):
+    algo: Literal["long_pullback", "short_bounce", "accumulation", "distribution"]
+    symbols: list[str] = Field(..., min_length=1, max_length=qs.MAX_SYMBOLS)
+    from_date: str
+    to_date: str
+    account_capital: float = Field(qs.DEFAULT_ACCOUNT_CAPITAL, gt=0)
+    data_source: Literal["cash", "futures"] = "cash"
+
+
+@router.get("/quant-signals")
+def get_quant_signal_algos():
+    return list(qs.ALGO_METADATA.values())
+
+
+@router.post("/run-quant-signals")
+def run_quant_signals(req: QuantSignalRequest):
+    """SSE endpoint — 4 weighted-scoring algos (see quant_signals.py). F&O-only
+    algos (short_bounce, distribution) exclude non-F&O-eligible symbols."""
+    symbols = [s.upper() for s in req.symbols]
+    fno_only = req.algo in ("short_bounce", "distribution")
+    excluded_symbols: list[dict] = []
+    if fno_only:
+        eligible = [s for s in symbols if qs.is_fno_eligible(s)]
+        excluded_symbols = [{"symbol": s, "reason": "not F&O eligible"} for s in symbols if s not in eligible]
+        symbols = eligible
+    if not symbols:
+        raise HTTPException(400, "No eligible symbols for this algo. Short Bounce and Distribution require F&O-eligible symbols.")
+
+    nifty_df = qs.fetch_nifty_series(req.from_date, req.to_date)
+    db = get_db()
+
+    def generate():
+        n_sym = len(symbols)
+        results: dict[str, dict] = {}
+        for i, sym in enumerate(symbols, 1):
+            try:
+                raw = _load_price_df(db, sym, req.from_date, req.to_date, req.data_source)
+                if len(raw) >= 60:
+                    prepared = prepare_frame(raw, "1D")
+                    featured = qs.attach_quant_factors(prepared, sym, req.from_date, req.to_date, nifty_df)
+                    results[sym] = qs.run_quant_signal(
+                        featured, req.algo, qs.is_fno_eligible(sym), req.account_capital
+                    )
+                else:
+                    results[sym] = {"trades": [], "armed_not_triggered": [], "ohlcv": [], "score_series": [],
+                                    "stats": {"total_trades": 0, "win_rate_pct": 0.0, "total_pnl": 0.0, "avg_pnl_pct": 0.0},
+                                    "error": f"Only {len(raw)} bars synced (need ≥60). Sync more data via the Screener."}
+            except Exception as e:
+                results[sym] = {"trades": [], "armed_not_triggered": [], "ohlcv": [], "score_series": [],
+                                "stats": {"total_trades": 0, "win_rate_pct": 0.0, "total_pnl": 0.0, "avg_pnl_pct": 0.0},
+                                "error": str(e)}
+            yield f"data: {json.dumps({'phase': 'run', 'done': i, 'total': n_sym, 'symbol': sym})}\n\n"
+
+        all_trades = [t for r in results.values() for t in r.get("trades", [])]
+        winners = [t for t in all_trades if t["pnl"] > 0]
+        total = len(all_trades)
+        pooled_stats = {
+            "total_trades": total,
+            "win_rate_pct": round(len(winners) / total * 100, 1) if total else 0.0,
+            "total_pnl": round(sum(t["pnl"] for t in all_trades), 2),
+            "avg_pnl_pct": round(sum(t["pnl_pct"] for t in all_trades) / total, 2) if total else 0.0,
+        }
+        result = {
+            "algo": req.algo,
+            "symbols": results,
+            "excluded_symbols": excluded_symbols,
+            "pooled_stats": pooled_stats,
         }
         yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
 
