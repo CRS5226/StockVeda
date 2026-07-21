@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult, QuantAlgoId, QuantAlgoMeta, QuantSignalResult } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -119,6 +119,14 @@ export interface MlConfig {
   max_bars: number;
 }
 
+// ── Quant Signals mode ───────────────────────────────────────────────────────
+
+export interface QuantConfig {
+  algo: QuantAlgoId;
+  account_capital: number;
+  data_source: "cash" | "futures";
+}
+
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
 export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
 
@@ -224,6 +232,12 @@ const DEFAULT_ML: MlConfig = {
   max_bars: 25,
 };
 
+const DEFAULT_QUANT: QuantConfig = {
+  algo: "long_pullback",
+  account_capital: 1_000_000,
+  data_source: "cash",
+};
+
 // ── Combined store ─────────────────────────────────────────────────────────
 
 interface BacktestState {
@@ -256,11 +270,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml" | "quant";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml" | "quant") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -327,6 +341,17 @@ interface BacktestState {
   setMl: (p: Partial<MlConfig>) => void;
   loadMlModels: () => Promise<void>;
   runMl: () => Promise<void>;
+
+  // Quant Signals mode
+  quant: QuantConfig;
+  quantResults: QuantSignalResult | null;
+  quantLoading: boolean;
+  quantError: string | null;
+  quantProgress: { phase: string; done: number; total: number; symbol?: string } | null;
+  quantAlgoMeta: QuantAlgoMeta[];
+  setQuant: (p: Partial<QuantConfig>) => void;
+  loadQuantAlgoMeta: () => Promise<void>;
+  runQuantSignals: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -779,6 +804,69 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       }
     } catch (e) {
       set({ mlLoading: false, mlError: String(e), mlProgress: null });
+    }
+  },
+
+  // ── Quant Signals mode ────────────────────────────────────────────────────
+  quant: DEFAULT_QUANT,
+  quantResults: null,
+  quantLoading: false,
+  quantError: null,
+  quantProgress: null,
+  quantAlgoMeta: [],
+
+  setQuant: (p) => set((s) => ({ quant: { ...s.quant, ...p } })),
+
+  loadQuantAlgoMeta: async () => {
+    try {
+      const list = await api.getQuantSignalAlgos();
+      set({ quantAlgoMeta: list });
+    } catch {}
+  },
+
+  runQuantSignals: async () => {
+    const { pickedSymbols, quant, strategy } = get();
+    if (!pickedSymbols.length) return;
+    set({ quantLoading: true, quantError: null, quantResults: null, quantProgress: null });
+    try {
+      const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
+      const res = await fetch(`${BASE}/backtest/run-quant-signals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          algo: quant.algo,
+          symbols: pickedSymbols,
+          from_date: strategy.from_date, to_date: strategy.to_date,
+          account_capital: quant.account_capital,
+          data_source: quant.data_source,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        const msg = Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail ?? res.statusText);
+        throw new Error(String(msg));
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.result) {
+            set({ quantResults: data.result, quantLoading: false, quantProgress: null });
+          } else {
+            set({ quantProgress: { phase: data.phase, done: data.done, total: data.total, symbol: data.symbol } });
+          }
+        }
+      }
+    } catch (e) {
+      set({ quantLoading: false, quantError: String(e), quantProgress: null });
     }
   },
 

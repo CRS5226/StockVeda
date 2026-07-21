@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Radar } from "lucide-react";
 import { api, ConditionRow, SweepDim } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
@@ -2635,6 +2635,281 @@ function MlPanel() {
   );
 }
 
+// ── Quant Signals panel ──────────────────────────────────────────────────────
+
+const QUANT_TIER_COLORS: Record<string, string> = {
+  "STRONG BUY": "bg-emerald-600 text-white", "BUY": "bg-emerald-400 text-white",
+  "STRONG SHORT": "bg-red-600 text-white", "SHORT": "bg-red-400 text-white",
+  "WATCH": "bg-amber-400 text-white", "WEAK": "bg-slate-300 text-slate-600",
+};
+
+function QuantSignalPanel() {
+  const { pickedSymbols, quant, quantResults, quantLoading, quantError, quantProgress, quantAlgoMeta,
+          setQuant, loadQuantAlgoMeta, runQuantSignals, strategy, setStrategy } = useBacktestStore();
+  const [activeSym, setActiveSym] = useState<string | null>(null);
+
+  useEffect(() => { loadQuantAlgoMeta(); }, [loadQuantAlgoMeta]);
+  useEffect(() => {
+    if (quantResults) {
+      const syms = Object.keys(quantResults.symbols).filter((s) => (quantResults.symbols[s].trades.length ?? 0) > 0);
+      const fallback = Object.keys(quantResults.symbols);
+      setActiveSym((s) => s && quantResults.symbols[s] ? s : (syms[0] ?? fallback[0] ?? null));
+    }
+  }, [quantResults]);
+
+  const meta = quantAlgoMeta.find((a) => a.id === quant.algo) ?? null;
+  const canRun = pickedSymbols.length > 0 && !quantLoading;
+  const symResult = activeSym && quantResults ? quantResults.symbols[activeSym] : null;
+  const allQuantTrades = quantResults ? Object.values(quantResults.symbols).flatMap((r) => r.trades) : [];
+  const quantAggStats = tradeStats(allQuantTrades as unknown as BacktestTradeV2[]);
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+        <span className="text-sm font-semibold text-slate-700">Quant Signals — weighted-score algorithms</span>
+        <span className="text-xs text-slate-400 ml-1">hard gates + factor score + ATR stops + risk-% sizing</span>
+      </div>
+
+      {/* Algo selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {quantAlgoMeta.map((a) => (
+          <button key={a.id} onClick={() => setQuant({ algo: a.id })}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              quant.algo === a.id ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"}`}>
+            {a.label}
+            <span className={`ml-1.5 text-[10px] ${quant.algo === a.id ? "text-blue-100" : "text-slate-400"}`}>
+              {a.universe === "fno_only" ? "F&O only" : "any"}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Read-only algo description */}
+      {meta && (
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 flex flex-col gap-2">
+          <div>{meta.description}</div>
+          <div>
+            <span className="font-semibold text-slate-500">Gates: </span>
+            {meta.gates.join(" · ")}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(meta.weights).map(([k, v]) => (
+              <span key={k} className="font-mono bg-white border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded text-[10px]">
+                {k} {Math.round(v * 100)}%
+              </span>
+            ))}
+          </div>
+          <div><span className="font-semibold text-slate-500">Entry: </span>{meta.entry}</div>
+          <div><span className="font-semibold text-slate-500">Trade: </span>{meta.trade}</div>
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="flex flex-wrap gap-4 items-end">
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">From date</div>
+          <input type="date" value={strategy.from_date} onChange={(e) => setStrategy({ from_date: e.target.value })}
+            className="text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">To date</div>
+          <input type="date" value={strategy.to_date} onChange={(e) => setStrategy({ to_date: e.target.value })}
+            className="text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Account capital (₹)</div>
+          <input type="number" step={10000} value={quant.account_capital}
+            onChange={(e) => setQuant({ account_capital: parseFloat(e.target.value) || 1_000_000 })}
+            className="w-32 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <button onClick={runQuantSignals} disabled={!canRun}
+          className="ml-auto px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors">
+          {quantLoading ? "Running…" : `Run ${meta?.label ?? ""}`}
+        </button>
+      </div>
+
+      {quantError && <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{quantError}</div>}
+      {quantProgress && (
+        <div>
+          <div className="text-[11px] text-slate-500 mb-1">{quantProgress.symbol ?? "…"} · {quantProgress.done}/{quantProgress.total}</div>
+          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-blue-500 transition-all" style={{ width: `${quantProgress.total ? (quantProgress.done / quantProgress.total) * 100 : 0}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Results */}
+      {quantResults && (
+        <>
+          {quantResults.excluded_symbols.length > 0 && (
+            <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2">
+              Excluded: {quantResults.excluded_symbols.map((e) => `${e.symbol} (${e.reason})`).join(", ")}
+            </div>
+          )}
+
+          <div className="flex" style={{ height: 640 }}>
+
+            {/* Left panel: summary + stock list (mirrors Multi-Stock mode) */}
+            <div className="w-52 shrink-0 border-r border-slate-100 flex flex-col">
+              <div className="p-3 border-b border-slate-100 bg-slate-50/60">
+                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Quant Results</div>
+                <div className={`text-base font-bold ${pnlClass(quantResults.pooled_stats.total_pnl)}`}>
+                  {quantResults.pooled_stats.total_pnl >= 0 ? "+" : ""}₹{fmt(quantResults.pooled_stats.total_pnl)}
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mt-1.5 text-[10px]">
+                  <span className="text-slate-400">{quantResults.pooled_stats.total_trades} entries</span>
+                  <span className={quantResults.pooled_stats.win_rate_pct >= 50 ? "text-emerald-500" : "text-red-400"}>
+                    {quantResults.pooled_stats.win_rate_pct}% win rate
+                  </span>
+                  <span className={quantAggStats.profitFactor >= 1.5 ? "text-emerald-500" : quantAggStats.profitFactor >= 1 ? "text-amber-500" : "text-red-400"}>
+                    PF {isFinite(quantAggStats.profitFactor) ? quantAggStats.profitFactor.toFixed(2) : "∞"}×
+                  </span>
+                  <span className={quantAggStats.expectancy >= 0 ? "text-emerald-500" : "text-red-400"}>
+                    {quantAggStats.expectancy >= 0 ? "+" : ""}{quantAggStats.expectancy.toFixed(1)}% exp
+                  </span>
+                </div>
+                {/* Target / Stop / Time outcome bars */}
+                {allQuantTrades.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {[
+                      { label: "🎯 Target", count: quantAggStats.targetHits, color: "bg-emerald-400" },
+                      { label: "🛑 Stop", count: quantAggStats.slHits, color: "bg-red-400" },
+                      { label: "⏱ Time", count: quantAggStats.timeStops, color: "bg-slate-300" },
+                    ].map(({ label, count, color }) => {
+                      const pct = (count / allQuantTrades.length) * 100;
+                      return (
+                        <div key={label}>
+                          <div className="flex justify-between text-[9px] text-slate-400 mb-0.5">
+                            <span>{label}</span>
+                            <span>{pct.toFixed(0)}% ({count})</span>
+                          </div>
+                          <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                            <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {quantResults.excluded_symbols.length > 0 && (
+                  <div className="mt-2 text-[9px] text-amber-600">
+                    Excluded: {quantResults.excluded_symbols.map((e) => e.symbol).join(", ")}
+                  </div>
+                )}
+              </div>
+
+              <div className="overflow-y-auto flex-1">
+                {Object.entries(quantResults.symbols).map(([sym, r]) => {
+                  const isActive = sym === activeSym;
+                  return (
+                    <button key={sym} onClick={() => setActiveSym(sym)}
+                      className={`w-full text-left px-3 py-2.5 border-b border-slate-50 transition-colors ${
+                        isActive ? "bg-blue-50 border-l-2 border-l-blue-500" : "hover:bg-slate-50"
+                      }`}>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className={`text-xs font-semibold ${isActive ? "text-blue-700" : "text-slate-700"}`}>{sym}</span>
+                        {!r.error && (
+                          <span className={`text-[10px] font-semibold ${pnlClass(r.stats.total_pnl)}`}>
+                            {r.stats.total_pnl >= 0 ? "+" : ""}₹{fmt(r.stats.total_pnl)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {r.error ? <span className="text-amber-500">no data</span>
+                          : `${r.trades.length} trade${r.trades.length === 1 ? "" : "s"}${r.armed_not_triggered.length ? ` · ${r.armed_not_triggered.length} watched` : ""}`}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right panel: chart + trade log for the selected symbol */}
+            <div className="flex-1 overflow-y-auto pl-4 flex flex-col gap-3">
+              {symResult?.error && <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2">{symResult.error}</div>}
+
+              {symResult && !symResult.error && (
+                <>
+                  {symResult.ohlcv.length > 0 && activeSym && (
+                    <BacktestChart symbol={activeSym} ohlcv={symResult.ohlcv}
+                      trades={symResult.trades as unknown as BacktestTradeV2[]}
+                      boxZones={tradeBoxZones(symResult.trades as unknown as BacktestTradeV2[])} />
+                  )}
+
+                  {/* Trade log with score/tier or arm→trigger timeline */}
+                  {symResult.trades.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-slate-400 border-b border-slate-200">
+                            <th className="text-left py-1.5 pr-3">Entry</th>
+                            <th className="text-left py-1.5 pr-3">Exit</th>
+                            <th className="text-right py-1.5 pr-3">Entry ₹</th>
+                            <th className="text-right py-1.5 pr-3">Stop</th>
+                            <th className="text-right py-1.5 pr-3">Target</th>
+                            <th className="text-right py-1.5 pr-3">Exit ₹</th>
+                            <th className="text-left py-1.5 pr-3">Reason</th>
+                            <th className="text-right py-1.5 pr-3">PnL</th>
+                            <th className="text-right py-1.5 pr-3">PnL %</th>
+                            <th className="text-left py-1.5 pr-3">Signal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {symResult.trades.map((t, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              <td className="py-1.5 pr-3 text-slate-500">{t.entry_date.slice(0, 10)}</td>
+                              <td className="py-1.5 pr-3 text-slate-500">{t.exit_date.slice(0, 10)}</td>
+                              <td className="py-1.5 pr-3 text-right">{t.entry_price}</td>
+                              <td className="py-1.5 pr-3 text-right text-red-400">{t.stop_price}</td>
+                              <td className="py-1.5 pr-3 text-right text-emerald-500">{t.target_price}</td>
+                              <td className="py-1.5 pr-3 text-right">{t.exit_price}</td>
+                              <td className="py-1.5 pr-3 text-slate-400">{t.exit_reason}</td>
+                              <td className={`py-1.5 pr-3 text-right font-medium ${t.pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>₹{fmt(t.pnl, 0)}</td>
+                              <td className="py-1.5 pr-3 text-right text-slate-500">{t.pnl_pct.toFixed(2)}%</td>
+                              <td className="py-1.5 pr-3">
+                                {t.tier ? (
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${QUANT_TIER_COLORS[t.tier] ?? "bg-slate-200"}`}>
+                                    {t.tier} ({t.score?.toFixed(2)})
+                                  </span>
+                                ) : t.arm_date ? (
+                                  <span className="text-[10px] text-slate-500">
+                                    Armed {t.arm_date.slice(0, 10)} (score {t.arm_score?.toFixed(2)}) → Triggered {t.trigger_date?.slice(0, 10)}
+                                  </span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Armed but never triggered (accumulation/distribution only) */}
+                  {symResult.armed_not_triggered.length > 0 && (
+                    <div className="text-[11px] text-slate-400 bg-slate-50 rounded-lg p-2 flex flex-col gap-1">
+                      <div className="font-semibold text-slate-500">Watched but never triggered (not counted in stats):</div>
+                      {symResult.armed_not_triggered.map((a, i) => (
+                        <div key={i}>Armed {a.arm_date.slice(0, 10)} (score {a.arm_score.toFixed(2)}), expired {a.expired_date.slice(0, 10)} — no breakout within 20 trading days.</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {symResult.trades.length === 0 && symResult.armed_not_triggered.length === 0 && (
+                    <div className="text-xs text-slate-400 italic py-3 text-center border border-dashed border-slate-200 rounded-lg">
+                      No qualifying setups for {activeSym} in this date range.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -2800,6 +3075,7 @@ export default function Backtest() {
             { key: "orb"         as const, Icon: Sunrise,          label: "ORB",         desc: "opening-range breakout" },
             { key: "grid"        as const, Icon: SlidersHorizontal, label: "Grid Search", desc: "tune thresholds & periods" },
             { key: "ml"          as const, Icon: BrainCircuit,     label: "ML Models",   desc: "learned entry filter" },
+            { key: "quant"       as const, Icon: Radar,            label: "Quant Signals", desc: "pullback/bounce/accum/distrib" },
           ]).map((m) => {
             const active = mode === m.key;
             return (
@@ -2825,7 +3101,7 @@ export default function Backtest() {
       </div>
 
       {/* ── Section 1: Universe (Multi-Stock, Matrix, Grid, ML modes) ── */}
-      {(mode === "multi_stock" || mode === "matrix" || mode === "grid" || mode === "ml") && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      {(mode === "multi_stock" || mode === "matrix" || mode === "grid" || mode === "ml" || mode === "quant") && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
           <span className="text-sm font-semibold text-slate-700">Pick Stocks</span>
@@ -2932,6 +3208,9 @@ export default function Backtest() {
 
       {/* ── ML Models mode ── */}
       {mode === "ml" && <MlPanel />}
+
+      {/* ── Quant Signals mode ── */}
+      {mode === "quant" && <QuantSignalPanel />}
 
       {/* ── Section 2: Strategy (Multi-Stock mode only) ── */}
       {mode === "multi_stock" && <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-4 transition-opacity ${pickedSymbols.length === 0 ? "opacity-40 pointer-events-none" : ""}`}>
