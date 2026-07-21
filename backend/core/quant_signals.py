@@ -29,7 +29,7 @@ import pandas as pd
 from backend.db.connection import get_db
 from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
-ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution"]
+ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade"]
 
 MAX_SYMBOLS = 50
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
@@ -42,6 +42,7 @@ WEIGHTS = {
     "short_bounce":  {"rsi": 0.25, "bounce": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
     "accumulation":  {"delivery_surge": 0.55, "tightness": 0.45},
     "distribution":  {"effort_result": 0.30, "decay": 0.25, "failed_highs": 0.20, "down_vol_bias": 0.15, "rs": 0.10},
+    "zone_trade":    {"verdict": 1.0},
 }
 
 TIERS = {
@@ -49,6 +50,7 @@ TIERS = {
     "short_bounce":  [(0.70, "STRONG SHORT"), (0.55, "SHORT"), (0.40, "WATCH")],
     "accumulation":  [(0.60, "WATCH")],
     "distribution":  [(0.60, "WATCH")],
+    "zone_trade":    [(1.0, "GO")],
 }
 
 ALGO_METADATA = {
@@ -85,6 +87,15 @@ ALGO_METADATA = {
         "weights": WEIGHTS["distribution"], "tiers": TIERS["distribution"],
         "entry": "Score ≥ 0.60 arms a 20-day watch; entry fires on a breakdown below the prior 20-day low with volume ≥ 1.5× 20-day avg.",
         "trade": "Stop = close + 2×ATR14 · Target = close − 4×ATR14 (1:2) · 0.5% flat risk (smallest — noisiest signal).",
+    },
+    "zone_trade": {
+        "id": "zone_trade", "label": "Support Zone Trade", "direction": "long", "universe": "any",
+        "description": "Ported from the Trade Calculator sheet — buy a pullback into the SMA50 support zone in a confirmed uptrend, with an ATR-buffered stop and risk-% position sizing.",
+        "gates": ["20-day avg turnover ≥ ₹25 cr", "close > SMA200 (uptrend)",
+                   "bar's low touches the SMA50 zone, closes back above it"],
+        "weights": WEIGHTS["zone_trade"], "tiers": TIERS["zone_trade"],
+        "entry": "Enter at close on the zone-touch bar, only if the SL-vs-volatility check (risk/share ≥ 1×ATR14) passes.",
+        "trade": "Stop = SMA50 − 0.5×ATR14 (zone buffer) · Target = entry + 2×risk-per-share (2:1 R:R, matches the sheet's min R:R gate) · 1% flat risk.",
     },
 }
 
@@ -309,6 +320,45 @@ def score_distribution(df: pd.DataFrame) -> tuple[pd.Series, dict[str, pd.Series
     return total, factors
 
 
+# ── Zone Trade (ported from the Trade Calculator sheet) ─────────────────────
+# Entry rule is a designed proxy: the sheet takes a manually-read support zone;
+# here the zone is SMA50 (support in an uptrend) so the algo can run
+# systematically over history. SL/target are zone-relative, not entry-relative,
+# so this algo passes explicit stop/target series into _run_direct_trades
+# instead of the usual ATR-multiple-from-entry.
+
+_ZONE_ATR_MULT = 0.5     # matches the sheet's default ATR multiplier
+_ZONE_RR = 2.0           # matches the sheet's minimum-R:R gate (2:1)
+
+
+def _gates_zone_trade(df: pd.DataFrame) -> pd.Series:
+    return (
+        (df["turnover_sma_20_cr"] >= MIN_TURNOVER_CR)
+        & (df["close"] > df["sma_200"])       # uptrend context
+        & (df["low"] <= df["sma_50"])          # pullback touched the zone
+        & (df["close"] > df["sma_50"])         # zone held, closed back above it
+    ).fillna(False)
+
+
+def _zone_trade_levels(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Zone-relative stop/target, keyed to the entry bar (entry = that bar's close)."""
+    stop = df["sma_50"] - _ZONE_ATR_MULT * df["atr_14"]
+    risk_per_share = df["close"] - stop
+    target = df["close"] + _ZONE_RR * risk_per_share
+    return stop, target
+
+
+def score_zone_trade(df: pd.DataFrame) -> tuple[pd.Series, dict[str, pd.Series]]:
+    """Collapses the sheet's SL-vs-volatility check into a 0/1 'verdict' factor —
+    the R:R check is always true by construction (target fixed at 2R); the
+    risk-size and capital/leverage checks are account-level, applied at
+    position-sizing time in the trade loop rather than per-bar here."""
+    stop, _ = _zone_trade_levels(df)
+    risk_per_share = df["close"] - stop
+    sl_vol_ok = (risk_per_share >= df["atr_14"]).astype(float)
+    return sl_vol_ok, {"verdict": sl_vol_ok}
+
+
 def _assign_tier(score: float, algo: str) -> str:
     for threshold, label in TIERS[algo]:
         if score >= threshold:
@@ -341,7 +391,9 @@ def _run_direct_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, alg
                        direction: Literal["long", "short"], entry_threshold: float,
                        atr_stop_mult: float, atr_target_mult: float,
                        base_risk_pct: float, score_scaled: bool,
-                       account_capital: float) -> list[dict]:
+                       account_capital: float,
+                       stop_series: Optional[pd.Series] = None,
+                       target_series: Optional[pd.Series] = None) -> list[dict]:
     trades: list[dict] = []
     in_trade = False
     entry_idx = entry_price = stop_price = target_price = 0.0
@@ -389,8 +441,17 @@ def _run_direct_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, alg
             if atr <= 0:
                 continue
             entry_price = close
-            stop_price = entry_price - atr_stop_mult * atr if direction == "long" else entry_price + atr_stop_mult * atr
-            target_price = entry_price + atr_target_mult * atr if direction == "long" else entry_price - atr_target_mult * atr
+            # stop_series/target_series let an algo specify a ZONE-relative stop
+            # (e.g. support level minus an ATR buffer) instead of the default
+            # entry-relative ATR-multiple stop every other algo here uses.
+            if stop_series is not None and target_series is not None:
+                stop_price = float(stop_series.iloc[i])
+                target_price = float(target_series.iloc[i])
+                if pd.isna(stop_price) or pd.isna(target_price):
+                    continue
+            else:
+                stop_price = entry_price - atr_stop_mult * atr if direction == "long" else entry_price + atr_stop_mult * atr
+                target_price = entry_price + atr_target_mult * atr if direction == "long" else entry_price - atr_target_mult * atr
             risk_pct = (_scaled_risk_pct(score.iloc[i], base_risk_pct, entry_threshold) if score_scaled else base_risk_pct)
             shares = _position_size(account_capital, risk_pct, entry_price, stop_price)
             if shares < 1:
@@ -525,6 +586,13 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         gates = _gates_distribution(df)
         score, factors = score_distribution(df)
         trades, armed_not_triggered = _run_armed_trades(df, gates, score, algo, "short", 2.0, 4.0, 0.5, account_capital)
+    elif algo == "zone_trade":
+        gates = _gates_zone_trade(df)
+        score, factors = score_zone_trade(df)
+        stop_series, target_series = _zone_trade_levels(df)
+        trades = _run_direct_trades(df, gates, score, algo, "long", 1.0, 0.0, 0.0, 1.0, False, account_capital,
+                                    stop_series=stop_series, target_series=target_series)
+        armed_not_triggered = []
     else:
         raise ValueError(f"Unknown algo: {algo}")
 

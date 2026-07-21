@@ -925,7 +925,7 @@ def run_ml_stream(req: MlRequest):
 # ── Quant Signals (Long Pullback / Short Bounce / Accumulation / Distribution) ─
 
 class QuantSignalRequest(BaseModel):
-    algo: Literal["long_pullback", "short_bounce", "accumulation", "distribution"]
+    algo: Literal["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade"]
     symbols: list[str] = Field(..., min_length=1, max_length=qs.MAX_SYMBOLS)
     from_date: str
     to_date: str
