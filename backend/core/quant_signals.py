@@ -297,7 +297,10 @@ def score_short_bounce(df: pd.DataFrame) -> tuple[pd.Series, dict[str, pd.Series
 def score_accumulation(df: pd.DataFrame) -> tuple[pd.Series, dict[str, pd.Series]]:
     w = WEIGHTS["accumulation"]
     factors = {
-        "delivery_surge": _one_sided_score(df["delivery_surge_5v20"].fillna(1.0), 1.6, 0.5, "higher"),
+        # ideal_at=1.3/tolerance=0.3 (floor=1.0) recalibrated against observed
+        # 5v20 delivery-surge ratios, which rarely exceed ~1.2-1.3x in practice —
+        # the original 1.6x reference was unreachable, so WATCH (>=0.60) never fired.
+        "delivery_surge": _one_sided_score(df["delivery_surge_5v20"].fillna(1.0), 1.3, 0.3, "higher"),
         "tightness":      _one_sided_score(df["chg_20d_pct"].abs().fillna(5.0), 0.0, 5.0, "lower"),
     }
     total = sum(factors[k] * w[k] for k in w)
