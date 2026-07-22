@@ -317,8 +317,6 @@ CREATE TABLE IF NOT EXISTS watchlists (
     PRIMARY KEY (id)
 );
 
-CREATE SEQUENCE IF NOT EXISTS watchlist_id_seq START 1;
-
 -- ── Saved Screeners ────────────────────────────────────────────────────────
 CREATE SEQUENCE IF NOT EXISTS screener_id_seq START 1;
 CREATE TABLE IF NOT EXISTS saved_screeners (
