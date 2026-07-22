@@ -108,7 +108,12 @@ def sync_progress(job_id: str):
 @router.post("/watchlists")
 def create_watchlist(body: WatchlistCreate):
     db = get_db()
-    wid = db.execute("SELECT nextval('watchlist_id_seq')").fetchone()[0]
+    # Derived from the table's actual max id rather than the watchlist_id_seq
+    # sequence — the sequence's counter had desynced from the table (DuckDB
+    # per-connection nextval caching vs. this app's thread-local connections),
+    # causing a duplicate-key error on insert. Single-writer app, so the tiny
+    # race window here is not a practical concern.
+    wid = db.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM watchlists").fetchone()[0]
     db.execute(
         "INSERT INTO watchlists (id, name, symbols) VALUES (?, ?, ?)",
         [wid, body.name, body.symbols],
