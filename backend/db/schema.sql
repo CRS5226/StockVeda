@@ -370,20 +370,3 @@ ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS pct_from_52w_low  DOU
 ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_1d    DOUBLE;
 ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_5d    DOUBLE;
 ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_20d   DOUBLE;
-
--- ── Trade Planner: Trade Log ────────────────────────────────────────────────
-CREATE SEQUENCE IF NOT EXISTS trade_log_id_seq START 1;
-CREATE TABLE IF NOT EXISTS trade_log (
-    id          INTEGER,
-    symbol      VARCHAR NOT NULL,
-    direction   VARCHAR NOT NULL,   -- 'long' | 'short'
-    entry_date  DATE NOT NULL,
-    entry_price DOUBLE NOT NULL,
-    sl_price    DOUBLE NOT NULL,
-    quantity    INTEGER NOT NULL,
-    exit_date   DATE,               -- NULL while the trade is still open
-    exit_price  DOUBLE,             -- NULL while the trade is still open
-    notes       VARCHAR,
-    created_at  TIMESTAMP DEFAULT now(),
-    PRIMARY KEY (id)
-);

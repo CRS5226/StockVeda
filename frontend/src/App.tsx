@@ -7,7 +7,6 @@ import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
 import FnO from "./pages/FnO";
 import Analysis from "./pages/Analysis";
-import TradePlanner from "./pages/TradePlanner";
 
 export default function App() {
   return (
@@ -19,7 +18,6 @@ export default function App() {
           <Route path="/stock/:symbol" element={<StockDetail />} />
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
-          <Route path="/trade-planner" element={<TradePlanner />} />
           <Route path="/fno" element={<FnO />} />
           <Route path="/analysis" element={<Analysis />} />
         </Routes>
