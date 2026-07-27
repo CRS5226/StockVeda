@@ -235,12 +235,17 @@ export interface QuantTrade {
   arm_date?: string; trigger_date?: string; arm_score?: number;  // arm/trigger algos (3/4)
 }
 export interface QuantArmedNotTriggered { arm_date: string; arm_score: number; expired_date: string }
+export interface QuantSignalDiagnostics {
+  qualifying_days: number; armed: number; expired_unfilled: number;
+  reject_sl: number; reject_rr: number; no_anchor: number; no_data: number; qty_zero: number;
+}
 export interface QuantSymbolResult {
   trades: QuantTrade[];
   armed_not_triggered: QuantArmedNotTriggered[];
   ohlcv: { date: string; open: number; high: number; low: number; close: number }[];
   score_series: { date: string; score: number; tier: string }[];
   stats: GridComboStats;
+  diagnostics?: QuantSignalDiagnostics;
   error?: string;
 }
 export interface QuantSignalResult {
@@ -248,6 +253,7 @@ export interface QuantSignalResult {
   symbols: Record<string, QuantSymbolResult>;
   excluded_symbols: { symbol: string; reason: string }[];
   pooled_stats: GridComboStats;
+  diagnostics?: QuantSignalDiagnostics;
 }
 
 export interface MarketRegimeYear {

@@ -999,6 +999,11 @@ def run_quant_signals(req: QuantSignalRequest):
             "excluded_symbols": excluded_symbols,
             "pooled_stats": pooled_stats,
         }
+        diag_keys = ("qualifying_days", "armed", "expired_unfilled",
+                    "reject_sl", "reject_rr", "no_anchor", "no_data", "qty_zero")
+        per_symbol_diag = [r["diagnostics"] for r in results.values() if "diagnostics" in r]
+        if per_symbol_diag:
+            result["diagnostics"] = {k: sum(d.get(k, 0) for d in per_symbol_diag) for k in diag_keys}
         yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
 
     return StreamingResponse(

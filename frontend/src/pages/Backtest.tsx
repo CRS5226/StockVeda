@@ -2766,6 +2766,38 @@ function QuantSignalPanel() {
                     })}
                   </div>
                 )}
+                {quantResults.diagnostics && (
+                  <div className="mt-2 pt-2 border-t border-slate-200">
+                    <div className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">
+                      Signal funnel ({quantResults.diagnostics.qualifying_days} qualifying days)
+                    </div>
+                    <div className="flex flex-col gap-0.5 text-[9px] text-slate-500">
+                      <div className="flex justify-between">
+                        <span>✅ Armed</span><span className="font-medium text-slate-600">{quantResults.diagnostics.armed}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>⌛ Expired unfilled</span><span className="text-slate-500">{quantResults.diagnostics.expired_unfilled}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>✋ Rejected — stop too tight/wide</span><span className="text-red-400">{quantResults.diagnostics.reject_sl}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>✋ Rejected — R:R / no target room</span><span className="text-red-400">{quantResults.diagnostics.reject_rr}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>➖ No support zone found</span><span className="text-slate-400">{quantResults.diagnostics.no_anchor}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>➖ Qty too small to size</span><span className="text-slate-400">{quantResults.diagnostics.qty_zero}</span>
+                      </div>
+                      {quantResults.diagnostics.no_data > 0 && (
+                        <div className="flex justify-between">
+                          <span>➖ No ATR/price data</span><span className="text-slate-400">{quantResults.diagnostics.no_data}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {quantResults.excluded_symbols.length > 0 && (
                   <div className="mt-2 text-[9px] text-amber-600">
                     Excluded: {quantResults.excluded_symbols.map((e) => e.symbol).join(", ")}
