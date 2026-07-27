@@ -250,6 +250,13 @@ export interface QuantSignalResult {
   pooled_stats: GridComboStats;
 }
 
+export interface MarketRegimeYear {
+  year: number;
+  label: "Bullish" | "Bearish";
+  nifty: { start: number; end: number; return_pct: number; from_date: string; to_date: string };
+  sensex: { start: number; end: number; return_pct: number; from_date: string; to_date: string } | null;
+}
+
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -592,6 +599,8 @@ export const api = {
     ),
   getMlModels: () => apiFetch<MlModelInfo[]>("/backtest/ml-models"),
   getQuantSignalAlgos: () => apiFetch<QuantAlgoMeta[]>("/backtest/quant-signals"),
+  getMarketRegime: (fromDate: string, toDate: string) =>
+    apiFetch<MarketRegimeYear[]>(`/backtest/market-regime?from_date=${fromDate}&to_date=${toDate}`),
 
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });
