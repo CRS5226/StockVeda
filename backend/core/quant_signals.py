@@ -444,6 +444,14 @@ _TICK_SIZE = 0.05                  # NSE cash-segment tick
 _SWING_LOOKBACK = 5                # fractal bars required on each side
 _ROLE_REVERSAL_WINDOW = 120        # designed default — spec doesn't bound recency
 _ROLE_REVERSAL_MAX_CANDIDATES = 6
+_TARGET_52W_HEADROOM = 0.06         # allow target 6% past the old 52w high before capping —
+                                    # a pure at-the-high cap was rejecting most pullback setups
+                                    # in strong stocks via REJECT_RR (diagnostics-confirmed)
+_TARGET_WALL_MIN_WEIGHT = 6        # confluence needed for a nearby wall to override the 3R
+                                    # target (was 4, same as the support-zone threshold) —
+                                    # raised so a marginal wall doesn't compress T1 below 2:1
+_SWING_ARM_EXPIRY_BARS = 30        # separate from the shared ARM_EXPIRY_BARS (accum/distrib) —
+                                    # 66% of armed swing_pullback orders expired unfilled at 20 bars
 
 
 def attach_swing_pullback_factors(df: pd.DataFrame) -> pd.DataFrame:
@@ -732,9 +740,9 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
     # STEP11 — targets
     above = sorted([(p, wt) for p, wt in levels if p > entry], key=lambda t: t[0])
     strong_above = [(p, wt) for p, wt in above if wt >= 2]
-    walls = _chain_walls(strong_above, atr, 4)
+    walls = _chain_walls(strong_above, atr, _TARGET_WALL_MIN_WEIGHT)
     if not walls:
-        walls = _chain_walls(above, atr, 4)
+        walls = _chain_walls(above, atr, _TARGET_WALL_MIN_WEIGHT)
     zr_next = walls[0][0] if len(walls) >= 1 else None
     zr_next2 = walls[1][0] if len(walls) >= 2 else None
 
@@ -753,10 +761,10 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
 
     high_52w = row.get("high_52w")
     if high_52w is not None and not pd.isna(high_52w):
-        high_52w = float(high_52w)
-        t1 = min(t1, high_52w)
+        high_52w_cap = float(high_52w) * (1 + _TARGET_52W_HEADROOM)
+        t1 = min(t1, high_52w_cap)
         if t2 is not None:
-            t2 = min(t2, high_52w)
+            t2 = min(t2, high_52w_cap)
         if t1 <= entry:
             t1 = None
 
@@ -869,7 +877,7 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
 
         if state == "armed":
             bars_armed = i - pending["signal_idx"]
-            if bars_armed > ARM_EXPIRY_BARS:
+            if bars_armed > _SWING_ARM_EXPIRY_BARS:
                 armed_not_triggered.append({
                     "arm_date": str(df.iloc[pending["signal_idx"]]["date"]),
                     "arm_score": round(pending["score"], 3),
