@@ -609,16 +609,16 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
                                  close_arr: np.ndarray, high_arr: np.ndarray, low_arr: np.ndarray,
                                  volume_arr: np.ndarray, sh_idx: np.ndarray, sh_val: np.ndarray,
                                  sl_idx: np.ndarray, sl_val: np.ndarray,
-                                 account_capital: float) -> Optional[dict]:
+                                 account_capital: float) -> dict:
     """STEP5-13 of the formula, evaluated for a single (already gated+scored) bar.
-    Returns None if there's not enough data to act; otherwise a dict with a
-    "verdict" of REJECT_SL / REJECT_RR (don't trade) or TRIGGERED / PLANNED
-    (arm a pending order) plus the computed entry/stop/target/qty."""
+    Always returns a dict with a "verdict" — NO_DATA / NO_ANCHOR / REJECT_SL /
+    REJECT_RR / QTY_ZERO (don't trade, tagged so the caller can tally *why*) or
+    TRIGGERED / PLANNED (arm a pending order) plus entry/stop/target/qty."""
     row = df.iloc[i]
     close, high, low, volume = close_arr[i], high_arr[i], low_arr[i], volume_arr[i]
     atr = float(row["atr_14"]) if not pd.isna(row["atr_14"]) else 0.0
     if atr <= 0 or close <= 0:
-        return None
+        return {"verdict": "NO_DATA", "entry_type": None}
     vol20 = float(row["volume_sma_20"]) if not pd.isna(row["volume_sma_20"]) else 0.0
 
     cut = i - _SWING_LOOKBACK
@@ -661,7 +661,7 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
     elif sma50 is not None:
         anchor = sma50
     else:
-        return None
+        return {"verdict": "NO_ANCHOR", "entry_type": None}
 
     omega_anchor = _omega(anchor, levels, atr)
     if omega_anchor < 4 and ema20 is not None:
@@ -787,7 +787,7 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
     q_liq_turn = math.floor(0.02 * turnover20_cr * 1e7 / entry)
     qty = max(0, min(q_risk, q_exposure, q_liq_vol, q_liq_turn))
     if qty < 1:
-        return None
+        return {"verdict": "QTY_ZERO", "entry_type": entry_type}
 
     qualifiers = []
     if zone_anchored:
@@ -811,9 +811,18 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
 def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series,
                                sh_idx: np.ndarray, sh_val: np.ndarray,
                                sl_idx: np.ndarray, sl_val: np.ndarray,
-                               account_capital: float) -> tuple[list[dict], list[dict]]:
+                               account_capital: float) -> tuple[list[dict], list[dict], dict]:
+    """Returns (trades, armed_not_triggered, diagnostics). diagnostics is a
+    funnel of what happened to every gate+score-qualifying day — this is the
+    only place visibility into silently-dropped signals (REJECT_SL/REJECT_RR/
+    NO_ANCHOR/NO_DATA/QTY_ZERO) exists, since _build_swing_pullback_signal's
+    non-arming verdicts otherwise vanish with no trace."""
     trades: list[dict] = []
     armed_not_triggered: list[dict] = []
+    diagnostics = {
+        "qualifying_days": 0, "armed": 0, "expired_unfilled": 0,
+        "reject_sl": 0, "reject_rr": 0, "no_anchor": 0, "no_data": 0, "qty_zero": 0,
+    }
     state = "idle"  # idle | armed | in_trade
     pending: Optional[dict] = None
     entry_idx = entry_price = stop_price = target_price = 0.0
@@ -866,6 +875,7 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
                     "arm_score": round(pending["score"], 3),
                     "expired_date": str(row["date"]),
                 })
+                diagnostics["expired_unfilled"] += 1
                 state, pending = "idle", None
                 continue
             triggered = (low <= pending["entry"]) if pending["zone_anchored"] else (high >= pending["entry"])
@@ -880,9 +890,12 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
             continue
 
         if bool(gates.iloc[i]) and not pd.isna(score.iloc[i]) and score.iloc[i] >= 0.40:
+            diagnostics["qualifying_days"] += 1
             sig = _build_swing_pullback_signal(df, i, float(score.iloc[i]), close_arr, high_arr, low_arr,
                                                volume_arr, sh_idx, sh_val, sl_idx, sl_val, account_capital)
-            if sig is not None and sig.get("verdict") in ("TRIGGERED", "PLANNED"):
+            verdict = sig.get("verdict")
+            if verdict in ("TRIGGERED", "PLANNED"):
+                diagnostics["armed"] += 1
                 pending = {
                     "signal_idx": i, "entry": sig["entry"], "stop": sig["stop"], "target": sig["target1"],
                     "qty": sig["qty"], "zone_anchored": sig["zone_anchored"], "entry_type": sig["entry_type"],
@@ -890,8 +903,18 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
                     "qualifiers": sig["qualifiers"],
                 }
                 state = "armed"
+            elif verdict == "REJECT_SL":
+                diagnostics["reject_sl"] += 1
+            elif verdict == "REJECT_RR":
+                diagnostics["reject_rr"] += 1
+            elif verdict == "NO_ANCHOR":
+                diagnostics["no_anchor"] += 1
+            elif verdict == "NO_DATA":
+                diagnostics["no_data"] += 1
+            elif verdict == "QTY_ZERO":
+                diagnostics["qty_zero"] += 1
 
-    return trades, armed_not_triggered
+    return trades, armed_not_triggered, diagnostics
 
 
 def _assign_tier(score: float, algo: str) -> str:
@@ -1103,6 +1126,7 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
     df["_score"] = np.nan
     df["_tier"] = ""
 
+    diagnostics: Optional[dict] = None
     if algo == "long_pullback":
         gates = _gates_long_pullback(df)
         score, factors = score_long_pullback(df)
@@ -1137,7 +1161,7 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         sh_val = df["high"].to_numpy(dtype=float)[sh_idx]
         sl_idx = np.where(is_low)[0]
         sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
-        trades, armed_not_triggered = _run_swing_pullback_trades(
+        trades, armed_not_triggered, diagnostics = _run_swing_pullback_trades(
             df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital)
     else:
         raise ValueError(f"Unknown algo: {algo}")
@@ -1163,13 +1187,16 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         for _, r in df.iterrows() if not pd.isna(r["close"])
     ]
 
-    return {
+    result = {
         "trades": trades,
         "armed_not_triggered": armed_not_triggered,
         "stats": stats,
         "score_series": score_series,
         "ohlcv": ohlcv,
     }
+    if diagnostics is not None:
+        result["diagnostics"] = diagnostics
+    return result
 
 
 def is_fno_eligible(symbol: str) -> bool:
