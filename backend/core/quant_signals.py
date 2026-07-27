@@ -452,6 +452,10 @@ _TARGET_WALL_MIN_WEIGHT = 6        # confluence needed for a nearby wall to over
                                     # raised so a marginal wall doesn't compress T1 below 2:1
 _SWING_ARM_EXPIRY_BARS = 30        # separate from the shared ARM_EXPIRY_BARS (accum/distrib) —
                                     # 66% of armed swing_pullback orders expired unfilled at 20 bars
+_ZONE_ANCHOR_OVERSHOOT_ATR = 0.5   # tried 0.25 (routing more entries to the zone-anchored fallback,
+                                    # which looked better on a 2yr sample) but it regressed PF and
+                                    # total P&L on the fuller 3yr sample (1.157→1.102, +69k→+33k) —
+                                    # reverted, kept at the original spec value
 
 
 def attach_swing_pullback_factors(df: pd.DataFrame) -> pd.DataFrame:
@@ -715,7 +719,7 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
         mid = (high + low) / 2
         confirmed = close > mid and vol20 > 0 and volume >= 1.2 * vol20
         entry = high + max(0.001 * high, _TICK_SIZE)
-        if (high - zs_high) > 0.5 * atr:
+        if (high - zs_high) > _ZONE_ANCHOR_OVERSHOOT_ATR * atr:
             entry = zs_low + max(0.001 * zs_low, _TICK_SIZE)
             confirmed = False
             zone_anchored = True
