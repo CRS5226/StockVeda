@@ -2578,6 +2578,7 @@ const QUANT_TIER_COLORS: Record<string, string> = {
 
 function QuantSignalPanel() {
   const { pickedSymbols, quant, quantResults, quantLoading, quantError, quantProgress, quantAlgoMeta,
+          marketRegime, marketRegimeLoading,
           setQuant, loadQuantAlgoMeta, runQuantSignals, strategy, setStrategy } = useBacktestStore();
   const [activeSym, setActiveSym] = useState<string | null>(null);
 
@@ -2595,6 +2596,46 @@ function QuantSignalPanel() {
   const symResult = activeSym && quantResults ? quantResults.symbols[activeSym] : null;
   const allQuantTrades = quantResults ? Object.values(quantResults.symbols).flatMap((r) => r.trades) : [];
   const quantAggStats = tradeStats(allQuantTrades as unknown as BacktestTradeV2[]);
+
+  const yearlyTradeStats = new Map<number, { total: number; targetHits: number; slHits: number; timeoutHits: number }>();
+  for (const t of allQuantTrades) {
+    const year = new Date(t.entry_date).getFullYear();
+    const s = yearlyTradeStats.get(year) ?? { total: 0, targetHits: 0, slHits: 0, timeoutHits: 0 };
+    s.total += 1;
+    if (t.exit_reason === "target") s.targetHits += 1;
+    else if (t.exit_reason === "sl") s.slHits += 1;
+    else if (t.exit_reason === "timeout") s.timeoutHits += 1;
+    yearlyTradeStats.set(year, s);
+  }
+  const fmtShortDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+
+  // Equal-weighted average year-over-year return across every stock in this
+  // run (same clipped-year logic as Nifty/Sensex) — reuses each symbol's
+  // already-fetched ohlcv, no extra API call.
+  const yearlyBasketReturns = new Map<number, { avg: number; count: number }>();
+  if (quantResults) {
+    const perYearReturns = new Map<number, number[]>();
+    for (const sym of Object.keys(quantResults.symbols)) {
+      const ohlcv = quantResults.symbols[sym].ohlcv;
+      if (!ohlcv || ohlcv.length < 2) continue;
+      const byYear = new Map<number, number[]>();
+      for (const bar of ohlcv) {
+        const yr = new Date(bar.date).getFullYear();
+        if (!byYear.has(yr)) byYear.set(yr, []);
+        byYear.get(yr)!.push(bar.close);
+      }
+      for (const [yr, closes] of byYear) {
+        if (closes.length < 2 || closes[0] <= 0) continue;
+        const ret = (closes[closes.length - 1] / closes[0] - 1) * 100;
+        if (!perYearReturns.has(yr)) perYearReturns.set(yr, []);
+        perYearReturns.get(yr)!.push(ret);
+      }
+    }
+    for (const [yr, rets] of perYearReturns) {
+      yearlyBasketReturns.set(yr, { avg: rets.reduce((a, b) => a + b, 0) / rets.length, count: rets.length });
+    }
+  }
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
@@ -2760,6 +2801,68 @@ function QuantSignalPanel() {
 
             {/* Right panel: chart + trade log for the selected symbol */}
             <div className="flex-1 overflow-y-auto pl-4 flex flex-col gap-3">
+              {(marketRegimeLoading || (marketRegime && marketRegime.length > 0)) && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-[11px] font-semibold text-slate-500">Market regime (Nifty / Sensex, year-wise)</div>
+                  {marketRegimeLoading ? (
+                    <div className="text-xs text-slate-400">Loading…</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {marketRegime!.map((y) => {
+                        const ts = yearlyTradeStats.get(y.year);
+                        return (
+                          <div key={y.year}
+                            className={`rounded-lg border px-3 py-2 min-w-[160px] ${
+                              y.label === "Bullish" ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-slate-600">{y.year}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                y.label === "Bullish" ? "bg-emerald-500 text-white" : "bg-red-500 text-white"}`}>
+                                {y.label}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {fmtShortDate(y.nifty.from_date)} – {fmtShortDate(y.nifty.to_date)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              Nifty <span className={y.nifty.return_pct >= 0 ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>
+                                {y.nifty.return_pct >= 0 ? "+" : ""}{y.nifty.return_pct}%
+                              </span>
+                            </div>
+                            {y.sensex && (
+                              <div className="text-[11px] text-slate-500">
+                                Sensex <span className={y.sensex.return_pct >= 0 ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>
+                                  {y.sensex.return_pct >= 0 ? "+" : ""}{y.sensex.return_pct}%
+                                </span>
+                              </div>
+                            )}
+                            {(() => {
+                              const basket = yearlyBasketReturns.get(y.year);
+                              return basket ? (
+                                <div className="text-[11px] text-slate-500">
+                                  Basket avg <span className={basket.avg >= 0 ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>
+                                    {basket.avg >= 0 ? "+" : ""}{basket.avg.toFixed(2)}%
+                                  </span>
+                                  <span className="text-slate-400"> ({basket.count})</span>
+                                </div>
+                              ) : null;
+                            })()}
+                            <div className="mt-1.5 pt-1.5 border-t border-slate-200/70 text-[11px] text-slate-500 flex flex-col gap-0.5">
+                              <div>Entries <span className="font-medium text-slate-600">{ts?.total ?? 0}</span></div>
+                              <div>Target hit <span className="font-medium text-emerald-600">{ts?.targetHits ?? 0}</span></div>
+                              <div>SL hit <span className="font-medium text-red-500">{ts?.slHits ?? 0}</span></div>
+                              {!!ts?.timeoutHits && (
+                                <div>Timeout <span className="font-medium text-slate-500">{ts.timeoutHits}</span></div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {symResult?.error && <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2">{symResult.error}</div>}
 
               {symResult && !symResult.error && (

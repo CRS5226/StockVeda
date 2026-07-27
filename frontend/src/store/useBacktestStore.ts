@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult, QuantAlgoId, QuantAlgoMeta, QuantSignalResult } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult, QuantAlgoId, QuantAlgoMeta, QuantSignalResult, MarketRegimeYear } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -349,9 +349,12 @@ interface BacktestState {
   quantError: string | null;
   quantProgress: { phase: string; done: number; total: number; symbol?: string } | null;
   quantAlgoMeta: QuantAlgoMeta[];
+  marketRegime: MarketRegimeYear[] | null;
+  marketRegimeLoading: boolean;
   setQuant: (p: Partial<QuantConfig>) => void;
   loadQuantAlgoMeta: () => Promise<void>;
   runQuantSignals: () => Promise<void>;
+  loadMarketRegime: () => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -814,6 +817,8 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   quantError: null,
   quantProgress: null,
   quantAlgoMeta: [],
+  marketRegime: null,
+  marketRegimeLoading: false,
 
   setQuant: (p) => set((s) => ({ quant: { ...s.quant, ...p } })),
 
@@ -824,10 +829,22 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     } catch {}
   },
 
+  loadMarketRegime: async () => {
+    const { strategy } = get();
+    set({ marketRegimeLoading: true });
+    try {
+      const years = await api.getMarketRegime(strategy.from_date, strategy.to_date);
+      set({ marketRegime: years, marketRegimeLoading: false });
+    } catch {
+      set({ marketRegime: null, marketRegimeLoading: false });
+    }
+  },
+
   runQuantSignals: async () => {
     const { pickedSymbols, quant, strategy } = get();
     if (!pickedSymbols.length) return;
     set({ quantLoading: true, quantError: null, quantResults: null, quantProgress: null });
+    get().loadMarketRegime();
     try {
       const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
       const res = await fetch(`${BASE}/backtest/run-quant-signals`, {

@@ -938,6 +938,13 @@ def get_quant_signal_algos():
     return list(qs.ALGO_METADATA.values())
 
 
+@router.get("/market-regime")
+def get_market_regime(from_date: str, to_date: str):
+    """Year-wise Nifty/Sensex context for the chosen date range — shown as
+    cards above the chart in the Quant Signals panel, independent of algo."""
+    return qs.compute_market_regime(from_date, to_date)
+
+
 @router.post("/run-quant-signals")
 def run_quant_signals(req: QuantSignalRequest):
     """SSE endpoint — 4 weighted-scoring algos (see quant_signals.py). F&O-only

@@ -157,6 +157,64 @@ def fetch_nifty_series(from_date: str, to_date: str) -> pd.DataFrame:
     ).df()
 
 
+# ── Market regime (year-wise Nifty/Sensex context) ──────────────────────────
+# Context panel for the Quant Signals UI — separate from any single algo's
+# gates/score, just "what was the broad market doing" per calendar year over
+# the chosen date range. Label rule is intentionally the simple sign-based one
+# the user asked for (negative Nifty return = bearish year) — a flat/neutral
+# band can be layered on later once this is checked against real data.
+
+def _fetch_index_series(index_name: str, from_date: str, to_date: str) -> pd.DataFrame:
+    db = get_db()
+    return db.execute(
+        "SELECT date, close FROM index_ohlcv WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date",
+        [index_name, from_date, to_date],
+    ).df()
+
+
+def compute_market_regime(from_date: str, to_date: str) -> list[dict]:
+    """Per-calendar-year Nifty/Sensex return over [from_date, to_date], each
+    year clipped to the requested range (so the first/last year may be partial).
+    Label is sign-based on the Nifty return: negative = Bearish, else Bullish."""
+    nifty = _fetch_index_series("NIFTY 50", from_date, to_date)
+    sensex = _fetch_index_series("SENSEX", from_date, to_date)
+    if nifty.empty:
+        return []
+    nifty["date"] = pd.to_datetime(nifty["date"])
+    sensex["date"] = pd.to_datetime(sensex["date"]) if not sensex.empty else sensex
+
+    start_year = nifty["date"].min().year
+    end_year = nifty["date"].max().year
+
+    def _year_return(df: pd.DataFrame, year: int) -> Optional[dict]:
+        if df.empty:
+            return None
+        yr = df[df["date"].dt.year == year]
+        if len(yr) < 2:
+            return None
+        first, last = float(yr["close"].iloc[0]), float(yr["close"].iloc[-1])
+        if first <= 0:
+            return None
+        return {
+            "start": round(first, 2), "end": round(last, 2),
+            "return_pct": round((last / first - 1) * 100, 2),
+            "from_date": str(yr["date"].iloc[0].date()), "to_date": str(yr["date"].iloc[-1].date()),
+        }
+
+    years = []
+    for year in range(start_year, end_year + 1):
+        nifty_yr = _year_return(nifty, year)
+        if nifty_yr is None:
+            continue
+        sensex_yr = _year_return(sensex, year)
+        label = "Bearish" if nifty_yr["return_pct"] < 0 else "Bullish"
+        years.append({
+            "year": year, "label": label,
+            "nifty": nifty_yr, "sensex": sensex_yr,
+        })
+    return years
+
+
 def attach_quant_factors(df: pd.DataFrame, symbol: str, from_date: str, to_date: str,
                          nifty_df: pd.DataFrame) -> pd.DataFrame:
     """
