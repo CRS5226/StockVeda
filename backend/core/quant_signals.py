@@ -29,7 +29,7 @@ import pandas as pd
 from backend.db.connection import get_db
 from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
-ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade"]
+ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback"]
 
 MAX_SYMBOLS = 50
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
@@ -43,6 +43,7 @@ WEIGHTS = {
     "accumulation":  {"delivery_surge": 0.55, "tightness": 0.45},
     "distribution":  {"effort_result": 0.30, "decay": 0.25, "failed_highs": 0.20, "down_vol_bias": 0.15, "rs": 0.10},
     "zone_trade":    {"verdict": 1.0},
+    "swing_pullback": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
 }
 
 TIERS = {
@@ -51,6 +52,7 @@ TIERS = {
     "accumulation":  [(0.60, "WATCH")],
     "distribution":  [(0.60, "WATCH")],
     "zone_trade":    [(1.0, "GO")],
+    "swing_pullback": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
 }
 
 ALGO_METADATA = {
@@ -96,6 +98,14 @@ ALGO_METADATA = {
         "weights": WEIGHTS["zone_trade"], "tiers": TIERS["zone_trade"],
         "entry": "Enter at close on the zone-touch bar, only if the SL-vs-volatility check (risk/share ≥ 1×ATR14) passes.",
         "trade": "Stop = SMA50 − 0.5×ATR14 (zone buffer) · Target = entry + 2×risk-per-share (2:1 R:R, matches the sheet's min R:R gate) · 1% flat risk.",
+    },
+    "swing_pullback": {
+        "id": "swing_pullback", "label": "Swing Trade Pullback", "direction": "long", "universe": "any",
+        "description": "Momentum/delivery pullback with a multi-source support-zone confluence read (fractal swings, weekly pivots, MAs, fib retracement, round numbers, role-reversal) — buys a confirmed dip in a rising trend at a computed zone-anchored entry.",
+        "gates": ["20-day avg turnover ≥ ₹25 cr", "close > SMA50", "SMA50 > SMA200", "SMA50 rising vs 10 days ago"],
+        "weights": WEIGHTS["swing_pullback"], "tiers": TIERS["swing_pullback"],
+        "entry": "Score ≥ 0.40 (WATCH) builds a confluence support zone (Omega score) and arms a pending PULLBACK/RETEST/BREAKOUT order for up to 20 trading days; fires when price reaches the computed entry level.",
+        "trade": "Stop = min(swing-low, zone-low) − ATR-scaled buffer (buffer widens with confirmation + volatility regime) · Target = min(3R, nearest resistance wall), capped at the 52-week high, gated at ≥2:1 R:R · Risk % scales with ATR% and score, capped at 2% of capital.",
     },
 }
 
@@ -362,6 +372,470 @@ def score_zone_trade(df: pd.DataFrame) -> tuple[pd.Series, dict[str, pd.Series]]
     return sl_vol_ok, {"verdict": sl_vol_ok}
 
 
+# ── Swing Trade Pullback (MOM_PULLBACK / DELIVERY_PULLBACK formula) ─────────
+# Ported from the user's standalone formula spec. Unlike the other algos, this
+# one builds a genuine multi-source support/resistance confluence map (fractal
+# swings, weekly pivots, MAs/EMAs, fib retracement, round numbers, role-reversal)
+# and derives entry/stop/target from that zone rather than a flat ATR multiple.
+# Where the spec leaves a curve shape/tolerance/lookback unstated, a designed
+# default is used (flagged inline) — same convention as the rest of this file.
+
+_LEVEL_WEIGHTS = {"swing_high": 3, "swing_low": 3, "ma_ema": 2, "role_reversal": 2, "fib": 2,
+                   "weekly_pivot": 1, "round_number": 1}
+_TICK_SIZE = 0.05                  # NSE cash-segment tick
+_SWING_LOOKBACK = 5                # fractal bars required on each side
+_ROLE_REVERSAL_WINDOW = 120        # designed default — spec doesn't bound recency
+_ROLE_REVERSAL_MAX_CANDIDATES = 6
+
+
+def attach_swing_pullback_factors(df: pd.DataFrame) -> pd.DataFrame:
+    """Extra columns for Swing Trade Pullback, on top of attach_quant_factors()
+    output (already has sma_50/200, rsi_14, atr_14, volume_sma_20, high_20,
+    delivery_ratio_20, pct_above_sma200, nifty_close, turnover_sma_20_cr)."""
+    df = df.copy()
+    df["sma_10"] = df["close"].rolling(10).mean()
+    df["ema_10"] = df["close"].ewm(span=10, adjust=False).mean()
+    df["high_52w"] = df["high"].rolling(252, min_periods=50).max()
+    df["rvol"] = df["volume"].astype(float) / df["volume_sma_20"].replace(0, np.nan)
+
+    nifty_ma200 = df["nifty_close"].rolling(200, min_periods=50).mean()
+    nifty_rs_component = (df["nifty_close"] / nifty_ma200.replace(0, np.nan) - 1) * 100
+    df["rs_pct"] = df["pct_above_sma200"] - nifty_rs_component
+
+    # Weekly pivots — most recently COMPLETED trading week's H/L/C, forward-carried.
+    iso = df["date"].dt.isocalendar()
+    tmp = df.assign(_iso_year=iso["year"], _iso_week=iso["week"])
+    weekly = (tmp.groupby(["_iso_year", "_iso_week"])
+              .agg(w_high=("high", "max"), w_low=("low", "min"), w_close=("close", "last"),
+                   w_last_date=("date", "max"))
+              .reset_index().sort_values("w_last_date"))
+    weekly_lookup = weekly[["w_last_date", "w_high", "w_low", "w_close"]].rename(columns={"w_last_date": "date"})
+    df = pd.merge_asof(df.sort_values("date"), weekly_lookup, on="date", direction="backward",
+                       allow_exact_matches=False)
+
+    pp = (df["w_high"] + df["w_low"] + df["w_close"]) / 3
+    hl = df["w_high"] - df["w_low"]
+    df["piv_pp"] = pp
+    df["piv_r1"] = 2 * pp - df["w_low"]
+    df["piv_s1"] = 2 * pp - df["w_high"]
+    df["piv_r2"] = pp + hl
+    df["piv_s2"] = pp - hl
+    df["piv_r3"] = df["w_high"] + 2 * (pp - df["w_low"])
+    df["piv_s3"] = df["w_low"] - 2 * (df["w_high"] - pp)
+    df["piv_fr1"] = pp + 0.382 * hl
+    df["piv_fs1"] = pp - 0.382 * hl
+    df["piv_fr2"] = pp + 0.618 * hl
+    df["piv_fs2"] = pp - 0.618 * hl
+    df["piv_fr3"] = pp + 1.0 * hl
+    df["piv_fs3"] = pp - 1.0 * hl
+
+    return df.reset_index(drop=True)
+
+
+def _gates_swing_pullback(df: pd.DataFrame) -> pd.Series:
+    return (
+        (df["turnover_sma_20_cr"] >= MIN_TURNOVER_CR)
+        & (df["close"] > df["sma_50"])
+        & (df["sma_50"] > df["sma_200"])
+        & (df["sma_50"] > df["sma_50"].shift(10))
+    ).fillna(False)
+
+
+def score_swing_pullback(df: pd.DataFrame) -> tuple[pd.Series, dict[str, pd.Series]]:
+    w = WEIGHTS["swing_pullback"]
+    dip = (df["high_20"] - df["close"]) / df["atr_14"].replace(0, np.nan)
+    factors = {
+        "rsi":      _triangular_score(df["rsi_14"], 45, 5),
+        "dip":      _triangular_score(dip, 2.5, 1),
+        "delivery": _one_sided_score(df["delivery_ratio_20"].fillna(1.0), 1.5, 0.5, "higher"),
+        "vol_dry":  _one_sided_score(df["rvol"].fillna(1.0), 0.7, 0.6, "lower"),
+        "rs":       _one_sided_score(df["rs_pct"].fillna(0.0), 10.0, 10.0, "higher"),
+        "trend":    _one_sided_score(df["pct_above_sma200"].fillna(0.0), 15.0, 15.0, "higher"),
+    }
+    total = sum(factors[k] * w[k] for k in w)
+    return total, factors
+
+
+def _fractal_swings(df: pd.DataFrame, lookback: int = _SWING_LOOKBACK) -> tuple[np.ndarray, np.ndarray]:
+    """Confirmed fractal swing highs/lows — a swing needs `lookback` bars on BOTH
+    sides, so as of bar i only fractals up to index (i - lookback) are known."""
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    n = len(df)
+    is_high = np.zeros(n, dtype=bool)
+    is_low = np.zeros(n, dtype=bool)
+    for i in range(lookback, n - lookback):
+        wh = highs[i - lookback:i + lookback + 1]
+        wl = lows[i - lookback:i + lookback + 1]
+        if highs[i] == np.nanmax(wh):
+            is_high[i] = True
+        if lows[i] == np.nanmin(wl):
+            is_low[i] = True
+    return is_high, is_low
+
+
+def _round_step(price: float) -> float:
+    """Designed default — spec says "step 10/50/100/500 depending on price" without exact bands."""
+    if price < 250:
+        return 10.0
+    if price < 1000:
+        return 50.0
+    if price < 5000:
+        return 100.0
+    return 500.0
+
+
+def _round_number_levels(close: float, atr: float) -> list[float]:
+    step = _round_step(close)
+    lo, hi = close - 2 * atr, close + 8 * atr
+    start = math.floor(lo / step) * step
+    levels, p = [], start
+    while p <= hi:
+        if p >= lo:
+            levels.append(p)
+        p += step
+    return levels
+
+
+def _omega(price: float, levels: list[tuple[float, int]], atr: float) -> float:
+    if atr <= 0 or not math.isfinite(atr):
+        return 0.0
+    band = 0.5 * atr
+    return float(sum(wt for p, wt in levels if abs(p - price) <= band))
+
+
+def _matched_levels(price: float, levels: list[tuple[float, int]], atr: float) -> list[tuple[float, int]]:
+    band = 0.5 * atr
+    return [(p, wt) for p, wt in levels if abs(p - price) <= band]
+
+
+def _role_reversal_levels(close_arr: np.ndarray, low_arr: np.ndarray, i: int,
+                          sh_idx: np.ndarray, sh_val: np.ndarray, atr_today: float) -> list[float]:
+    """Old swing highs that price later closed above (breakout) and then retested
+    from below. Recency-windowed — designed default, spec doesn't bound lookback."""
+    window_start = max(0, i - _ROLE_REVERSAL_WINDOW)
+    cand = [(int(k), float(p)) for k, p in zip(sh_idx, sh_val) if window_start <= k < i]
+    cand = cand[-_ROLE_REVERSAL_MAX_CANDIDATES:]
+    tol = 0.3 * atr_today if atr_today > 0 else 0.0
+    levels = []
+    for k, level in cand:
+        seg_close = close_arr[k + 1:i + 1]
+        seg_low = low_arr[k + 1:i + 1]
+        above = np.where(seg_close > level)[0]
+        if above.size == 0:
+            continue
+        after = seg_low[above[0] + 1:]
+        if after.size and np.any(after <= level + tol):
+            levels.append(level)
+    return levels
+
+
+def _chain_walls(candidates: list[tuple[float, int]], atr: float, min_weight: float) -> list[tuple[float, float, float]]:
+    """Merge levels within 0.5*ATR of the next into resistance walls; keep walls
+    whose combined weight clears the confluence threshold."""
+    walls, n, j = [], len(candidates), 0
+    while j < n:
+        group = [candidates[j]]
+        k = j + 1
+        while k < n and (candidates[k][0] - group[-1][0]) <= 0.5 * atr:
+            group.append(candidates[k])
+            k += 1
+        total_w = sum(wt for _, wt in group)
+        if total_w >= min_weight:
+            walls.append((min(p for p, _ in group), max(p for p, _ in group), total_w))
+        j = k
+    return walls
+
+
+def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
+                                 close_arr: np.ndarray, high_arr: np.ndarray, low_arr: np.ndarray,
+                                 volume_arr: np.ndarray, sh_idx: np.ndarray, sh_val: np.ndarray,
+                                 sl_idx: np.ndarray, sl_val: np.ndarray,
+                                 account_capital: float) -> Optional[dict]:
+    """STEP5-13 of the formula, evaluated for a single (already gated+scored) bar.
+    Returns None if there's not enough data to act; otherwise a dict with a
+    "verdict" of REJECT_SL / REJECT_RR (don't trade) or TRIGGERED / PLANNED
+    (arm a pending order) plus the computed entry/stop/target/qty."""
+    row = df.iloc[i]
+    close, high, low, volume = close_arr[i], high_arr[i], low_arr[i], volume_arr[i]
+    atr = float(row["atr_14"]) if not pd.isna(row["atr_14"]) else 0.0
+    if atr <= 0 or close <= 0:
+        return None
+    vol20 = float(row["volume_sma_20"]) if not pd.isna(row["volume_sma_20"]) else 0.0
+
+    cut = i - _SWING_LOOKBACK
+    hi_mask = sh_idx <= cut
+    lo_mask = sl_idx <= cut
+    sh_i, sh_v = sh_idx[hi_mask], sh_val[hi_mask]
+    sl_i, sl_v = sl_idx[lo_mask], sl_val[lo_mask]
+    swing_low_price = float(sl_v[-1]) if sl_v.size else None
+    swing_high_price = float(sh_v[-1]) if sh_v.size else None
+
+    # STEP5 — level pool
+    levels: list[tuple[float, int]] = []
+    if swing_high_price is not None:
+        levels.append((swing_high_price, _LEVEL_WEIGHTS["swing_high"]))
+    if swing_low_price is not None:
+        levels.append((swing_low_price, _LEVEL_WEIGHTS["swing_low"]))
+    for col in ("sma_10", "sma_20", "sma_50", "ema_10", "ema_20"):
+        v = row.get(col)
+        if v is not None and not pd.isna(v):
+            levels.append((float(v), _LEVEL_WEIGHTS["ma_ema"]))
+    for lvl in _role_reversal_levels(close_arr, low_arr, i, sh_i, sh_v, atr):
+        levels.append((lvl, _LEVEL_WEIGHTS["role_reversal"]))
+    if swing_high_price is not None and swing_low_price is not None:
+        span = swing_high_price - swing_low_price
+        levels.append((swing_high_price - 0.5 * span, _LEVEL_WEIGHTS["fib"]))
+        levels.append((swing_high_price - 0.618 * span, _LEVEL_WEIGHTS["fib"]))
+    for col in ("piv_pp", "piv_r1", "piv_s1", "piv_r2", "piv_s2", "piv_r3", "piv_s3",
+                "piv_fr1", "piv_fs1", "piv_fr2", "piv_fs2", "piv_fr3", "piv_fs3"):
+        v = row.get(col)
+        if v is not None and not pd.isna(v):
+            levels.append((float(v), _LEVEL_WEIGHTS["weekly_pivot"]))
+    for lvl in _round_number_levels(close, atr):
+        levels.append((lvl, _LEVEL_WEIGHTS["round_number"]))
+
+    # STEP6 — zone anchor
+    sma50 = float(row["sma_50"]) if not pd.isna(row["sma_50"]) else None
+    ema20 = float(row["ema_20"]) if not pd.isna(row["ema_20"]) else None
+    if swing_low_price is not None and swing_low_price < close:
+        anchor = swing_low_price
+    elif sma50 is not None:
+        anchor = sma50
+    else:
+        return None
+
+    omega_anchor = _omega(anchor, levels, atr)
+    if omega_anchor < 4 and ema20 is not None:
+        omega_ema20 = _omega(ema20, levels, atr)
+        if omega_ema20 > omega_anchor:
+            anchor, omega_anchor = ema20, omega_ema20
+
+    levels_for_zone = levels
+    reset_swing_low = False
+    if abs(anchor - close) > atr:
+        below = [(p, wt) for p, wt in levels if p <= close]
+        cand_levels = below if below else levels
+        close_omega = _omega(close, cand_levels, atr)
+        if close_omega >= 4:
+            anchor, omega_anchor, levels_for_zone = close, close_omega, cand_levels
+            reset_swing_low = True
+
+    # STEP7 — support zone
+    matched = _matched_levels(anchor, levels_for_zone, atr)
+    if matched:
+        zs_low = min(p for p, _ in matched)
+        zs_high = max(p for p, _ in matched)
+    else:
+        zs_low = zs_high = anchor
+    if reset_swing_low:
+        swing_low_price = zs_low
+    weak_zone = omega_anchor < 4
+
+    # STEP8 — entry type
+    zr = swing_high_price if (swing_high_price is not None and _omega(swing_high_price, levels, atr) >= 4) else None
+    entry_type = "PULLBACK"
+    if zr is not None:
+        retest = close > zr and low >= zr - 0.5 * atr
+        breakout = (not retest) and close > zr and (close - zr) <= 1.0 * atr and vol20 > 0 and volume >= 1.5 * vol20
+        if retest:
+            entry_type = "RETEST"
+        elif breakout:
+            entry_type = "BREAKOUT"
+
+    # STEP9 — entry
+    zone_anchored = False
+    if entry_type == "PULLBACK":
+        mid = (high + low) / 2
+        confirmed = close > mid and vol20 > 0 and volume >= 1.2 * vol20
+        entry = high + max(0.001 * high, _TICK_SIZE)
+        if (high - zs_high) > 0.5 * atr:
+            entry = zs_low + max(0.001 * zs_low, _TICK_SIZE)
+            confirmed = False
+            zone_anchored = True
+    elif entry_type == "BREAKOUT":
+        entry, confirmed = zr + max(0.1 * atr, _TICK_SIZE), True
+    else:  # RETEST
+        entry, confirmed = zr + 0.25 * atr, True
+
+    # STEP10 — stop loss
+    sl_base = min(swing_low_price, zs_low) if swing_low_price is not None else zs_low
+    if not confirmed:
+        k = 1.0
+    else:
+        atr_pct = atr / close * 100
+        k = 1.5 if atr_pct > 5 else 0.5
+    sl = sl_base - k * atr
+    risk_per_share = entry - sl
+    d_atr = risk_per_share / atr if atr > 0 else 0.0
+    reject_sl = risk_per_share <= 0 or d_atr < 0.75 or (risk_per_share / entry > 0.10)
+    sweet_spot = 1.0 <= d_atr <= 2.5
+
+    # STEP11 — targets
+    above = sorted([(p, wt) for p, wt in levels if p > entry], key=lambda t: t[0])
+    strong_above = [(p, wt) for p, wt in above if wt >= 2]
+    walls = _chain_walls(strong_above, atr, 4)
+    if not walls:
+        walls = _chain_walls(above, atr, 4)
+    zr_next = walls[0][0] if len(walls) >= 1 else None
+    zr_next2 = walls[1][0] if len(walls) >= 2 else None
+
+    ext_1618 = (close + 1.618 * (swing_high_price - swing_low_price)
+               if swing_high_price is not None and swing_low_price is not None else None)
+
+    r3 = entry + 3 * risk_per_share
+    t1 = min(zr_next, r3) if zr_next is not None else r3
+    single_target = False
+    if zr_next2 is not None and zr_next2 > t1:
+        t2 = zr_next2
+    elif ext_1618 is not None and ext_1618 > t1:
+        t2 = ext_1618
+    else:
+        t2, single_target = None, True
+
+    high_52w = row.get("high_52w")
+    if high_52w is not None and not pd.isna(high_52w):
+        high_52w = float(high_52w)
+        t1 = min(t1, high_52w)
+        if t2 is not None:
+            t2 = min(t2, high_52w)
+        if t1 <= entry:
+            t1 = None
+
+    # STEP12 — R:R filter
+    if t1 is None or risk_per_share <= 0:
+        reject_rr = True
+    else:
+        reject_rr = (abs(t1 - entry) / risk_per_share) < 2.0
+    rr2_weak = t2 is not None and risk_per_share > 0 and (abs(t2 - entry) / risk_per_share) < 2.0
+
+    if reject_sl:
+        verdict = "REJECT_SL"
+    elif reject_rr:
+        verdict = "REJECT_RR"
+    else:
+        verdict = "TRIGGERED" if confirmed else "PLANNED"
+    if verdict in ("REJECT_SL", "REJECT_RR"):
+        return {"verdict": verdict, "entry_type": entry_type}
+
+    # STEP13 — position sizing
+    atr_pct = atr / close * 100
+    rho_adj = min(0.01 * (3.0 / atr_pct), 0.02) if atr_pct > 0 else 0.0
+    score_frac = min(1.0, score_i / 0.70)
+    turnover20_cr = float(row["turnover_sma_20_cr"]) if not pd.isna(row.get("turnover_sma_20_cr")) else 0.0
+    q_risk = math.floor(account_capital * rho_adj * score_frac / risk_per_share) if risk_per_share > 0 else 0
+    q_exposure = math.floor(account_capital * 0.20 / entry)
+    q_liq_vol = math.floor(0.005 * vol20) if vol20 > 0 else 0
+    q_liq_turn = math.floor(0.02 * turnover20_cr * 1e7 / entry)
+    qty = max(0, min(q_risk, q_exposure, q_liq_vol, q_liq_turn))
+    if qty < 1:
+        return None
+
+    qualifiers = []
+    if zone_anchored:
+        qualifiers.append("zone_anchored")
+    if weak_zone:
+        qualifiers.append("weak_zone")
+    if single_target:
+        qualifiers.append("single_target")
+    if sweet_spot:
+        qualifiers.append("sweet_spot")
+    if rr2_weak:
+        qualifiers.append("rr2_weak")
+
+    return {
+        "verdict": verdict, "entry_type": entry_type, "entry": entry, "stop": sl,
+        "target1": t1, "target2": t2, "qty": qty, "confirmed": confirmed,
+        "zone_anchored": zone_anchored, "qualifiers": qualifiers,
+    }
+
+
+def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series,
+                               sh_idx: np.ndarray, sh_val: np.ndarray,
+                               sl_idx: np.ndarray, sl_val: np.ndarray,
+                               account_capital: float) -> tuple[list[dict], list[dict]]:
+    trades: list[dict] = []
+    armed_not_triggered: list[dict] = []
+    state = "idle"  # idle | armed | in_trade
+    pending: Optional[dict] = None
+    entry_idx = entry_price = stop_price = target_price = 0.0
+    shares = 0
+    trade_score = trade_tier = trade_arm_date = trade_entry_type = None
+    trade_qualifiers: list[str] = []
+
+    close_arr = df["close"].to_numpy(dtype=float)
+    high_arr = df["high"].to_numpy(dtype=float)
+    low_arr = df["low"].to_numpy(dtype=float)
+    volume_arr = df["volume"].to_numpy(dtype=float)
+
+    for i in range(1, len(df)):
+        row = df.iloc[i]
+        close, high, low = close_arr[i], high_arr[i], low_arr[i]
+        if pd.isna(close) or pd.isna(high) or pd.isna(low):
+            continue
+
+        if state == "in_trade":
+            bars_held = i - entry_idx
+            exit_price = exit_reason = None
+            if low <= stop_price:
+                exit_price, exit_reason = stop_price, "sl"
+            elif high >= target_price:
+                exit_price, exit_reason = target_price, "target"
+            elif bars_held >= MAX_HOLD_BARS:
+                exit_price, exit_reason = close, "timeout"
+            if exit_price is not None:
+                pnl = (exit_price - entry_price) * shares
+                pnl_pct = (exit_price / entry_price - 1) * 100
+                trades.append({
+                    "entry_date": str(df.iloc[entry_idx]["date"]), "exit_date": str(row["date"]),
+                    "entry_price": round(entry_price, 2), "stop_price": round(stop_price, 2),
+                    "target_price": round(target_price, 2), "exit_price": round(exit_price, 2),
+                    "exit_reason": exit_reason, "direction": "long", "shares": shares,
+                    "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 2),
+                    "score": round(trade_score, 3), "tier": trade_tier,
+                    "arm_date": trade_arm_date, "trigger_date": str(df.iloc[entry_idx]["date"]),
+                    "arm_score": round(trade_score, 3),
+                    "entry_type": trade_entry_type, "qualifiers": trade_qualifiers,
+                })
+                state, pending = "idle", None
+            continue
+
+        if state == "armed":
+            bars_armed = i - pending["signal_idx"]
+            if bars_armed > ARM_EXPIRY_BARS:
+                armed_not_triggered.append({
+                    "arm_date": str(df.iloc[pending["signal_idx"]]["date"]),
+                    "arm_score": round(pending["score"], 3),
+                    "expired_date": str(row["date"]),
+                })
+                state, pending = "idle", None
+                continue
+            triggered = (low <= pending["entry"]) if pending["zone_anchored"] else (high >= pending["entry"])
+            if triggered:
+                entry_price, stop_price, target_price, shares = (
+                    pending["entry"], pending["stop"], pending["target"], pending["qty"])
+                entry_idx = i
+                trade_score, trade_tier = pending["score"], pending["tier"]
+                trade_arm_date = str(df.iloc[pending["signal_idx"]]["date"])
+                trade_entry_type, trade_qualifiers = pending["entry_type"], pending["qualifiers"]
+                state, pending = "in_trade", None
+            continue
+
+        if bool(gates.iloc[i]) and not pd.isna(score.iloc[i]) and score.iloc[i] >= 0.40:
+            sig = _build_swing_pullback_signal(df, i, float(score.iloc[i]), close_arr, high_arr, low_arr,
+                                               volume_arr, sh_idx, sh_val, sl_idx, sl_val, account_capital)
+            if sig is not None and sig.get("verdict") in ("TRIGGERED", "PLANNED"):
+                pending = {
+                    "signal_idx": i, "entry": sig["entry"], "stop": sig["stop"], "target": sig["target1"],
+                    "qty": sig["qty"], "zone_anchored": sig["zone_anchored"], "entry_type": sig["entry_type"],
+                    "score": float(score.iloc[i]), "tier": _assign_tier(float(score.iloc[i]), "swing_pullback"),
+                    "qualifiers": sig["qualifiers"],
+                }
+                state = "armed"
+
+    return trades, armed_not_triggered
+
+
 def _assign_tier(score: float, algo: str) -> str:
     for threshold, label in TIERS[algo]:
         if score >= threshold:
@@ -596,6 +1070,17 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         trades = _run_direct_trades(df, gates, score, algo, "long", 1.0, 0.0, 0.0, 1.0, False, account_capital,
                                     stop_series=stop_series, target_series=target_series)
         armed_not_triggered = []
+    elif algo == "swing_pullback":
+        df = attach_swing_pullback_factors(df)
+        gates = _gates_swing_pullback(df)
+        score, factors = score_swing_pullback(df)
+        is_high, is_low = _fractal_swings(df)
+        sh_idx = np.where(is_high)[0]
+        sh_val = df["high"].to_numpy(dtype=float)[sh_idx]
+        sl_idx = np.where(is_low)[0]
+        sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
+        trades, armed_not_triggered = _run_swing_pullback_trades(
+            df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital)
     else:
         raise ValueError(f"Unknown algo: {algo}")
 
