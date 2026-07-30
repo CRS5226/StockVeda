@@ -31,7 +31,7 @@ from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
 ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback"]
 
-MAX_SYMBOLS = 100
+MAX_SYMBOLS = 200
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
 ARM_EXPIRY_BARS = 20        # accumulation/distribution watch-arm expiry (user-confirmed)
 MIN_TURNOVER_CR = 25.0
