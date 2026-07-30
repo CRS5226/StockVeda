@@ -254,6 +254,7 @@ interface BacktestState {
 
   // v2
   pickedSymbols: string[];
+  activeWatchlistName: string | null;
   watchlists: Watchlist[];
   entryConditions: EntryCondition[];
   indicators: string[];
@@ -358,7 +359,7 @@ interface BacktestState {
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
-  loadWatchlistSymbols: (symbols: string[]) => void;
+  loadWatchlistSymbols: (symbols: string[], name?: string) => void;
   clearSymbols: () => void;
   setStrategy: (p: Partial<StrategyV2>) => void;
   runBacktestV2: () => Promise<void>;
@@ -429,6 +430,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
 
   // ── V2 ────────────────────────────────────────────────────────────────────
   pickedSymbols: [],
+  activeWatchlistName: null,
   watchlists: [],
   entryConditions: [],
   indicators: [],
@@ -892,12 +894,13 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     if (!upper) return;
     set((s) => ({
       pickedSymbols: s.pickedSymbols.includes(upper) ? s.pickedSymbols : [...s.pickedSymbols, upper],
+      activeWatchlistName: null,
     }));
   },
   removeSymbol: (sym) =>
-    set((s) => ({ pickedSymbols: s.pickedSymbols.filter((x) => x !== sym) })),
-  loadWatchlistSymbols: (symbols) => set({ pickedSymbols: symbols, v2Results: null }),
-  clearSymbols: () => set({ pickedSymbols: [], v2Results: null }),
+    set((s) => ({ pickedSymbols: s.pickedSymbols.filter((x) => x !== sym), activeWatchlistName: null })),
+  loadWatchlistSymbols: (symbols, name) => set({ pickedSymbols: symbols, v2Results: null, activeWatchlistName: name ?? null }),
+  clearSymbols: () => set({ pickedSymbols: [], v2Results: null, activeWatchlistName: null }),
 
   setStrategy: (p) => set((s) => ({ strategy: { ...s.strategy, ...p } })),
 

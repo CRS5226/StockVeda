@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search, X, ChevronDown, RefreshCw, CheckCircle2,
-  AlertCircle, BookmarkPlus, Trash2, SlidersHorizontal,
+  AlertCircle, BookmarkPlus, Trash2, SlidersHorizontal, Check,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useScreenerStore } from "../store/useScreenerStore";
@@ -110,7 +110,7 @@ function SymbolSearch({ onAdd }: { onAdd: (sym: string) => void }) {
 
 function LoadPresetMenu() {
   const [open, setOpen] = useState(false);
-  const { presets, watchlists, loadPreset } = useScreenerStore();
+  const { presets, watchlists, loadPreset, activeWatchlistName } = useScreenerStore();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -122,41 +122,56 @@ function LoadPresetMenu() {
   }, []);
 
   return (
-    <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all">
-        Load List <ChevronDown size={13} />
-      </button>
-      {open && (
-        <div className="absolute top-full mt-1 right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-lg min-w-44 py-1">
-          {presets.length > 0 && (
-            <>
-              <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Index Presets</div>
-              {presets.map((p) => (
-                <button key={p.id} onMouseDown={() => { loadPreset(p.symbols); setOpen(false); }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between">
-                  <span>{p.label}</span>
-                  <span className="text-xs text-slate-400">{p.count}</span>
-                </button>
-              ))}
-            </>
-          )}
-          {watchlists.length > 0 && (
-            <>
-              <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">My Watchlists</div>
-              {watchlists.map((w) => (
-                <button key={w.id} onMouseDown={() => { loadPreset(w.symbols); setOpen(false); }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between">
-                  <span className="truncate">{w.name}</span>
-                  <span className="text-xs text-slate-400 shrink-0 ml-2">{w.symbols.length}</span>
-                </button>
-              ))}
-            </>
-          )}
-          {presets.length === 0 && watchlists.length === 0 && (
-            <div className="px-3 py-3 text-xs text-slate-400 text-center">No lists available</div>
-          )}
-        </div>
+    <div className="flex items-center gap-2">
+      <div className="relative" ref={ref}>
+        <button onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all">
+          Load List <ChevronDown size={13} />
+        </button>
+        {open && (
+          <div className="absolute top-full mt-1 right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-lg min-w-44 py-1">
+            {presets.length > 0 && (
+              <>
+                <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Index Presets</div>
+                {presets.map((p) => (
+                  <button key={p.id} onMouseDown={() => { loadPreset(p.symbols, p.label); setOpen(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between ${
+                      activeWatchlistName === p.label ? "bg-blue-50 text-blue-700 font-semibold" : ""}`}>
+                    <span className="flex items-center gap-1.5">
+                      {activeWatchlistName === p.label && <Check size={13} className="text-blue-500 shrink-0" />}
+                      {p.label}
+                    </span>
+                    <span className="text-xs text-slate-400">{p.count}</span>
+                  </button>
+                ))}
+              </>
+            )}
+            {watchlists.length > 0 && (
+              <>
+                <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">My Watchlists</div>
+                {watchlists.map((w) => (
+                  <button key={w.id} onMouseDown={() => { loadPreset(w.symbols, w.name); setOpen(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between ${
+                      activeWatchlistName === w.name ? "bg-blue-50 text-blue-700 font-semibold" : ""}`}>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {activeWatchlistName === w.name && <Check size={13} className="text-blue-500 shrink-0" />}
+                      <span className="truncate">{w.name}</span>
+                    </span>
+                    <span className="text-xs text-slate-400 shrink-0 ml-2">{w.symbols.length}</span>
+                  </button>
+                ))}
+              </>
+            )}
+            {presets.length === 0 && watchlists.length === 0 && (
+              <div className="px-3 py-3 text-xs text-slate-400 text-center">No lists available</div>
+            )}
+          </div>
+        )}
+      </div>
+      {activeWatchlistName && (
+        <span className="text-xs px-2.5 py-1 bg-blue-50 border border-blue-100 text-blue-600 rounded-full font-medium">
+          Loaded: {activeWatchlistName}
+        </span>
       )}
     </div>
   );
@@ -165,7 +180,7 @@ function LoadPresetMenu() {
 // ── Saved Watchlists panel ───────────────────────────────────────────────────
 
 function WatchlistPanel() {
-  const { watchlists, loadPreset, deleteWatchlist } = useScreenerStore();
+  const { watchlists, loadPreset, deleteWatchlist, activeWatchlistName } = useScreenerStore();
   const [expanded, setExpanded] = useState<number | null>(null);
 
   if (watchlists.length === 0) return null;
@@ -174,9 +189,11 @@ function WatchlistPanel() {
     <div className="mt-3 border-t border-slate-100 pt-3">
       <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Saved Watchlists</div>
       <div className="flex flex-col gap-1.5">
-        {watchlists.map((w) => (
-          <div key={w.id} className="border border-slate-200 rounded-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors">
+        {watchlists.map((w) => {
+          const active = activeWatchlistName === w.name;
+          return (
+          <div key={w.id} className={`border rounded-lg overflow-hidden ${active ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200"}`}>
+            <div className={`flex items-center gap-2 px-3 py-2 transition-colors ${active ? "bg-blue-50 hover:bg-blue-100" : "bg-slate-50 hover:bg-slate-100"}`}>
               <button
                 onClick={() => setExpanded(expanded === w.id ? null : w.id)}
                 className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
@@ -185,11 +202,13 @@ function WatchlistPanel() {
                   size={13}
                   className={`text-slate-400 shrink-0 transition-transform ${expanded === w.id ? "rotate-180" : ""}`}
                 />
-                <span className="text-sm font-semibold text-slate-700 truncate">{w.name}</span>
+                {active && <Check size={13} className="text-blue-500 shrink-0" />}
+                <span className={`text-sm font-semibold truncate ${active ? "text-blue-700" : "text-slate-700"}`}>{w.name}</span>
                 <span className="text-xs text-slate-400 shrink-0">{w.symbols.length} stocks</span>
+                {active && <span className="text-[10px] px-1.5 py-0.5 bg-blue-500 text-white rounded-full font-medium shrink-0">Selected</span>}
               </button>
               <button
-                onClick={() => loadPreset(w.symbols)}
+                onClick={() => loadPreset(w.symbols, w.name)}
                 className="text-xs px-2 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-medium shrink-0"
               >
                 Load
@@ -218,7 +237,8 @@ function WatchlistPanel() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
