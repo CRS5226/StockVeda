@@ -269,17 +269,21 @@ function LoadWatchlistMenu() {
           <div className="absolute top-full mt-1 right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-lg min-w-48 py-1">
             {watchlists.length === 0 ? (
               <div className="px-3 py-3 text-xs text-slate-400 text-center">No watchlists saved yet</div>
-            ) : watchlists.map((w) => (
-              <button key={w.id} onMouseDown={() => { loadWatchlistSymbols(w.symbols, w.name); setOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between ${
-                  activeWatchlistName === w.name ? "bg-blue-50 text-blue-700 font-semibold" : ""}`}>
-                <span className="flex items-center gap-1.5 min-w-0">
-                  {activeWatchlistName === w.name && <Check size={13} className="text-blue-500 shrink-0" />}
-                  <span className="truncate">{w.name}</span>
-                </span>
-                <span className="text-xs text-slate-400 shrink-0 ml-2">{w.symbols.length}</span>
-              </button>
-            ))}
+            ) : (
+              <div className="max-h-[190px] overflow-y-auto">
+                {watchlists.map((w) => (
+                  <button key={w.id} onMouseDown={() => { loadWatchlistSymbols(w.symbols, w.name); setOpen(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between ${
+                      activeWatchlistName === w.name ? "bg-blue-50 text-blue-700 font-semibold" : ""}`}>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {activeWatchlistName === w.name && <Check size={13} className="text-blue-500 shrink-0" />}
+                      <span className="truncate">{w.name}</span>
+                    </span>
+                    <span className="text-xs text-slate-400 shrink-0 ml-2">{w.symbols.length}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
