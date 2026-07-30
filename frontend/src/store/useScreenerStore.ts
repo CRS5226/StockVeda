@@ -7,6 +7,7 @@ type SyncStatus = "idle" | "running" | "complete" | "error";
 interface ScreenerState {
   // ── Step 1: Stock picker ───────────────────────────────────────────────
   pickedSymbols: string[];
+  activeWatchlistName: string | null;
   presets: ScreenerPresetOption[];
 
   // ── Step 2: Sync / data fetch ──────────────────────────────────────────
@@ -31,7 +32,7 @@ interface ScreenerState {
   // ── Actions ────────────────────────────────────────────────────────────
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
-  loadPreset: (symbols: string[]) => void;
+  loadPreset: (symbols: string[], name?: string) => void;
   clearSymbols: () => void;
 
   setCandleDays: (days: number) => void;
@@ -58,6 +59,7 @@ interface ScreenerState {
 
 export const useScreenerStore = create<ScreenerState>((set, get) => ({
   pickedSymbols: [],
+  activeWatchlistName: null,
   presets: [],
   candleDays: 180,
   jobId: null,
@@ -80,12 +82,13 @@ export const useScreenerStore = create<ScreenerState>((set, get) => ({
     if (!upper) return;
     set((s) => ({
       pickedSymbols: s.pickedSymbols.includes(upper) ? s.pickedSymbols : [...s.pickedSymbols, upper],
+      activeWatchlistName: null,
     }));
   },
   removeSymbol: (sym) =>
-    set((s) => ({ pickedSymbols: s.pickedSymbols.filter((x) => x !== sym) })),
-  loadPreset: (symbols) => set({ pickedSymbols: symbols, syncStatus: "idle", results: [] }),
-  clearSymbols: () => set({ pickedSymbols: [], syncStatus: "idle", results: [] }),
+    set((s) => ({ pickedSymbols: s.pickedSymbols.filter((x) => x !== sym), activeWatchlistName: null })),
+  loadPreset: (symbols, name) => set({ pickedSymbols: symbols, syncStatus: "idle", results: [], activeWatchlistName: name ?? null }),
+  clearSymbols: () => set({ pickedSymbols: [], syncStatus: "idle", results: [], activeWatchlistName: null }),
 
   // ── Sync ────────────────────────────────────────────────────────────────
   setCandleDays: (days) => set({ candleDays: days }),

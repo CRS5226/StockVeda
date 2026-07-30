@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Radar } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Radar, Check } from "lucide-react";
 import { api, ConditionRow, SweepDim } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
@@ -249,7 +249,7 @@ function SymbolSearch({ onAdd }: { onAdd: (sym: string) => void }) {
 
 function LoadWatchlistMenu() {
   const [open, setOpen] = useState(false);
-  const { watchlists, loadWatchlistSymbols } = useBacktestStore();
+  const { watchlists, loadWatchlistSymbols, activeWatchlistName } = useBacktestStore();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -259,23 +259,34 @@ function LoadWatchlistMenu() {
   }, []);
 
   return (
-    <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all">
-        Load Watchlist <ChevronDown size={13} />
-      </button>
-      {open && (
-        <div className="absolute top-full mt-1 right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-lg min-w-48 py-1">
-          {watchlists.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-slate-400 text-center">No watchlists saved yet</div>
-          ) : watchlists.map((w) => (
-            <button key={w.id} onMouseDown={() => { loadWatchlistSymbols(w.symbols); setOpen(false); }}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between">
-              <span className="truncate">{w.name}</span>
-              <span className="text-xs text-slate-400 shrink-0 ml-2">{w.symbols.length}</span>
-            </button>
-          ))}
-        </div>
+    <div className="flex items-center gap-2">
+      <div className="relative" ref={ref}>
+        <button onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all">
+          Load Watchlist <ChevronDown size={13} />
+        </button>
+        {open && (
+          <div className="absolute top-full mt-1 right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-lg min-w-48 py-1">
+            {watchlists.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-slate-400 text-center">No watchlists saved yet</div>
+            ) : watchlists.map((w) => (
+              <button key={w.id} onMouseDown={() => { loadWatchlistSymbols(w.symbols, w.name); setOpen(false); }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between ${
+                  activeWatchlistName === w.name ? "bg-blue-50 text-blue-700 font-semibold" : ""}`}>
+                <span className="flex items-center gap-1.5 min-w-0">
+                  {activeWatchlistName === w.name && <Check size={13} className="text-blue-500 shrink-0" />}
+                  <span className="truncate">{w.name}</span>
+                </span>
+                <span className="text-xs text-slate-400 shrink-0 ml-2">{w.symbols.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {activeWatchlistName && (
+        <span className="text-xs px-2.5 py-1 bg-blue-50 border border-blue-100 text-blue-600 rounded-full font-medium">
+          Loaded: {activeWatchlistName}
+        </span>
       )}
     </div>
   );
