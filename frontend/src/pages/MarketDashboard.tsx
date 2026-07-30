@@ -689,7 +689,7 @@ export default function MarketDashboard() {
                   <div className="text-xs text-slate-400 py-4 text-center">No patterns in last 10 sessions</div>
                 ) : (
                   recentPats.map((h, i) => {
-                    const bars = CANDLE_BARS[h.pattern] ?? 1;
+                    const bars = CANDLE_BARS[h.label] ?? 1;
                     const bull = h.bias === "bullish";
                     return (
                       <div key={i} className={`rounded-lg px-2.5 py-1.5 border text-xs ${bull ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-100"}`}>
