@@ -925,7 +925,7 @@ def run_ml_stream(req: MlRequest):
 # ── Quant Signals (Long Pullback / Short Bounce / Accumulation / Distribution) ─
 
 class QuantSignalRequest(BaseModel):
-    algo: Literal["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback"]
+    algo: Literal["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2"]
     symbols: list[str] = Field(..., min_length=1, max_length=qs.MAX_SYMBOLS)
     from_date: str
     to_date: str
@@ -960,6 +960,7 @@ def run_quant_signals(req: QuantSignalRequest):
         raise HTTPException(400, "No eligible symbols for this algo. Short Bounce and Distribution require F&O-eligible symbols.")
 
     nifty_df = qs.fetch_nifty_series(req.from_date, req.to_date)
+    midcap_scope = qs.fetch_midcap_scope() if req.algo == "swing_pullback_v2" else None
     db = get_db()
 
     def generate():
@@ -972,7 +973,7 @@ def run_quant_signals(req: QuantSignalRequest):
                     prepared = prepare_frame(raw, "1D")
                     featured = qs.attach_quant_factors(prepared, sym, req.from_date, req.to_date, nifty_df)
                     results[sym] = qs.run_quant_signal(
-                        featured, req.algo, qs.is_fno_eligible(sym), req.account_capital
+                        featured, req.algo, qs.is_fno_eligible(sym), req.account_capital, sym, midcap_scope
                     )
                 else:
                     results[sym] = {"trades": [], "armed_not_triggered": [], "ohlcv": [], "score_series": [],
