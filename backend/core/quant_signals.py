@@ -29,7 +29,7 @@ import pandas as pd
 from backend.db.connection import get_db
 from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
-ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback"]
+ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2"]
 
 MAX_SYMBOLS = 200
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
@@ -44,6 +44,7 @@ WEIGHTS = {
     "distribution":  {"effort_result": 0.30, "decay": 0.25, "failed_highs": 0.20, "down_vol_bias": 0.15, "rs": 0.10},
     "zone_trade":    {"verdict": 1.0},
     "swing_pullback": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
+    "swing_pullback_v2": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
 }
 
 TIERS = {
@@ -53,6 +54,7 @@ TIERS = {
     "distribution":  [(0.60, "WATCH")],
     "zone_trade":    [(1.0, "GO")],
     "swing_pullback": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
+    "swing_pullback_v2": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
 }
 
 ALGO_METADATA = {
@@ -107,6 +109,14 @@ ALGO_METADATA = {
         "entry": "Score ≥ 0.40 (WATCH) builds a confluence support zone (Omega score) and arms a pending PULLBACK/RETEST/BREAKOUT order for up to 20 trading days; fires when price reaches the computed entry level.",
         "trade": "Stop = min(swing-low, zone-low) − ATR-scaled buffer (buffer widens with confirmation + volatility regime) · Target = min(3R, nearest resistance wall), capped at the 52-week high, gated at ≥2:1 R:R · Risk % scales with ATR% and score, capped at 2% of capital.",
     },
+    "swing_pullback_v2": {
+        "id": "swing_pullback_v2", "label": "Swing Trade Pullback v2 (Midcap-tuned)", "direction": "long", "universe": "any",
+        "description": "Identical to Swing Trade Pullback, with one tuned exception for symbols in your \"midcap 150\" watchlist: the zone-anchored discount entry fires more readily (0.25×ATR overshoot threshold vs 0.5× for everything else), since backtesting showed the default chase-the-breakout entry underperforms specifically on midcap names. Live watchlist lookup, not a frozen list — edit \"midcap 150\" to update which symbols get the tuned behavior. Verified: Midcap 150 3yr PF 0.90×→1.20×, P&L -₹37,146→+₹55,898; every other symbol's behavior is byte-for-byte identical to v1.",
+        "gates": ["20-day avg turnover ≥ ₹25 cr", "close > SMA50", "SMA50 > SMA200", "SMA50 rising vs 10 days ago"],
+        "weights": WEIGHTS["swing_pullback_v2"], "tiers": TIERS["swing_pullback_v2"],
+        "entry": "Same as Swing Trade Pullback, except symbols in the \"midcap 150\" watchlist get a lower (0.25×ATR) zone-anchor overshoot threshold, routing more of them into the discount entry.",
+        "trade": "Same as Swing Trade Pullback for non-midcap symbols; midcap-watchlist symbols get the zone-anchored entry more often.",
+    },
 }
 
 
@@ -155,6 +165,16 @@ def fetch_nifty_series(from_date: str, to_date: str) -> pd.DataFrame:
         "SELECT date, close AS nifty_close FROM index_ohlcv WHERE index_name = 'NIFTY 50' AND date BETWEEN ? AND ? ORDER BY date",
         [from_date, to_date],
     ).df()
+
+
+def fetch_midcap_scope() -> frozenset:
+    """swing_pullback_v2 only — live lookup of the user-maintained "midcap 150"
+    watchlist (fetched once per request, not hardcoded) so the sector-tuned entry
+    logic stays current if the watchlist is ever edited, instead of drifting out
+    of sync with actual index membership like a frozen symbol list would."""
+    db = get_db()
+    row = db.execute("SELECT symbols FROM watchlists WHERE name = 'midcap 150'").fetchone()
+    return frozenset(row[0]) if row else frozenset()
 
 
 # ── Market regime (year-wise Nifty/Sensex context) ──────────────────────────
@@ -452,10 +472,16 @@ _TARGET_WALL_MIN_WEIGHT = 6        # confluence needed for a nearby wall to over
                                     # raised so a marginal wall doesn't compress T1 below 2:1
 _SWING_ARM_EXPIRY_BARS = 30        # separate from the shared ARM_EXPIRY_BARS (accum/distrib) —
                                     # 66% of armed swing_pullback orders expired unfilled at 20 bars
-_ZONE_ANCHOR_OVERSHOOT_ATR = 0.5   # tried 0.25 (routing more entries to the zone-anchored fallback,
-                                    # which looked better on a 2yr sample) but it regressed PF and
-                                    # total P&L on the fuller 3yr sample (1.157→1.102, +69k→+33k) —
-                                    # reverted, kept at the original spec value
+_ZONE_ANCHOR_OVERSHOOT_ATR = 0.5   # tried 0.25 globally (regressed PF/P&L on the full 3yr universe,
+                                    # 1.157→1.102) AND tried 0.25 scoped to just Nifty Bank symbols
+                                    # (made Nifty Bank itself worse too: 2yr PF 1.13→0.71, 3yr 0.72→0.40)
+                                    # — a small-sample entry-style split (zone_anchored trades looked
+                                    # better than default-entry trades for that sector) did NOT hold up
+                                    # once actually forced at scale. See quant_signals_experiments.md.
+_MIDCAP_ZONE_ANCHOR_OVERSHOOT_ATR = 0.25  # swing_pullback_v2 only — same idea, scoped to the "midcap 150"
+                                    # watchlist instead, confirmed on real data: Midcap 150 3yr PF
+                                    # 0.90×→1.20×, P&L -₹37,146→+₹55,898, control basket (Nifty Next 50,
+                                    # 0 symbol overlap) completely unchanged. See quant_signals_experiments.md.
 
 
 def attach_swing_pullback_factors(df: pd.DataFrame) -> pd.DataFrame:
@@ -621,7 +647,8 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
                                  close_arr: np.ndarray, high_arr: np.ndarray, low_arr: np.ndarray,
                                  volume_arr: np.ndarray, sh_idx: np.ndarray, sh_val: np.ndarray,
                                  sl_idx: np.ndarray, sl_val: np.ndarray,
-                                 account_capital: float) -> dict:
+                                 account_capital: float, symbol: str = "",
+                                 midcap_scope: Optional[frozenset] = None) -> dict:
     """STEP5-13 of the formula, evaluated for a single (already gated+scored) bar.
     Always returns a dict with a "verdict" — NO_DATA / NO_ANCHOR / REJECT_SL /
     REJECT_RR / QTY_ZERO (don't trade, tagged so the caller can tally *why*) or
@@ -719,7 +746,10 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
         mid = (high + low) / 2
         confirmed = close > mid and vol20 > 0 and volume >= 1.2 * vol20
         entry = high + max(0.001 * high, _TICK_SIZE)
-        if (high - zs_high) > _ZONE_ANCHOR_OVERSHOOT_ATR * atr:
+        overshoot_atr = (_MIDCAP_ZONE_ANCHOR_OVERSHOOT_ATR
+                         if midcap_scope is not None and symbol in midcap_scope
+                         else _ZONE_ANCHOR_OVERSHOOT_ATR)
+        if (high - zs_high) > overshoot_atr * atr:
             entry = zs_low + max(0.001 * zs_low, _TICK_SIZE)
             confirmed = False
             zone_anchored = True
@@ -823,7 +853,8 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
 def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series,
                                sh_idx: np.ndarray, sh_val: np.ndarray,
                                sl_idx: np.ndarray, sl_val: np.ndarray,
-                               account_capital: float) -> tuple[list[dict], list[dict], dict]:
+                               account_capital: float, symbol: str = "",
+                               midcap_scope: Optional[frozenset] = None) -> tuple[list[dict], list[dict], dict]:
     """Returns (trades, armed_not_triggered, diagnostics). diagnostics is a
     funnel of what happened to every gate+score-qualifying day — this is the
     only place visibility into silently-dropped signals (REJECT_SL/REJECT_RR/
@@ -904,7 +935,8 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
         if bool(gates.iloc[i]) and not pd.isna(score.iloc[i]) and score.iloc[i] >= 0.40:
             diagnostics["qualifying_days"] += 1
             sig = _build_swing_pullback_signal(df, i, float(score.iloc[i]), close_arr, high_arr, low_arr,
-                                               volume_arr, sh_idx, sh_val, sl_idx, sl_val, account_capital)
+                                               volume_arr, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol,
+                                               midcap_scope)
             verdict = sig.get("verdict")
             if verdict in ("TRIGGERED", "PLANNED"):
                 diagnostics["armed"] += 1
@@ -1132,7 +1164,8 @@ def _run_armed_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, algo
 
 # ── Top-level dispatch ───────────────────────────────────────────────────────
 
-def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital: float) -> dict:
+def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital: float, symbol: str = "",
+                     midcap_scope: Optional[frozenset] = None) -> dict:
     """df must already be prepare_frame()'d + attach_quant_factors()'d."""
     df = df.copy()
     df["_score"] = np.nan
@@ -1164,7 +1197,7 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         trades = _run_direct_trades(df, gates, score, algo, "long", 1.0, 0.0, 0.0, 1.0, False, account_capital,
                                     stop_series=stop_series, target_series=target_series)
         armed_not_triggered = []
-    elif algo == "swing_pullback":
+    elif algo in ("swing_pullback", "swing_pullback_v2"):
         df = attach_swing_pullback_factors(df)
         gates = _gates_swing_pullback(df)
         score, factors = score_swing_pullback(df)
@@ -1173,8 +1206,9 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         sh_val = df["high"].to_numpy(dtype=float)[sh_idx]
         sl_idx = np.where(is_low)[0]
         sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
+        scope = midcap_scope if algo == "swing_pullback_v2" else None
         trades, armed_not_triggered, diagnostics = _run_swing_pullback_trades(
-            df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital)
+            df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol, scope)
     else:
         raise ValueError(f"Unknown algo: {algo}")
 
