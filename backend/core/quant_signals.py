@@ -29,7 +29,7 @@ import pandas as pd
 from backend.db.connection import get_db
 from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
-ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2"]
+ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs"]
 
 MAX_SYMBOLS = 200
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
@@ -45,6 +45,7 @@ WEIGHTS = {
     "zone_trade":    {"verdict": 1.0},
     "swing_pullback": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
     "swing_pullback_v2": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
+    "swing_pullback_sector_rs": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
 }
 
 TIERS = {
@@ -55,6 +56,7 @@ TIERS = {
     "zone_trade":    [(1.0, "GO")],
     "swing_pullback": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
     "swing_pullback_v2": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
+    "swing_pullback_sector_rs": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
 }
 
 ALGO_METADATA = {
@@ -117,6 +119,14 @@ ALGO_METADATA = {
         "entry": "Same as Swing Trade Pullback, except symbols in the \"midcap 150\" watchlist get a lower (0.25×ATR) zone-anchor overshoot threshold, routing more of them into the discount entry.",
         "trade": "Same as Swing Trade Pullback for non-midcap symbols; midcap-watchlist symbols get the zone-anchored entry more often.",
     },
+    "swing_pullback_sector_rs": {
+        "id": "swing_pullback_sector_rs", "label": "Swing Trade Pullback v3 (Sector-RS)", "direction": "long", "universe": "any",
+        "description": "Identical to Swing Trade Pullback, except the relative-strength factor compares each stock to its own NIFTY sector index (Bank, IT, FMCG, Pharma, Metal, Energy, Realty) instead of broad Nifty 50 — a bank stock's strength is measured against Bank Nifty, not diluted by unrelated sectors. Falls back to the Nifty-relative version for any symbol whose sector isn't mapped or has no matching index data. Sector classification is cached (yfinance, once per symbol) rather than fetched live every run. Verified: beats v1 on all 9 tested index baskets with zero regressions, including flipping Nifty Bank and Nifty Next 50 from losses to profits.",
+        "gates": ["20-day avg turnover ≥ ₹25 cr", "close > SMA50", "SMA50 > SMA200", "SMA50 rising vs 10 days ago"],
+        "weights": WEIGHTS["swing_pullback_sector_rs"], "tiers": TIERS["swing_pullback_sector_rs"],
+        "entry": "Same as Swing Trade Pullback — only the RS factor's benchmark changes (sector index vs Nifty).",
+        "trade": "Same as Swing Trade Pullback — only the RS factor's benchmark changes, not stop/target/sizing.",
+    },
 }
 
 
@@ -175,6 +185,50 @@ def fetch_midcap_scope() -> frozenset:
     db = get_db()
     row = db.execute("SELECT symbols FROM watchlists WHERE name = 'midcap 150'").fetchone()
     return frozenset(row[0]) if row else frozenset()
+
+
+# swing_pullback_sector_rs only — maps yfinance's per-stock "sector" string to
+# the matching NIFTY sector index. Same mapping used by the Stock Detail page's
+# sector-compare chart (backend/routes/stock.py:_SECTOR_INDEX) — duplicated
+# here rather than imported to avoid routes-importing-into-core coupling.
+_SECTOR_INDEX_MAP = {
+    "Technology": "NIFTY IT",
+    "Financial Services": "NIFTY BANK",
+    "Consumer Staples": "NIFTY FMCG",
+    "Healthcare": "NIFTY PHARMA",
+    "Basic Materials": "NIFTY METAL",
+    "Energy": "NIFTY ENERGY",
+    "Real Estate": "NIFTY REALTY",
+}
+
+
+def get_sector_index(symbol: str) -> Optional[str]:
+    """Cached lookup of which NIFTY sector index a symbol maps to. yfinance's
+    sector classification was previously fetched live on every call with zero
+    caching (see stock.py's sector-compare endpoint) — cached here in
+    stock_sector (schema.sql) so it's a live yfinance call once per symbol
+    ever, not once per backtest run."""
+    db = get_db()
+    row = db.execute("SELECT sector FROM stock_sector WHERE symbol = ?", [symbol]).fetchone()
+    if row is not None:
+        sector = row[0] or ""
+    else:
+        sector = ""
+        try:
+            import yfinance as yf
+            sector = yf.Ticker(f"{symbol}.NS").info.get("sector") or ""
+        except Exception:
+            pass
+        db.execute("INSERT OR REPLACE INTO stock_sector (symbol, sector) VALUES (?, ?)", [symbol, sector])
+    return _SECTOR_INDEX_MAP.get(sector)
+
+
+def fetch_sector_index_series(index_name: str, from_date: str, to_date: str) -> pd.DataFrame:
+    db = get_db()
+    return db.execute(
+        "SELECT date, close AS sector_close FROM index_ohlcv WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date",
+        [index_name, from_date, to_date],
+    ).df()
 
 
 # ── Market regime (year-wise Nifty/Sensex context) ──────────────────────────
@@ -484,10 +538,14 @@ _MIDCAP_ZONE_ANCHOR_OVERSHOOT_ATR = 0.25  # swing_pullback_v2 only — same idea
                                     # 0 symbol overlap) completely unchanged. See quant_signals_experiments.md.
 
 
-def attach_swing_pullback_factors(df: pd.DataFrame) -> pd.DataFrame:
+def attach_swing_pullback_factors(df: pd.DataFrame, symbol: str = "", sector_rs: bool = False) -> pd.DataFrame:
     """Extra columns for Swing Trade Pullback, on top of attach_quant_factors()
     output (already has sma_50/200, rsi_14, atr_14, volume_sma_20, high_20,
-    delivery_ratio_20, pct_above_sma200, nifty_close, turnover_sma_20_cr)."""
+    delivery_ratio_20, pct_above_sma200, nifty_close, turnover_sma_20_cr).
+    sector_rs (swing_pullback_sector_rs only) blends in sector-relative RS —
+    falls back to the Nifty-relative version per-row wherever the symbol's
+    sector is unmapped or its index has no data for that date, so it degrades
+    gracefully instead of going NaN outright."""
     df = df.copy()
     df["sma_10"] = df["close"].rolling(10).mean()
     df["ema_10"] = df["close"].ewm(span=10, adjust=False).mean()
@@ -497,6 +555,22 @@ def attach_swing_pullback_factors(df: pd.DataFrame) -> pd.DataFrame:
     nifty_ma200 = df["nifty_close"].rolling(200, min_periods=50).mean()
     nifty_rs_component = (df["nifty_close"] / nifty_ma200.replace(0, np.nan) - 1) * 100
     df["rs_pct"] = df["pct_above_sma200"] - nifty_rs_component
+
+    if sector_rs:
+        index_name = get_sector_index(symbol)
+        if index_name:
+            from_date = str(pd.to_datetime(df["date"].min()).date())
+            to_date = str(pd.to_datetime(df["date"].max()).date())
+            sec_df = fetch_sector_index_series(index_name, from_date, to_date)
+            if not sec_df.empty:
+                sec_df = sec_df.copy()
+                sec_df["date"] = pd.to_datetime(sec_df["date"])
+                df = df.merge(sec_df, on="date", how="left")
+                df["sector_close"] = df["sector_close"].ffill()
+                sector_ma200 = df["sector_close"].rolling(200, min_periods=50).mean()
+                sector_rs_component = (df["sector_close"] / sector_ma200.replace(0, np.nan) - 1) * 100
+                sector_rs_pct = df["pct_above_sma200"] - sector_rs_component
+                df["rs_pct"] = sector_rs_pct.where(sector_rs_pct.notna(), df["rs_pct"])
 
     # Weekly pivots — most recently COMPLETED trading week's H/L/C, forward-carried.
     iso = df["date"].dt.isocalendar()
@@ -1197,8 +1271,8 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         trades = _run_direct_trades(df, gates, score, algo, "long", 1.0, 0.0, 0.0, 1.0, False, account_capital,
                                     stop_series=stop_series, target_series=target_series)
         armed_not_triggered = []
-    elif algo in ("swing_pullback", "swing_pullback_v2"):
-        df = attach_swing_pullback_factors(df)
+    elif algo in ("swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs"):
+        df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=(algo == "swing_pullback_sector_rs"))
         gates = _gates_swing_pullback(df)
         score, factors = score_swing_pullback(df)
         is_high, is_low = _fractal_swings(df)

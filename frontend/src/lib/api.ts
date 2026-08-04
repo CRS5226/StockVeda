@@ -221,7 +221,7 @@ export interface MlResult {
 }
 
 // ── Quant Signals (Long Pullback / Short Bounce / Accumulation / Distribution) ─
-export type QuantAlgoId = "long_pullback" | "short_bounce" | "accumulation" | "distribution" | "zone_trade" | "swing_pullback" | "swing_pullback_v2";
+export type QuantAlgoId = "long_pullback" | "short_bounce" | "accumulation" | "distribution" | "zone_trade" | "swing_pullback" | "swing_pullback_v2" | "swing_pullback_sector_rs";
 export interface QuantAlgoMeta {
   id: QuantAlgoId; label: string; direction: "long" | "short"; universe: "any" | "fno_only";
   description: string; gates: string[]; weights: Record<string, number>;

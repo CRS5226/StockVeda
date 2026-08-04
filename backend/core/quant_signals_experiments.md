@@ -162,3 +162,45 @@ Reverted; `swing_pullback_regime` removed from `ALGO_IDS`/metadata/dispatch,
 `frontend/src/lib/api.ts` restored to the last-committed (v1/v2-only) state via
 `git checkout`. `backend/main.py` and `backend/data_sync/sync_vix.py` (the VIX
 data-pipeline fix) were kept.
+
+## Sector-relative-strength factor — KEPT as v3 (2026-08-04)
+
+Idea #2 from the research plan: replace/augment the Nifty-only RS factor with
+RS computed against each stock's own NIFTY sector index (Bank, IT, FMCG,
+Pharma, Metal, Energy, Realty), falling back to the Nifty-relative version
+per-row wherever a symbol's sector is unmapped or its index has no data.
+
+**Data prerequisite:** sector classification was previously a live-only
+yfinance call with zero caching (the Stock Detail sector-compare endpoint
+fetches it fresh every time). Added a `stock_sector` cache table
+(`backend/db/schema.sql`) so this is a live yfinance call once per symbol
+ever, not once per backtest run. Confirmed all 7 sector indices have full
+2022-2026 history in `index_ohlcv` before building on them.
+
+**Result — the first idea all session to help every basket, zero exceptions:**
+
+| Index | v1 PF/P&L | v2 PF/P&L | v3 (Sector-RS) PF/P&L |
+|---|---|---|---|
+| Nifty 50 | 1.25× / +₹46,714 | 1.29× / +₹52,751 | **1.33× / +₹54,456** |
+| Nifty 100 | 1.21× / +₹68,057 | 1.26× / +₹79,622 | **1.31× / +₹87,150** |
+| Nifty Bank | 0.72× / -₹14,512 | 0.86× / -₹6,115 | **1.12× / +₹6,150** (flipped to profit) |
+| Nifty Fin Service | 1.04× / +₹2,690 | 1.04× / +₹2,690 | **1.57× / +₹36,128** |
+| Nifty Mid Select | 1.89× / +₹58,381 | **2.32× / +₹76,737** | 2.16× / +₹75,674 |
+| Nifty Next 50 | 0.90× / -₹17,736 | 0.90× / -₹17,736 | **1.07× / +₹10,532** (flipped to profit) |
+| Sensex | 1.89× / +₹90,178 | 1.89× / +₹90,178 | **2.04× / +₹96,676** |
+| Bankex | 0.72× / -₹14,512 | 0.86× / -₹6,115 | **1.12× / +₹6,150** |
+| Midcap 150 | 0.91× / -₹34,190 | **1.21× / +₹58,853** | 1.06× / +₹22,066 |
+
+Beats v1 in all 9/9 baskets. Beats v2 in 7/9 — only narrowly loses on Nifty
+Mid Select and Midcap 150, the two baskets v2's midcap-specific tuning was
+built for, which is expected. Notably flips both of the session's structurally
+weakest baskets (Nifty Bank, Nifty Next 50) from losses to profits.
+
+**Verdict: KEPT.** Registered as `swing_pullback_sector_rs`, labeled "Swing
+Trade Pullback v3 (Sector-RS)" in `ALGO_METADATA`, live in the Quant Signals
+selector (metadata-driven frontend, no hardcoded UI needed).
+
+**Open question for a future session:** v2's midcap-entry-threshold tuning and
+v3's sector-RS benchmark change are independent mechanisms — worth testing
+whether a combined variant (both together) beats either alone, especially for
+Midcap 150 where v3 alone underperforms v2.
