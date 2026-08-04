@@ -114,3 +114,51 @@ confirmed via `git checkout` back to last-committed state, restarted, verified l
 the basket you tested it on* — it does NOT prove the idea generalizes to baskets
 you didn't test. Both checks are needed; passing one without the other isn't
 enough, as this experiment demonstrated directly.
+
+## Global VIX/Nifty-trend regime gate — REVERTED (2026-08-04)
+
+Tried the highest-confidence idea from the research pass: a blanket entry gate
+(not stock/sector-scoped) requiring Nifty close > its own 200-day average AND
+India VIX ≤ ~18.5 (grounded in the real 3yr VIX distribution — p75≈15.3,
+p90≈18.3, max≈27.9). Implemented as a third algo, `swing_pullback_regime`, so
+it could be directly compared against v1 and v2.
+
+**Data prerequisite fixed along the way:** the `india_vix` DB table was never
+actually populated — `sync_vix.py` existed but was never registered in
+`_SYNC_MODULES` (backend/main.py), and its source URL
+(archives.nseindia.com/.../ind_vix_hist.csv) returns 404 as of 2026-08 (NSE
+retired/moved it). Rewrote the sync to pull from yfinance (`^INDIAVIX`) instead
+— the same source the live macro dashboard already falls back to — registered
+it in `_SYNC_MODULES`, backfilled 4312 rows (2009-2026). **This fix is kept**
+(commit follows) — it's a genuine, unrelated bug fix, independent of whether
+the regime-gate idea itself worked.
+
+**The regime-gate idea itself: rejected, unanimous across all 9 indices:**
+
+| Index | v1 PF | v2 PF | Regime PF | Regime P&L |
+|---|---|---|---|---|
+| Nifty 50 | 1.25× | 1.29× | 1.02× | +₹2,309 (down from +₹46,714) |
+| Nifty 100 | 1.21× | 1.26× | 0.93× | -₹19,667 (flipped to loss) |
+| Nifty Bank | 0.72× | 0.86× | 0.37× | -₹34,540 |
+| Nifty Fin Service | 1.04× | 1.04× | 0.64× | -₹26,542 (flipped to loss) |
+| Nifty Mid Select | 1.89× | 2.32× | 1.82× | +₹40,133 (down from +₹58,381) |
+| Nifty Next 50 | 0.90× | 0.90× | 0.74× | -₹41,445 |
+| Sensex | 1.89× | 1.89× | 1.38× | +₹35,485 (down from +₹90,178) |
+| Bankex | 0.72× | 0.86× | 0.37× | -₹34,540 |
+| Midcap 150 | 0.91× | 1.21× | 0.81× | -₹56,011 |
+
+Worse than v1 in **every single basket**, no exceptions — a cleaner, more
+decisive rejection than any prior experiment.
+
+**Why, most likely:** requiring the broad Nifty index to already be above its
+own 200-day average is a blunt, lagging, aggregate-level condition. It throws
+out exactly the early-recovery pullback setups this algorithm targets — a stock
+can have a genuinely clean technical pullback while the broad index is still
+below its own trend line (the earlier Market Regime cards work this session
+already showed individual-stock "basket average" returns often stay positive
+even in years the index itself is negative — the dispersion this gate ignores).
+Reverted; `swing_pullback_regime` removed from `ALGO_IDS`/metadata/dispatch,
+`backend/core/quant_signals.py`, `backend/routes/backtest.py`, and
+`frontend/src/lib/api.ts` restored to the last-committed (v1/v2-only) state via
+`git checkout`. `backend/main.py` and `backend/data_sync/sync_vix.py` (the VIX
+data-pipeline fix) were kept.
