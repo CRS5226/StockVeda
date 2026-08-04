@@ -82,3 +82,35 @@ compared side by side. Verified on fresh 3yr data post-refactor:
 
 v1 and v2 are byte-for-byte identical on Nifty Next 50 (zero symbols in the midcap
 scope) — confirms the split only affects midcap-watchlist symbols, no leakage.
+
+## Liquidity-based generalization attempt — REVERTED (2026-08-04)
+
+Tried replacing v2's watchlist-membership scope with a computed characteristic
+(trailing 20-day turnover ≤₹200cr, picked from a real turnover survey across 340
+synced symbols, not fit to backtest P&L) to avoid overfitting to one frozen symbol
+list. Validated with a proper train/test split on Midcap 150 first (train PF
+0.62×→0.68×, test PF 0.90×→1.00× — looked genuinely promising, held up out of
+sample) — but the full 9-index sweep told a different story:
+
+| Index | v1 PF/P&L | v2-liquidity PF/P&L | Verdict |
+|---|---|---|---|
+| Midcap 150 | 0.91× / -₹34,190 | 1.04× / +₹11,510 | Better, but far weaker than watchlist-based v2 (1.21× / +₹58,853) |
+| Nifty 100 | 1.21× / +₹68,057 | 1.09× / +₹28,772 | Worse |
+| Nifty Bank | 0.72× / -₹14,512 | **0.38×** / **-₹28,816** | Much worse — as bad as the already-rejected idea #1 |
+| Nifty Fin Service | 1.04× / +₹2,690 | 0.84× / -₹12,386 | Worse, flipped to a loss |
+| Nifty Next 50 | 0.90× / -₹17,736 | 0.65× / -₹59,475 | Much worse |
+| Nifty 50, Mid Select, Sensex | — | — | Roughly flat/unchanged |
+
+**Reverted** — turnover alone is too blunt an instrument. It catches low-turnover
+*bars* inside Bank/Fin Service/Next 50 stocks too, and those are exactly the
+baskets where forcing the discount entry hurts (consistent with idea #1's
+failure). Whatever actually makes the midcap150 watchlist special isn't reducible
+to a simple liquidity number — likely some combination of technical structure,
+sector mix, or curation quality that a single computed proxy doesn't capture.
+`swing_pullback_v2` is back to the watchlist-membership version (commit `6aeded5`),
+confirmed via `git checkout` back to last-committed state, restarted, verified live.
+
+**Lesson for next time:** a train/test split proves an idea isn't a fluke *within
+the basket you tested it on* — it does NOT prove the idea generalizes to baskets
+you didn't test. Both checks are needed; passing one without the other isn't
+enough, as this experiment demonstrated directly.
