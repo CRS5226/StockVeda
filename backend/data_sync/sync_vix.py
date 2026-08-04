@@ -1,45 +1,46 @@
 """
-India VIX — full history from a single static NSE CSV.
+India VIX — full history via yfinance (^INDIAVIX).
 Table: india_vix
+
+Originally pulled a static NSE archive CSV, which returns 404 as of 2026-08
+(URL retired/moved on NSE's side) — switched to yfinance, which the live
+macro dashboard already relies on as its own India VIX fallback
+(backend/routes/macro.py), so this is a proven-working source in this app.
 """
 
-import io
 import pandas as pd
-from backend.data_sync.base import get_client, upsert_df, log_sync, last_synced_date
-from datetime import date
+from backend.data_sync.base import upsert_df, log_sync, last_synced_date
 
 SOURCE_ID = "india_vix"
-URL = "https://archives.nseindia.com/content/indices/ind_vix_hist.csv"
+TICKER = "^INDIAVIX"
 
 
 def run():
-    print(f"[{SOURCE_ID}] fetching {URL}")
+    import yfinance as yf
+
+    print(f"[{SOURCE_ID}] fetching {TICKER} via yfinance")
+    last = last_synced_date(SOURCE_ID)
     try:
-        with get_client() as client:
-            resp = client.get(URL)
-            resp.raise_for_status()
+        start = (last + pd.Timedelta(days=1)).isoformat() if last else "2009-01-01"
+        hist = yf.Ticker(TICKER).history(start=start, auto_adjust=True)
     except Exception as e:
         log_sync(SOURCE_ID, "failed", 0, None, str(e))
         print(f"[{SOURCE_ID}] FAILED: {e}")
         return
 
-    df = pd.read_csv(io.BytesIO(resp.content))
-    df.columns = [c.strip() for c in df.columns]
+    if hist.empty:
+        log_sync(SOURCE_ID, "success", 0, last)
+        print(f"[{SOURCE_ID}] no new rows, last date: {last}")
+        return
 
-    # NSE VIX CSV columns: Date,Open,High,Low,Close,Prev Close,% Change
-    df = df.rename(columns={
-        "Date": "date",
-        "Open": "open",
-        "High": "high",
-        "Low": "low",
-        "Close": "close",
-    })
-    df["date"] = pd.to_datetime(df["date"], dayfirst=True).dt.date
-    df = df[["date", "open", "high", "low", "close"]].dropna()
-
-    last = last_synced_date(SOURCE_ID)
-    if last:
-        df = df[df["date"] > last]
+    hist = hist.reset_index()
+    df = pd.DataFrame({
+        "date":  pd.to_datetime(hist["Date"]).dt.date,
+        "open":  hist["Open"].astype(float),
+        "high":  hist["High"].astype(float),
+        "low":   hist["Low"].astype(float),
+        "close": hist["Close"].astype(float),
+    }).dropna()
 
     count = upsert_df(df, "india_vix")
     last_date = df["date"].max() if not df.empty else last

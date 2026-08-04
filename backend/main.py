@@ -61,6 +61,7 @@ _SYNC_MODULES = {
     "india_macro":       "backend.data_sync.sync_macro_india",
     "rbi":               "backend.data_sync.sync_rbi",
     "bse_market":        "backend.data_sync.sync_bse_market",
+    "vix":               "backend.data_sync.sync_vix",
 }
 
 
