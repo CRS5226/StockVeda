@@ -722,7 +722,8 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
                                  volume_arr: np.ndarray, sh_idx: np.ndarray, sh_val: np.ndarray,
                                  sl_idx: np.ndarray, sl_val: np.ndarray,
                                  account_capital: float, symbol: str = "",
-                                 midcap_scope: Optional[frozenset] = None) -> dict:
+                                 midcap_scope: Optional[frozenset] = None,
+                                 new_volume_logic: bool = False) -> dict:
     """STEP5-13 of the formula, evaluated for a single (already gated+scored) bar.
     Always returns a dict with a "verdict" — NO_DATA / NO_ANCHOR / REJECT_SL /
     REJECT_RR / QTY_ZERO (don't trade, tagged so the caller can tally *why*) or
@@ -818,7 +819,16 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
     zone_anchored = False
     if entry_type == "PULLBACK":
         mid = (high + low) / 2
-        confirmed = close > mid and vol20 > 0 and volume >= 1.2 * vol20
+        if new_volume_logic:
+            # Volume principle: a healthy retest sees volume DRY UP, not spike —
+            # flipped from requiring >=1.2x avg to <=1.0x avg.
+            # The corresponding "volume on breakout" half of the principle is
+            # enforced separately, at the actual trigger day in
+            # _run_swing_pullback_trades (this candle is the signal day, not
+            # necessarily the day the order fills).
+            confirmed = close > mid and vol20 > 0 and volume <= 1.0 * vol20
+        else:
+            confirmed = close > mid and vol20 > 0 and volume >= 1.2 * vol20
         entry = high + max(0.001 * high, _TICK_SIZE)
         overshoot_atr = (_MIDCAP_ZONE_ANCHOR_OVERSHOOT_ATR
                          if midcap_scope is not None and symbol in midcap_scope
@@ -928,7 +938,8 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
                                sh_idx: np.ndarray, sh_val: np.ndarray,
                                sl_idx: np.ndarray, sl_val: np.ndarray,
                                account_capital: float, symbol: str = "",
-                               midcap_scope: Optional[frozenset] = None) -> tuple[list[dict], list[dict], dict]:
+                               midcap_scope: Optional[frozenset] = None,
+                               new_volume_logic: bool = False) -> tuple[list[dict], list[dict], dict]:
     """Returns (trades, armed_not_triggered, diagnostics). diagnostics is a
     funnel of what happened to every gate+score-qualifying day — this is the
     only place visibility into silently-dropped signals (REJECT_SL/REJECT_RR/
@@ -996,6 +1007,15 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
                 state, pending = "idle", None
                 continue
             triggered = (low <= pending["entry"]) if pending["zone_anchored"] else (high >= pending["entry"])
+            if (triggered and new_volume_logic and pending["entry_type"] == "PULLBACK"
+                    and not pending["zone_anchored"]):
+                # Volume principle, other half: the actual
+                # breakout/trigger day should show volume picking up, not just
+                # price crossing the level — mirrors the 1.5x threshold already
+                # used elsewhere in this file for breakout-style confirmation
+                # (accumulation/distribution, STEP8's own BREAKOUT gate).
+                vol20_i = float(row["volume_sma_20"]) if not pd.isna(row["volume_sma_20"]) else 0.0
+                triggered = vol20_i > 0 and volume_arr[i] >= 1.5 * vol20_i
             if triggered:
                 entry_price, stop_price, target_price, shares = (
                     pending["entry"], pending["stop"], pending["target"], pending["qty"])
@@ -1010,7 +1030,7 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
             diagnostics["qualifying_days"] += 1
             sig = _build_swing_pullback_signal(df, i, float(score.iloc[i]), close_arr, high_arr, low_arr,
                                                volume_arr, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol,
-                                               midcap_scope)
+                                               midcap_scope, new_volume_logic)
             verdict = sig.get("verdict")
             if verdict in ("TRIGGERED", "PLANNED"):
                 diagnostics["armed"] += 1
@@ -1281,8 +1301,13 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         sl_idx = np.where(is_low)[0]
         sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
         scope = midcap_scope if algo == "swing_pullback_v2" else None
+        # Volume principle (quiet retest, volume pickup on trigger): validated via
+        # train/holdout split across all 9 index baskets for v1, v2, v3 — broad win
+        # everywhere except Nifty Mid Select, which regresses on holdout for all
+        # three variants (a known caveat, logged in quant_signals_experiments.md).
         trades, armed_not_triggered, diagnostics = _run_swing_pullback_trades(
-            df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol, scope)
+            df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol, scope,
+            new_volume_logic=True)
     else:
         raise ValueError(f"Unknown algo: {algo}")
 

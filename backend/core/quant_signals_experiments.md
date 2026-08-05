@@ -204,3 +204,49 @@ selector (metadata-driven frontend, no hardcoded UI needed).
 v3's sector-RS benchmark change are independent mechanisms — worth testing
 whether a combined variant (both together) beats either alone, especially for
 Midcap 150 where v3 alone underperforms v2.
+
+## Idea #7 — volume principle on PULLBACK confirmation (quiet retest, volume-on-trigger)
+
+Research (Strike Money, DayTradingToolkit) says a *healthy* pullback shows
+volume **drying up** during the retest and **picking up** on the actual
+breakout/trigger — the opposite of the original PULLBACK confirmation logic,
+which required volume ≥1.2× avg on the pullback candle itself. Two changes,
+applied together:
+
+1. `_build_swing_pullback_signal` (STEP9): pullback-day confirmation flipped
+   from `volume >= 1.2 * vol20` to `volume <= 1.0 * vol20` (quiet retest).
+2. `_run_swing_pullback_trades`: for non-zone-anchored PULLBACK entries, the
+   trigger day additionally requires `volume >= 1.5 * vol20` (volume pickup on
+   the actual breakout fill).
+
+Applied identically to v1, v2, and v3 (global logic change, not a per-basket
+scope). Tested full 3yr period across all 9 baskets first, then validated with
+a train/holdout split (train = today-3y→today-1.5y, holdout =
+today-1.5y→today) per basket per variant, since this session has repeatedly
+seen full-period aggregates hide holdout-period weaknesses (see idea #6).
+
+**Train → holdout PF, old logic → new logic:**
+
+| Basket | V1 train | V1 holdout | V2 train | V2 holdout | V3 train | V3 holdout |
+|---|---|---|---|---|---|---|
+| Nifty 50 | 0.81→1.66 | 1.66→1.64 | 0.89→1.88 | 1.66→1.64 | 1.17→2.09 | 1.16→1.12 |
+| Nifty 100 | 0.70→1.07 | 1.83→2.19 | 0.76→1.19 | 1.83→2.19 | 0.86→1.23 | 1.45→1.79 |
+| Nifty Bank | 0.0→0.0 | 1.97→5.07 | 0.0→0.0 | 2.83→8.71 | 1.44→1.83 | 2.00→5.07 |
+| Nifty Fin Service | 0.25→1.10 | 2.47→3.58 | 0.25→1.10 | 2.47→3.58 | 0.71→1.58 | inf→inf |
+| **Nifty Mid Select** | 1.35→1.95 | **1.89→0.53** | 1.95→2.13 | 2.15→1.90 | 1.35→1.95 | **1.92→0.53** |
+| Nifty Next 50 | 0.36→0.48 | 1.24→2.89 | 0.36→0.48 | 1.24→2.89 | 0.40→0.52 | 1.46→2.93 |
+| Sensex | 1.65→1.93 | 2.35→2.42 | 1.65→1.93 | 2.35→2.42 | 2.14→2.36 | 1.78→1.78 |
+| Bankex | 0.0→0.0 | 1.97→5.07 | 0.0→0.0 | 2.83→8.71 | 1.44→1.83 | 2.00→5.07 |
+| Midcap 150 | 0.62→1.16 | 0.90→0.90 | 0.84→1.24 | 1.20→1.26 | 0.72→1.16 | 1.09→1.09 |
+
+Broad, genuine improvement — training-set PF rises almost everywhere, and it
+mostly holds or improves on holdout too. One real, repeated exception: **Nifty
+Mid Select holdout regresses for both v1 and v3** (PF ~1.9× → 0.53×), the same
+basket failing the same way under two independent variants — not noise. V2 is
+only mildly softer there (2.15× → 1.90×), not a regression.
+
+**Verdict: KEPT on all three variants** (v1, v2, v3) — `new_volume_logic=True`
+unconditionally in `run_quant_signal`. Nifty Mid Select is logged here as a
+known weak spot rather than patched with another per-basket scope, since every
+prior scoped patch this session (banking-only, liquidity-based, midcap-proxy)
+generalized worse than the plain global change it was meant to refine.
