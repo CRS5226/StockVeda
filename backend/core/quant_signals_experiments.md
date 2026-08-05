@@ -245,8 +245,43 @@ Mid Select holdout regresses for both v1 and v3** (PF ~1.9× → 0.53×), the sa
 basket failing the same way under two independent variants — not noise. V2 is
 only mildly softer there (2.15× → 1.90×), not a regression.
 
-**Verdict: KEPT on all three variants** (v1, v2, v3) — `new_volume_logic=True`
-unconditionally in `run_quant_signal`. Nifty Mid Select is logged here as a
-known weak spot rather than patched with another per-basket scope, since every
-prior scoped patch this session (banking-only, liquidity-based, midcap-proxy)
-generalized worse than the plain global change it was meant to refine.
+**Revised verdict: NOT applied to v1/v2/v3 in place.** Initially kept on all
+three (`new_volume_logic=True` unconditionally), but decided instead to keep
+v1/v2/v3 byte-for-byte unchanged and ship the volume logic as its own
+selectable variant, so it doesn't quietly change the behavior of algo IDs
+users already trust. See idea #8 below.
+
+## Idea #8 — v4: volume principle on top of v3 (sector-RS), as a new algo
+
+Before deciding which base to build on, compared full-period (3yr) results of
+v1+volume vs v2+volume vs v3+volume across all 9 baskets (v2/v3 exact runs,
+v1 approximated by summing the idea #7 train+holdout halves):
+
+| Basket | v1+volume (approx, trades) | v2+volume (trades) | v3+volume (trades) |
+|---|---|---|---|
+| Nifty 50 | ~77,618 (37) | 122,789 (43) | 108,650 (41) |
+| Nifty 100 | ~100,935 (56) | 151,304 (73) | 141,127 (70) |
+| Nifty Bank/Bankex | ~32,925 (7) | 20,709 (9) | 28,373 (11) |
+| Nifty Fin Service | ~15,749 (10) | 21,206 (16) | 41,374 (16) |
+| Nifty Mid Select | ~15,325 (13) | 99,495 (16) | 89,270 (19) |
+| Nifty Next 50 | ~12,849 (25) | 10,744 (38) | 26,849 (35) |
+| Sensex | ~64,330 (21) | 108,506 (28) | 105,140 (28) |
+| Midcap 150 | ~11,704 (64) | 132,400 (71) | 124,789 (84) |
+
+v1+volume is clearly weakest everywhere — it lacks either v2's midcap-scope
+tuning or v3's sector-RS. v2 and v3 are close; v3 wins the most baskets by a
+clear margin (Fin Service, Next 50) and matches the idea #6 finding that v3
+already beat v1 in 9/9 baskets and v2 in 7/9 even before volume was added.
+
+**Built `swing_pullback_v4` = v3's sector-RS base + idea #7's volume-principle
+logic**, registered as its own algo (own `ALGO_METADATA` entry, own frontend
+option), leaving `swing_pullback`/`swing_pullback_v2`/`swing_pullback_sector_rs`
+completely untouched. Sanity-checked post-registration: v1 and v3 3yr Nifty 50
+results match their pre-idea-#7 baseline exactly (v1: 1.25× / +₹46,714; v3:
+1.33× / +₹54,456), and v4 matches the v3+volume figure from idea #7's sweep
+exactly (1.86× / +₹108,650) — confirms the dispatch change didn't leak into
+the other three variants.
+
+**Verdict: KEPT as `swing_pullback_v4`**, labeled "Swing Trade Pullback v4
+(Sector-RS + Volume)". Inherits idea #7's Nifty Mid Select holdout caveat
+(PF ~1.9× → 0.53× under both the v1 and v3 base) — logged, not patched.

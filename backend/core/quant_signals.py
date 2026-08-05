@@ -29,7 +29,7 @@ import pandas as pd
 from backend.db.connection import get_db
 from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
-ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs"]
+ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4"]
 
 MAX_SYMBOLS = 200
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
@@ -46,6 +46,7 @@ WEIGHTS = {
     "swing_pullback": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
     "swing_pullback_v2": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
     "swing_pullback_sector_rs": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
+    "swing_pullback_v4": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
 }
 
 TIERS = {
@@ -57,6 +58,7 @@ TIERS = {
     "swing_pullback": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
     "swing_pullback_v2": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
     "swing_pullback_sector_rs": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
+    "swing_pullback_v4": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
 }
 
 ALGO_METADATA = {
@@ -126,6 +128,14 @@ ALGO_METADATA = {
         "weights": WEIGHTS["swing_pullback_sector_rs"], "tiers": TIERS["swing_pullback_sector_rs"],
         "entry": "Same as Swing Trade Pullback — only the RS factor's benchmark changes (sector index vs Nifty).",
         "trade": "Same as Swing Trade Pullback — only the RS factor's benchmark changes, not stop/target/sizing.",
+    },
+    "swing_pullback_v4": {
+        "id": "swing_pullback_v4", "label": "Swing Trade Pullback v4 (Sector-RS + Volume)", "direction": "long", "universe": "any",
+        "description": "Builds on Swing Trade Pullback v3 (sector-relative-strength) with the volume principle applied to PULLBACK entries: a healthy retest shows volume drying up (≤1.0× 20-day avg, was ≥1.2×), and the actual breakout/trigger day must show volume picking up (≥1.5× avg). Validated via train/holdout split across all 9 index baskets on both v1 and v3 bases — broad, genuine win in most baskets, but Nifty Mid Select regresses on holdout (PF ~1.9×→0.53×) under both bases, a known caveat rather than a disqualifier. Chosen as v4's base over v1 since v3+volume beat v1+volume in almost every basket.",
+        "gates": ["20-day avg turnover ≥ ₹25 cr", "close > SMA50", "SMA50 > SMA200", "SMA50 rising vs 10 days ago"],
+        "weights": WEIGHTS["swing_pullback_v4"], "tiers": TIERS["swing_pullback_v4"],
+        "entry": "Same as v3, except PULLBACK confirmation requires volume ≤1.0× 20-day avg (quiet retest) and the trigger/fill day requires volume ≥1.5× avg (breakout pickup).",
+        "trade": "Same as v3 — only the PULLBACK entry's volume conditions change, not stop/target/sizing.",
     },
 }
 
@@ -1291,8 +1301,8 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         trades = _run_direct_trades(df, gates, score, algo, "long", 1.0, 0.0, 0.0, 1.0, False, account_capital,
                                     stop_series=stop_series, target_series=target_series)
         armed_not_triggered = []
-    elif algo in ("swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs"):
-        df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=(algo == "swing_pullback_sector_rs"))
+    elif algo in ("swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4"):
+        df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=(algo in ("swing_pullback_sector_rs", "swing_pullback_v4")))
         gates = _gates_swing_pullback(df)
         score, factors = score_swing_pullback(df)
         is_high, is_low = _fractal_swings(df)
@@ -1301,13 +1311,13 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         sl_idx = np.where(is_low)[0]
         sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
         scope = midcap_scope if algo == "swing_pullback_v2" else None
-        # Volume principle (quiet retest, volume pickup on trigger): validated via
-        # train/holdout split across all 9 index baskets for v1, v2, v3 — broad win
-        # everywhere except Nifty Mid Select, which regresses on holdout for all
-        # three variants (a known caveat, logged in quant_signals_experiments.md).
+        # v4 only: volume principle (quiet retest, volume pickup on trigger) layered
+        # on top of v3's sector-RS base — validated via train/holdout split across
+        # all 9 index baskets; broad win, except Nifty Mid Select regresses on
+        # holdout (a known caveat, logged in quant_signals_experiments.md).
         trades, armed_not_triggered, diagnostics = _run_swing_pullback_trades(
             df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol, scope,
-            new_volume_logic=True)
+            new_volume_logic=(algo == "swing_pullback_v4"))
     else:
         raise ValueError(f"Unknown algo: {algo}")
 
