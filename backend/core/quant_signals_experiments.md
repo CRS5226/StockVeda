@@ -285,3 +285,58 @@ the other three variants.
 **Verdict: KEPT as `swing_pullback_v4`**, labeled "Swing Trade Pullback v4
 (Sector-RS + Volume)". Inherits idea #7's Nifty Mid Select holdout caveat
 (PF ~1.9× → 0.53× under both the v1 and v3 base) — logged, not patched.
+
+## Idea #9 — ablation test: Fibonacci retracement levels and RSI factor
+
+Prompted by external research (summarized to the user) arguing Fibonacci
+retracements have no standalone empirical support and that hand-built
+multi-indicator confluence systems risk overfitting. Ran an ablation test on
+`swing_pullback` (v1) and `swing_pullback_v4`, checking each component in
+isolation:
+
+**Attempt 1 (confounded, discarded):** dropped RSI's factor entirely and
+redistributed its 0.25 weight proportionally across the other 5 factors.
+Trade count exploded 3x (Nifty 50: 48→153) because redistributing the weight
+also effectively lowered the 0.40 score-qualify threshold — not a clean test
+of RSI's predictive value.
+
+**Attempt 2, RSI isolated properly:** kept RSI's weight fixed but forced its
+factor score to a neutral constant (1.0, never discriminates), holding the
+threshold semantics fixed. Trade count still exploded 4-5x (Nifty 50: 48→248).
+Conclusion: RSI's narrow triangular scoring (only near RSI≈45) functions as
+the system's main selectivity gate, not a minor discriminating factor — it
+can't be cleanly ablated without also recalibrating the 0.40 threshold to
+hold trade frequency constant, which is a bigger follow-up, not a quick test.
+**RSI unchanged, no verdict reached.**
+
+**Attempt 3, Fibonacci isolated:** dropped only the 2 Fibonacci levels (0.5,
+0.618 retracement) from the ~13-level confluence pool, nothing else touched.
+Trade count moved modestly (Nifty 50: 48→58), a clean enough test. Full 3yr
+result was basket-dependent (hurts Nifty 50/100, helps Nifty Bank/Mid
+Select/Midcap 150) — so validated with a train/holdout split on v1 and v4:
+
+| Basket | v1 holdout | v4 holdout |
+|---|---|---|
+| Nifty 50 | 1.66×→1.79× ↑ | 1.12×→1.27× ↑ |
+| Nifty 100 | 1.83×→2.05× ↑ | 1.79×→1.80× flat |
+| Nifty Bank/Bankex | 1.97×→2.46× ↑ | 5.07×→3.17× ↓ |
+| Nifty Fin Service | 2.47×→3.99× ↑ | inf→inf tie |
+| Nifty Mid Select | 1.89×→2.27× ↑ | **0.53×→1.32×** ↑↑ |
+| Nifty Next 50 | 1.24×→1.99× ↑ | 2.93×→2.90× flat |
+| Sensex | 2.35×→2.92× ↑ | 1.78×→2.36× ↑ |
+| Midcap 150 | 0.90×→1.00× ↑ | 1.09×→1.20× ↑ |
+
+v1's holdout improved in all 8/8 baskets — a consistent, non-noise pattern.
+v4's holdout improved in 5/8, tied in 2, dropped in 1 (Nifty Bank, still a
+strong 3.17×). Training-set results were mixed (roughly half up/half down),
+consistent with Fibonacci adding curve-fit risk on training data without a
+durable out-of-sample edge — matches the external research. Notably, removing
+Fib **fixes v4's one known weak spot**: Nifty Mid Select holdout recovers
+from 0.53× (idea #7/#8's flagged regression) to 1.32×.
+
+**Verdict: KEPT as `swing_pullback_v5`** ("Swing Trade Pullback v5 (No
+Fibonacci)") — v4's base with the 2 Fibonacci levels dropped from the
+confluence-zone pool, everything else identical. Registered as its own algo,
+leaving v1-v4 untouched. Sanity-checked post-registration: v1/v4 3yr Nifty 50
+results match their pre-idea-#9 baseline exactly, and v5 matches the isolated
+fib-ablation figure exactly (1.42× / +₹79,609, 56 trades).

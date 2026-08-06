@@ -29,7 +29,7 @@ import pandas as pd
 from backend.db.connection import get_db
 from backend.core.fno_universe import FNO_STOCK_UNIVERSE
 
-ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4"]
+ALGO_IDS = ["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4", "swing_pullback_v5"]
 
 MAX_SYMBOLS = 200
 MAX_HOLD_BARS = 60          # safety cap — spec gives no timeout, avoids runaway open trades
@@ -47,6 +47,7 @@ WEIGHTS = {
     "swing_pullback_v2": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
     "swing_pullback_sector_rs": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
     "swing_pullback_v4": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
+    "swing_pullback_v5": {"rsi": 0.25, "dip": 0.20, "delivery": 0.20, "vol_dry": 0.15, "rs": 0.12, "trend": 0.08},
 }
 
 TIERS = {
@@ -59,6 +60,7 @@ TIERS = {
     "swing_pullback_v2": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
     "swing_pullback_sector_rs": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
     "swing_pullback_v4": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
+    "swing_pullback_v5": [(0.70, "STRONG BUY"), (0.55, "BUY"), (0.40, "WATCH")],
 }
 
 ALGO_METADATA = {
@@ -136,6 +138,14 @@ ALGO_METADATA = {
         "weights": WEIGHTS["swing_pullback_v4"], "tiers": TIERS["swing_pullback_v4"],
         "entry": "Same as v3, except PULLBACK confirmation requires volume ≤1.0× 20-day avg (quiet retest) and the trigger/fill day requires volume ≥1.5× avg (breakout pickup).",
         "trade": "Same as v3 — only the PULLBACK entry's volume conditions change, not stop/target/sizing.",
+    },
+    "swing_pullback_v5": {
+        "id": "swing_pullback_v5", "label": "Swing Trade Pullback v5 (No Fibonacci)", "direction": "long", "universe": "any",
+        "description": "Identical to v4 (sector-RS + volume), with the Fibonacci retracement levels (0.5 and 0.618 of the last swing) dropped from the confluence-zone level pool. Motivated by external research finding no standalone empirical support for Fibonacci retracements, and confirmed here: an isolated ablation test (train/holdout split, all 9 index baskets) showed removing Fib improved holdout PF in 13 of 16 basket/variant combinations — including fixing v4's one known weak spot, Nifty Mid Select (holdout PF 0.53×→1.32×). Training-set results were mixed, consistent with Fib being a training-data curve-fit rather than a durable signal.",
+        "gates": ["20-day avg turnover ≥ ₹25 cr", "close > SMA50", "SMA50 > SMA200", "SMA50 rising vs 10 days ago"],
+        "weights": WEIGHTS["swing_pullback_v5"], "tiers": TIERS["swing_pullback_v5"],
+        "entry": "Same as v4, except the confluence-zone level pool excludes the two Fibonacci retracement levels.",
+        "trade": "Same as v4 — only the confluence-zone level pool changes, not stop/target/sizing.",
     },
 }
 
@@ -733,7 +743,8 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
                                  sl_idx: np.ndarray, sl_val: np.ndarray,
                                  account_capital: float, symbol: str = "",
                                  midcap_scope: Optional[frozenset] = None,
-                                 new_volume_logic: bool = False) -> dict:
+                                 new_volume_logic: bool = False,
+                                 ablate_fib: bool = False) -> dict:
     """STEP5-13 of the formula, evaluated for a single (already gated+scored) bar.
     Always returns a dict with a "verdict" — NO_DATA / NO_ANCHOR / REJECT_SL /
     REJECT_RR / QTY_ZERO (don't trade, tagged so the caller can tally *why*) or
@@ -765,7 +776,7 @@ def _build_swing_pullback_signal(df: pd.DataFrame, i: int, score_i: float,
             levels.append((float(v), _LEVEL_WEIGHTS["ma_ema"]))
     for lvl in _role_reversal_levels(close_arr, low_arr, i, sh_i, sh_v, atr):
         levels.append((lvl, _LEVEL_WEIGHTS["role_reversal"]))
-    if swing_high_price is not None and swing_low_price is not None:
+    if swing_high_price is not None and swing_low_price is not None and not ablate_fib:
         span = swing_high_price - swing_low_price
         levels.append((swing_high_price - 0.5 * span, _LEVEL_WEIGHTS["fib"]))
         levels.append((swing_high_price - 0.618 * span, _LEVEL_WEIGHTS["fib"]))
@@ -949,7 +960,8 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
                                sl_idx: np.ndarray, sl_val: np.ndarray,
                                account_capital: float, symbol: str = "",
                                midcap_scope: Optional[frozenset] = None,
-                               new_volume_logic: bool = False) -> tuple[list[dict], list[dict], dict]:
+                               new_volume_logic: bool = False,
+                               ablate_fib: bool = False) -> tuple[list[dict], list[dict], dict]:
     """Returns (trades, armed_not_triggered, diagnostics). diagnostics is a
     funnel of what happened to every gate+score-qualifying day — this is the
     only place visibility into silently-dropped signals (REJECT_SL/REJECT_RR/
@@ -1040,7 +1052,7 @@ def _run_swing_pullback_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Ser
             diagnostics["qualifying_days"] += 1
             sig = _build_swing_pullback_signal(df, i, float(score.iloc[i]), close_arr, high_arr, low_arr,
                                                volume_arr, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol,
-                                               midcap_scope, new_volume_logic)
+                                               midcap_scope, new_volume_logic, ablate_fib)
             verdict = sig.get("verdict")
             if verdict in ("TRIGGERED", "PLANNED"):
                 diagnostics["armed"] += 1
@@ -1301,8 +1313,8 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         trades = _run_direct_trades(df, gates, score, algo, "long", 1.0, 0.0, 0.0, 1.0, False, account_capital,
                                     stop_series=stop_series, target_series=target_series)
         armed_not_triggered = []
-    elif algo in ("swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4"):
-        df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=(algo in ("swing_pullback_sector_rs", "swing_pullback_v4")))
+    elif algo in ("swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4", "swing_pullback_v5"):
+        df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=(algo in ("swing_pullback_sector_rs", "swing_pullback_v4", "swing_pullback_v5")))
         gates = _gates_swing_pullback(df)
         score, factors = score_swing_pullback(df)
         is_high, is_low = _fractal_swings(df)
@@ -1311,13 +1323,18 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
         sl_idx = np.where(is_low)[0]
         sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
         scope = midcap_scope if algo == "swing_pullback_v2" else None
-        # v4 only: volume principle (quiet retest, volume pickup on trigger) layered
-        # on top of v3's sector-RS base — validated via train/holdout split across
-        # all 9 index baskets; broad win, except Nifty Mid Select regresses on
-        # holdout (a known caveat, logged in quant_signals_experiments.md).
+        # v4: volume principle (quiet retest, volume pickup on trigger) layered on
+        # top of v3's sector-RS base — validated via train/holdout split across all
+        # 9 index baskets; broad win, except Nifty Mid Select regresses on holdout
+        # (a known caveat, logged in quant_signals_experiments.md).
+        # v5: same as v4, minus the Fibonacci retracement levels in the confluence
+        # zone pool — an isolated ablation test found removing Fib improved holdout
+        # PF in 13/16 basket combinations, including fixing v4's Nifty Mid Select
+        # regression (logged in quant_signals_experiments.md).
         trades, armed_not_triggered, diagnostics = _run_swing_pullback_trades(
             df, gates, score, sh_idx, sh_val, sl_idx, sl_val, account_capital, symbol, scope,
-            new_volume_logic=(algo == "swing_pullback_v4"))
+            new_volume_logic=(algo in ("swing_pullback_v4", "swing_pullback_v5")),
+            ablate_fib=(algo == "swing_pullback_v5"))
     else:
         raise ValueError(f"Unknown algo: {algo}")
 
