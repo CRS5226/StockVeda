@@ -399,3 +399,40 @@ strategy's edge appears to come from clean fixed-target hits, not from
 letting winners run — worth remembering before trying variations of this
 idea (tighter trail, different ATR multiple) rather than assuming trailing
 stops are automatically better.
+
+## Idea #12 — sector rotation ranking
+
+Tested whether restricting entries to stocks in currently "hot" sectors
+improves results, distinct from v3's sector-RS (which compares a stock to
+its own sector, not sectors to each other). Ranked the 7 mapped NIFTY sector
+indices (Bank, IT, FMCG, Pharma, Metal, Energy, Realty) by trailing 3-month
+(63 trading day) return each day; gated v1 entries to only fire when the
+stock's own sector was in the top 4 of 7 that day (unmapped sectors always
+allowed through, no restriction).
+
+Full 3yr test on v1, all 9 baskets:
+
+| Basket | v1 baseline | v1 + sector rotation |
+|---|---|---|
+| Nifty 50 | 1.25× / +₹46,714 (48) | 1.21× / +₹38,351 (44) |
+| Nifty 100 | 1.21× / +₹68,057 | 1.20× / +₹59,132 (74) |
+| Nifty Bank/Bankex | 0.72× / -₹14,512 (11) | 0.44× / -₹25,940 (9) |
+| Nifty Fin Service | 1.04× / +₹2,690 (19) | 0.72× / -₹17,890 (15) |
+| Nifty Mid Select | 1.89× / +₹58,381 (18) | 1.46× / +₹28,078 (15) |
+| Nifty Next 50 | 0.90× / -₹17,736 (42) | 0.94× / -₹10,820 (41) |
+| Sensex | 1.89× / +₹90,178 (30) | 1.72× / +₹72,625 (29) |
+| Midcap 150 | 0.91× / -₹34,190 (93) | 0.87× / -₹46,755 (83) |
+
+Worse in 6/8 baskets, only a small improvement in Nifty Next 50. Trade count
+dropped meaningfully in every basket (clean signal, not a threshold
+artifact) — e.g. Nifty Bank 11→9, Fin Service 19→15. Notably the effect is
+worst exactly where sector concentration is highest (Nifty Bank/Bankex:
+0.72×→0.44×).
+
+**Verdict: REJECTED.** Reverted via `git checkout`, no code change kept.
+Likely explanation: this strategy already requires a confirmed individual-
+stock uptrend (SMA50>SMA200 gate) — a stock can have a genuinely strong
+setup while its broader sector is cooling in relative terms, and the edge
+here comes from the individual setup, not sector-wide agreement. Forcing
+sector-level consensus removes good individual setups without adding
+better ones.
