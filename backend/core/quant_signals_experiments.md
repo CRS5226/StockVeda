@@ -436,3 +436,41 @@ setup while its broader sector is cooling in relative terms, and the edge
 here comes from the individual setup, not sector-wide agreement. Forcing
 sector-level consensus removes good individual setups without adding
 better ones.
+
+## Idea #13 — market breadth filter
+
+Tested a global "only trade when the broad market is healthy" gate, distinct
+mechanism from the earlier VIX/Nifty-trend regime gate (idea from before
+this log's idea #7): breadth = % of the 211-symbol F&O universe with
+close > SMA200, computed via a single cached DuckDB window-function query
+(400-day warm-up buffer, min 150 non-null periods). Gated v1 entries to only
+fire when breadth ≥50%.
+
+Full 3yr test on v1, all 9 baskets:
+
+| Basket | v1 baseline | v1 + breadth filter |
+|---|---|---|
+| Nifty 50 | 1.25× / +₹46,714 (48) | 1.20× / +₹28,681 (36) |
+| Nifty 100 | 1.21× / +₹68,057 | 0.99× / -₹3,116 (65) |
+| Nifty Bank/Bankex | 0.72× / -₹14,512 (11) | 0.47× / -₹22,814 (8) |
+| Nifty Fin Service | 1.04× / +₹2,690 (19) | 1.02× / +₹1,517 (15) |
+| Nifty Mid Select | 1.89× / +₹58,381 (18) | 1.41× / +₹20,104 (13) |
+| Nifty Next 50 | 0.90× / -₹17,736 (42) | 0.59× / -₹74,835 (39) |
+| Sensex | 1.89× / +₹90,178 (30) | 1.69× / +₹59,955 (25) |
+| Midcap 150 | 0.91× / -₹34,190 (93) | 0.80× / -₹60,093 (72) |
+
+**Worse in every single basket, no exceptions.** Trade count dropped
+meaningfully everywhere (a clean signal, not a threshold artifact), but
+cutting trades didn't improve quality — it removed a mix of winners and
+losers roughly proportionally, then the survivors' win rate came out
+slightly worse in most baskets.
+
+**Verdict: REJECTED.** Reverted via `git checkout`, no code change kept.
+This is the third global regime/context filter tried this session (after
+the VIX/Nifty-trend gate and sector-rotation ranking) and the third
+rejection — a consistent pattern. This strategy's own gates
+(SMA50>SMA200, SMA50 rising, turnover) already do the trend-confirmation
+job at the individual-stock level; every attempt to layer a second, broader
+trend/regime condition on top (sector-level, market-level) has made things
+worse. The edge here appears to live entirely in individual-stock setup
+quality, not in timing entries around the overall market cycle.
