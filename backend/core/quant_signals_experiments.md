@@ -340,3 +340,62 @@ confluence-zone pool, everything else identical. Registered as its own algo,
 leaving v1-v4 untouched. Sanity-checked post-registration: v1/v4 3yr Nifty 50
 results match their pre-idea-#9 baseline exactly, and v5 matches the isolated
 fib-ablation figure exactly (1.42× / +₹79,609, 56 trades).
+
+## Idea #10 — max concurrent positions cap (portfolio-level, validation only)
+
+Prompted by the observation that every backtest this session assumes
+unlimited simultaneous capital — no cap on how many positions can be open at
+once. Tested as a post-processing simulation on v1's existing full 3yr trade
+list (no code change needed): sorted all trades per basket by entry date,
+greedily accepted a trade only if fewer than 5 positions were already open by
+date-range overlap, otherwise rejected it, then recomputed PF on the accepted
+subset only.
+
+**Result: barely matters.** Most baskets rejected 0 trades entirely (Nifty
+Bank/Bankex, Fin Service, Mid Select, Next 50); the busiest basket (Midcap
+150) only rejected 10 of 93 trades over 3 years. Where trades were rejected
+they were sometimes winners (Sensex PF 1.89×→1.70×), so the effect was
+neutral-to-slightly-negative, not a hidden-inflation problem.
+
+**Verdict: not pursued as a variant** — this isn't a lever to improve
+returns, but it's a useful validation that the existing backtest numbers
+aren't secretly relying on an unrealistic number of simultaneous positions.
+The strategy is naturally low-overlap enough that a realistic cap doesn't
+change the picture.
+
+## Idea #11 — trailing stop + partial profit-take
+
+Tested whether letting winners run (trail the stop instead of a fixed target)
+beats the current fixed 2:1-target exit. Implementation, applied to v1's
+existing entries only (same signals, only the exit logic changed):
+1. At target1 (the existing first-resistance target), sell half the
+   position and move the stop to breakeven for the remaining half.
+2. Trail the remaining half's stop up to `close − 1.5×ATR14` each day
+   (only ratchets up, never down) until stopped out or `MAX_HOLD_BARS`.
+
+Full 3yr test on v1, all 9 baskets:
+
+| Basket | v1 baseline | v1 + trailing/partial |
+|---|---|---|
+| Nifty 50 | 1.25× / +₹46,714 | 1.25× / +₹45,846 (flat) |
+| Nifty 100 | 1.21× / +₹68,057 | 1.14× / +₹45,449 |
+| Nifty Bank/Bankex | 0.72× / -₹14,512 | 0.50× / -₹26,186 |
+| Nifty Fin Service | 1.04× / +₹2,690 | 0.99× / -₹697 (flipped to loss) |
+| Nifty Mid Select | 1.89× / +₹58,381 | 1.56× / +₹36,829 |
+| Nifty Next 50 | 0.90× / -₹17,736 | 0.74× / -₹46,681 |
+| Sensex | 1.89× / +₹90,178 | 1.91× / +₹91,913 (flat) |
+| Midcap 150 | 0.91× / -₹34,190 | 0.78× / -₹83,654 |
+
+Worse in 6/8 baskets, flat in 2. Trade count barely moved (same entries as
+baseline — this is a clean read, not a threshold-confound like the factor
+ablation tests). Most likely explanation: this strategy's setups tend to hit
+their 2:1 target relatively cleanly, and a 1.5×ATR trail is loose enough that
+price chops back through it before running further — converting full
+winners into smaller partial-only gains, while the breakeven-delay stop also
+gives losers slightly more room.
+
+**Verdict: REJECTED.** Reverted via `git checkout`, no code change kept. This
+strategy's edge appears to come from clean fixed-target hits, not from
+letting winners run — worth remembering before trying variations of this
+idea (tighter trail, different ATR multiple) rather than assuming trailing
+stops are automatically better.
