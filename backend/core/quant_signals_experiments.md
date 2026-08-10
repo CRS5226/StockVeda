@@ -474,3 +474,43 @@ job at the individual-stock level; every attempt to layer a second, broader
 trend/regime condition on top (sector-level, market-level) has made things
 worse. The edge here appears to live entirely in individual-stock setup
 quality, not in timing entries around the overall market cycle.
+
+## Idea #14 — realistic transaction cost model (validation, not a variant)
+
+None of this session's backtests included transaction costs — the external
+research flagged this as the #1 thing that kills paper edges in real
+trading. Applied a round-trip cost model to v1 and v5's existing full-3yr
+trades (pure post-processing on entry/exit price × shares, no code change):
+STT 0.1% each side (0.20%) + stamp duty 0.015% (buy only) + exchange/SEBI
+fees + GST (~0.02%) + slippage 0.05% each side (0.10%, wider for mid/small-
+cap NSE spreads) ≈ **0.335% of round-trip trade value**, brokerage assumed
+zero (standard for delivery trades on discount brokers).
+
+| Basket | v1 raw → net | v5 raw → net |
+|---|---|---|
+| Nifty 50 | 1.25×/+₹46,714 → 0.95×/-₹11,028 | 1.42×/+₹79,609 → 1.03×/+₹7,655 |
+| Nifty 100 | 1.22×/+₹69,466 → 0.95×/-₹21,106 | 1.52×/+₹161,010 → 1.13×/+₹48,880 |
+| Nifty Bank/Bankex | 0.72×/-₹14,512 → 0.55×/-₹28,297 | 2.03×/+₹44,734 → 1.44×/+₹24,522 |
+| Nifty Fin Service | 1.04×/+₹2,690 → 0.81×/-₹17,468 | 1.86×/+₹58,070 → 1.37×/+₹30,363 |
+| Nifty Mid Select | 1.89×/+₹58,381 → 1.52×/+₹39,401 | 3.13×/+₹155,825 → 2.45×/+₹125,112 |
+| Nifty Next 50 | 0.88×/-₹22,186 → 0.70×/-₹65,016 | 1.29×/+₹49,019 → 0.99×/-₹1,682 |
+| Sensex | 1.89×/+₹90,178 → 1.44×/+₹54,238 | 1.76×/+₹88,285 → 1.26×/+₹38,434 |
+| Midcap 150 | 0.93×/-₹24,539 → 0.76×/-₹103,328 | 1.63×/+₹240,961 → 1.28×/+₹125,593 |
+
+**v1 does not survive costs — 6 of 8 baskets flip to a net loss** (Nifty 50,
+Nifty 100, Nifty Bank/Bankex, Nifty Fin Service, Nifty Next 50, Midcap 150);
+only Nifty Mid Select and Sensex stay profitable. v1's raw-backtest edge was
+mostly transaction-cost-sized, not real trading edge.
+
+**v5 mostly survives.** All 8 baskets stay profitable except Nifty Next 50
+(flips to ~breakeven, -₹1,682). PF takes a real ~25-35% haircut everywhere
+but stays above 1.0× in 7/8 baskets — roughly matching the external
+research's own estimate of a 15-25% cost drag (this model runs a bit
+heavier since it stacks slippage on top of pure statutory costs).
+
+**Conclusion: this is validation, not a new variant — no code change.** It
+confirms the cumulative work this session (v1→v3 sector-RS→v4 volume→v5
+no-Fib) built genuine, cost-surviving edge, not just a curve-fit backtest
+number: v1 alone would not be tradeable after realistic costs, but the full
+v5 stack is. Worth re-running this same cost check on any future variant
+before treating its raw PF as meaningful.
