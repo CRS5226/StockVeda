@@ -102,7 +102,7 @@ export default function BacktestChart({
       const x2 = chart.timeScale().timeToCoordinate(z.exit_date.slice(0, 10) as Time);
       const y1 = series.priceToCoordinate(z.top);
       const y2 = series.priceToCoordinate(z.bottom);
-      if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+      if (x1 == null || x2 == null || y1 == null || y2 == null || !Number.isFinite(y1) || !Number.isFinite(y2)) return;
       rects.push({
         left: Math.min(x1, x2), width: Math.max(2, Math.abs(x2 - x1)),
         top: Math.min(y1, y2), height: Math.max(1, Math.abs(y2 - y1)),
