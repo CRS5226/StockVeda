@@ -558,3 +558,31 @@ sample size would require relaxing the entry mechanism itself (lower the
 1.5× volume-breakout bar, or extend the watch window), which starts
 changing what the strategy fundamentally *is* rather than tuning it —
 parked, not pursued further this session.
+
+**Second follow-up: relaxed the entry mechanism itself** (not just
+pre-filters) — volume-breakout threshold 1.5×→1.3×, watch window 20→30
+days. Full 3yr, all 9 baskets:
+
+| Basket | Trades | Win rate | PF |
+|---|---|---|---|
+| Nifty 50 | 2 (was 0) | 0% | 0.0× |
+| Nifty 100 | 3 (was 0) | 0% | 0.0× |
+| Nifty Bank/Bankex | 0 | — | — |
+| Nifty Fin Service | 0 | — | — |
+| Nifty Mid Select | 1 (was 0) | 0% | 0.0× |
+| Nifty Next 50 | 1 (was 0) | 0% | 0.0× |
+| Sensex | 1 (was 0) | 0% | 0.0× |
+| Midcap 150 | 12 (was 8) | 58.3% (was 75%) | 2.80× (was 6.00×) |
+
+**Quality collapsed.** More baskets produced trades, but every trade outside
+Midcap 150 was a loss (0% win rate). Even Midcap 150, the one basket with a
+real sample, saw PF drop by more than half (6.00×→2.80×) as win rate fell
+from 75% to 58.3%. Reverted via `git checkout`, no code change kept.
+
+**Final verdict: the original tightness (1.5× volume, 20-day window) is
+load-bearing, not arbitrary — confirms the hypothesis, doesn't refute it.**
+This settles the relaxation question: loosening the entry mechanism doesn't
+surface "the same edge more often," it dilutes straight into losses. The
+strategy either needs years more data to validate at its current strictness,
+or should be treated as a live opportunistic watch-list signal rather than
+a backtestable one — no further parameter search here this session.
