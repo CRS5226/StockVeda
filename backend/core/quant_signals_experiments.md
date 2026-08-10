@@ -5,6 +5,53 @@ Every parameter experiment on the Swing Trade Pullback algo gets one row here
 (a group the change should *not* affect) is checked alongside the target every
 time, since a scoped change that leaks into other symbols is a bug, not a result.
 
+## Summary (updated as ideas land)
+
+**Swing Trade Pullback family — current state: v1 through v5 all live,
+byte-for-byte independent of each other (`swing_pullback`, `swing_pullback_v2`,
+`swing_pullback_sector_rs`, `swing_pullback_v4`, `swing_pullback_v5`).**
+- **v1** — baseline. Full 3yr, all 9 baskets, doesn't clear realistic
+  transaction costs in 6 of 8 (idea #14) — thin/not tradeable alone.
+- **v2** — v1 + midcap-watchlist-scoped zone-anchor bias. Kept, narrow fix.
+- **v3** — v1 + sector-relative-strength (own-sector benchmark instead of
+  Nifty). Beats v1 in 9/9 baskets.
+- **v4** — v3 + volume principle (quiet retest, volume-on-trigger). Beats v3
+  in every basket; known caveat: Nifty Mid Select regresses on holdout.
+- **v5 (current best)** — v4 minus Fibonacci retracement levels (ablation
+  test showed Fib hurts more than helps on holdout, fixes v4's Mid Select
+  caveat). Beats v1 in 7/8 baskets, **survives transaction costs in 7/8**
+  (idea #14) — the only variant confirmed cost-viable across most baskets.
+- **Rejected additions to the swing-pullback family** (tried, logged,
+  reverted, code restored): VIX/Nifty-trend regime gate, sector-rotation
+  ranking (idea #12), market breadth filter (idea #13), trailing-stop +
+  partial-profit-take (idea #11), max-concurrent-positions cap (idea #10,
+  validation only — confirmed the backtest wasn't relying on unrealistic
+  concurrency). Pattern: **every global regime/context filter tried has
+  failed** — this strategy's edge lives in individual-stock setup quality,
+  not market-cycle timing. RSI could not be cleanly ablated (idea #9,
+  attempts 1-2) — any change to it collapses the score-threshold's
+  selectivity, confounding the test; left untouched, unresolved.
+
+**Accumulation algo (separate strategy, not swing-pullback family) — parked,
+untestable at current data volume, settled after three relaxation attempts.**
+Fires only 7-9 trades across the full 9-basket + full-211-stock-F&O-universe
+test (idea #15). Tried relaxing gate-only, entry-only, and both combined
+(idea #15 follow-ups) — each step added a handful more trades but PF kept
+degrading (Midcap 150: 6.0×→2.8×→2.6×) and every other basket's win rate
+collapsed to ~0%; Nifty Bank/Fin Service produced zero trades even fully
+relaxed. **Confirmed: a hard floor, not a tuning gap** — the original
+strictness is load-bearing. External research confirms this is a real,
+recognized NSE pattern, but needs years more data (or live paper-trading) to
+validate at this trade frequency — no further parameter search planned.
+
+**Methodology established this session, applied to every experiment above:**
+train/holdout split (not just full-period aggregate — full-period results
+have repeatedly hidden holdout-period failures), isolated single-variable
+ablation (confounded multi-variable changes give unreliable reads), realistic
+transaction-cost modeling before trusting any raw PF, and always reverting +
+sanity-checking production back to its exact prior state after every
+temporary test.
+
 Baseline (no experiment applied), 2yr = today-2y→today, 3yr = today-3y→today,
 account_capital=1,000,000:
 
@@ -586,3 +633,36 @@ surface "the same edge more often," it dilutes straight into losses. The
 strategy either needs years more data to validate at its current strictness,
 or should be treated as a live opportunistic watch-list signal rather than
 a backtestable one — no further parameter search here this session.
+
+**Third follow-up: combined gate + entry relaxation (more aggressive)** —
+delivery-surge requirement removed entirely, tightness band ±5%→±10%,
+volume-breakout threshold 1.5×→1.1×, watch window 20→40 days, all four
+loosened together this time. Full 3yr, all 9 baskets:
+
+| Basket | Trades | Win rate | PF |
+|---|---|---|---|
+| Nifty 50 | 2 | 0% | 0.0× |
+| Nifty 100 | 3 | 0% | 0.0× |
+| Nifty Bank/Bankex | 0 | — | — |
+| Nifty Fin Service | 0 | — | — |
+| Nifty Mid Select | 1 | 0% | 0.0× |
+| Nifty Next 50 | 1 | 0% | 0.0× |
+| Sensex | 1 | 0% | 0.0× |
+| Midcap 150 | 16 (was 8) | 56.2% (was 75%) | 2.63× (was 6.00×) |
+| Overall (pooled) | 24 | 37.5% | 1.22× |
+
+Barely more trades than the single-mechanism relaxation (idea #16), and
+quality kept degrading as relaxation increased (Midcap 150 PF: 6.0×→2.8×→
+2.6× across the three relaxation steps). **Nifty Bank and Nifty Fin Service
+still produced zero trades even with every threshold loosened** — not a
+threshold problem, the underlying quiet-accumulation-then-breakout pattern
+structurally doesn't occur in this data for those baskets. Reverted via
+`git checkout`, no code change kept.
+
+**Conclusion, now settled across three separate relaxation attempts (idea
+#15 gate-only, #16 entry-only, this one combined): there is a hard floor
+here, not a tuning gap.** More aggressive relaxation does not converge
+toward "the same edge, more often" — it converges toward zero edge with a
+few more trades. No further relaxation attempts planned; the algo is parked
+as-is (original strict thresholds), pending either years more data or live
+paper-trading to validate.
