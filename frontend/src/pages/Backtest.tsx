@@ -2914,11 +2914,17 @@ function QuantSignalPanel() {
 
               {symResult && !symResult.error && (
                 <>
-                  {symResult.ohlcv.length > 0 && activeSym && (
-                    <BacktestChart symbol={activeSym} ohlcv={symResult.ohlcv}
-                      trades={symResult.trades as unknown as BacktestTradeV2[]}
-                      boxZones={tradeBoxZones(symResult.trades as unknown as BacktestTradeV2[])} />
-                  )}
+                  {symResult.ohlcv.length > 0 && activeSym && (() => {
+                    const chartTrades: BacktestTradeV2[] = symResult.trades.map((t) => ({
+                      ...t, sl_price: t.stop_price,
+                      exit_reason: t.exit_reason as BacktestTradeV2["exit_reason"],
+                    }));
+                    return (
+                      <BacktestChart symbol={activeSym} ohlcv={symResult.ohlcv}
+                        trades={chartTrades}
+                        boxZones={tradeBoxZones(chartTrades)} />
+                    );
+                  })()}
 
                   {/* Trade log with score/tier or arm→trigger timeline */}
                   {symResult.trades.length > 0 && (
