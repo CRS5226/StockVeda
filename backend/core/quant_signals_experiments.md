@@ -514,3 +514,27 @@ no-Fib) built genuine, cost-surviving edge, not just a curve-fit backtest
 number: v1 alone would not be tradeable after realistic costs, but the full
 v5 stack is. Worth re-running this same cost check on any future variant
 before treating its raw PF as meaningful.
+
+## Idea #15 — Accumulation algo, sample-size check across the 9 baskets and full F&O universe
+
+Not a swing-pullback-family experiment — checked whether the existing,
+already-registered `accumulation` algo (delivery-surge + tightness gates,
+watch-then-breakout entry) produces a large enough sample to trust, since
+its gates (5D delivery ≥1.05-1.10× 20D avg, 20-day price range ≤5%,
+turnover ≥₹25cr, close>SMA200) are unusually tight.
+
+Full 3yr backtest, all 9 index baskets: **zero trades in 8 of 9 baskets.**
+Only Midcap 150 produced any signals — 8 trades, PF 6.00× raw / 5.06× after
+transaction costs, 75% win rate. Widened to the full 211-stock F&O universe
+(the broadest liquid universe available, split across two 200-symbol-capped
+API calls) to see if a bigger sample would appear: **only 7 trades total**,
+PF 4.98× raw / 4.20× after costs, 71.4% win rate — and notably these are a
+mostly different set of trades from the Midcap 150 basket's 8 (the F&O
+universe and the "Midcap 150" watchlist only partially overlap).
+
+**Verdict: cannot be validated with available data — not rejected, not
+kept, genuinely untestable at current gate tightness.** Both samples (7 and
+8 trades) are far below the ≥30-trade bar the external research flagged as
+the minimum for statistical meaning; the very high PF/win-rate numbers could
+easily be luck rather than real edge. This is a structural sample-size
+problem (the gates are too rare to fire), not a performance verdict.
