@@ -538,3 +538,23 @@ kept, genuinely untestable at current gate tightness.** Both samples (7 and
 the minimum for statistical meaning; the very high PF/win-rate numbers could
 easily be luck rather than real edge. This is a structural sample-size
 problem (the gates are too rare to fire), not a performance verdict.
+
+**Follow-up: relaxed the two pre-filter gates to see if sample size
+improves.** Removed the delivery-surge requirement entirely (threshold
+1.05-1.10× → 1.00×, i.e. no-op) and widened the 20-day price-tightness band
+from ±5% to ±10%. Full 3yr, all 9 baskets: **still zero trades in 8/9
+baskets**; Midcap 150 barely moved (8→9 trades). Reverted via `git
+checkout`, no code change kept.
+
+**Conclusion: the bottleneck isn't the pre-filter gates, it's the
+entry/arm mechanism itself.** Score ≥0.60 arms a 20-day watch, and the
+trade only fires if price breaks the prior 20-day high *with* volume
+≥1.5× average, *within* that same 20-day window — a narrow, specific
+combination (quiet accumulation → clean breakout → volume confirmation, all
+inside 20 trading days) that rarely lines up for names that also clear the
+turnover+SMA200 gates. Loosening the pre-filters can't fix a scarcity
+that's coming from further downstream in the logic. Getting a testable
+sample size would require relaxing the entry mechanism itself (lower the
+1.5× volume-breakout bar, or extend the watch window), which starts
+changing what the strategy fundamentally *is* rather than tuning it —
+parked, not pursued further this session.
