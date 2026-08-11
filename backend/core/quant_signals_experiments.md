@@ -731,3 +731,37 @@ conditions. Reverted via `git checkout`, no code change kept.
 VIX gate, sector rotation, market breadth for longs). Even in the one case
 with a clear causal story for why it should work, it didn't — worth
 treating any future regime-filter idea with real skepticism by default.
+
+## Idea #19 — Short Bounce: entry-threshold tightening — KEPT
+
+Tested raising the entry-score threshold on the full 204-stock F&O
+universe, full 3yr, after ideas #17 (look-ahead fix) and #18 (regime
+filter, rejected):
+
+| Threshold | Trades | Win rate | PF | P&L |
+|---|---|---|---|---|
+| 0.55 (prior) | 1737 | 30.0% | 0.85× | -₹13,92,240 |
+| 0.65 | 1114 | **32.3%** | **0.94×** | -₹3,35,608 |
+| 0.70 | 662 | 31.9% | 0.93× | -₹2,37,414 |
+| 0.75 | 233 | 27.9% | 0.77× | -₹2,92,039 |
+
+Non-monotonic — 0.75 overshoots and gets worse again (fewer trades, lower
+PF), so "tighter is always better" doesn't hold. **0.65 is the validated
+sweet spot**: best win rate and PF, and a large enough sample (1114 trades)
+to trust more than 0.70/0.75's thinner sets.
+
+**Verdict: KEPT — `short_bounce`'s entry threshold raised 0.55→0.65 in
+production**, description/entry text in `ALGO_METADATA` updated to match
+(frontend renders this live from the API, no separate UI change needed).
+Cut the 3yr loss by ~76% (-₹13.9L→-₹3.4L) and closed most of the gap to
+the 33.3% breakeven this 2:1 R:R needs.
+
+**Still net-negative overall — not fully fixed, and that's expected.**
+Research (external, summarized to the user) confirms shorting carries a
+structural headwind (~9%/year disadvantage vs. longs from market drift,
+borrow costs, and squeeze asymmetry) independent of execution quality, and
+this backtest window is ~3 years mostly-bullish for a strategy that's
+short by design. A genuinely different entry redesign — waiting for
+confirmed bounce-*failure* (price rolling over and breaking a recent
+swing high/support) instead of just measuring distance off the low — is
+flagged as the next idea to test, not yet implemented.

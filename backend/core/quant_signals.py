@@ -74,11 +74,11 @@ ALGO_METADATA = {
     },
     "short_bounce": {
         "id": "short_bounce", "label": "Short Bounce", "direction": "short", "universe": "fno_only",
-        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only.",
+        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close, which isn't realistically fillable) and requires a higher-conviction score (≥0.65, raised from 0.55) — validated on the full 204-stock F&O universe: cut the 3yr loss from -₹13.9L to -₹3.4L and raised win rate to 32.3%, close to the 33.3% breakeven this setup's 2:1 reward:risk needs. Still net-negative overall — a bull-market-heavy 3yr test window is a real headwind for any short strategy, not a fixable bug.",
         "gates": ["20-day avg turnover ≥ ₹25 cr", "close < SMA50", "SMA50 < SMA200"],
         "weights": WEIGHTS["short_bounce"], "tiers": TIERS["short_bounce"],
-        "entry": "Enter at SHORT tier (score ≥ 0.55) while gates hold.",
-        "trade": "Stop = close + 1.5×ATR14 · Target = close − 3×ATR14 (2:1) · 0.75% flat risk.",
+        "entry": "Score ≥ 0.65 (raised from 0.55) while gates hold; fires on the next trading day's open, not same-day.",
+        "trade": "Stop = entry + 1.5×ATR14 · Target = entry − 3×ATR14 (2:1) · 0.75% flat risk.",
     },
     "accumulation": {
         "id": "accumulation", "label": "Accumulation", "direction": "long", "universe": "any",
@@ -1334,7 +1334,12 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
     elif algo == "short_bounce":
         gates = _gates_short_bounce(df)
         score, factors = score_short_bounce(df)
-        trades = _run_direct_trades(df, gates, score, algo, "short", 0.55, 1.5, 3.0, 0.75, False, account_capital,
+        # Entry threshold raised 0.55->0.65 (idea #19 in quant_signals_experiments.md):
+        # cut the full-F&O-universe 3yr loss from -Rs13.9L to -Rs3.4L and pushed win
+        # rate to 32.3%, close to the 33.3% breakeven this R:R needs. Non-monotonic —
+        # 0.70/0.75 tested worse — 0.65 is the validated sweet spot, not "tighter is
+        # always better."
+        trades = _run_direct_trades(df, gates, score, algo, "short", 0.65, 1.5, 3.0, 0.75, False, account_capital,
                                     enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "accumulation":
