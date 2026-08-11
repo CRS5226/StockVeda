@@ -1111,16 +1111,25 @@ def _run_direct_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, alg
                        base_risk_pct: float, score_scaled: bool,
                        account_capital: float,
                        stop_series: Optional[pd.Series] = None,
-                       target_series: Optional[pd.Series] = None) -> list[dict]:
+                       target_series: Optional[pd.Series] = None,
+                       enter_next_bar: bool = False) -> list[dict]:
+    """enter_next_bar=True fills at the NEXT bar's open instead of the signal
+    bar's own close — the signal bar's close/indicators (RSI, delivery, etc.)
+    aren't knowable until that day's market has shut, so filling at that same
+    close is a look-ahead artifact. Defaults to False to preserve zone_trade's
+    documented "enter at close on the zone-touch bar" design, which reflects a
+    same-day intrabar touch-and-close condition, not an EOD-computed score."""
     trades: list[dict] = []
     in_trade = False
+    pending_signal_idx: Optional[int] = None
     entry_idx = entry_price = stop_price = target_price = 0.0
     shares = 0
 
     for i in range(1, len(df)):
         row = df.iloc[i]
         close, high, low = float(row["close"]), float(row["high"]), float(row["low"])
-        if pd.isna(close) or pd.isna(high) or pd.isna(low):
+        open_ = float(row["open"]) if enter_next_bar else 0.0
+        if pd.isna(close) or pd.isna(high) or pd.isna(low) or (enter_next_bar and pd.isna(open_)):
             continue
 
         if in_trade:
@@ -1153,8 +1162,33 @@ def _run_direct_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, alg
                     "tier": df.iloc[entry_idx]["_tier"],
                 })
                 in_trade = False
+            continue
 
-        if not in_trade and bool(gates.iloc[i]) and score.iloc[i] >= entry_threshold and close > 0:
+        if enter_next_bar and pending_signal_idx is not None:
+            sig_i = pending_signal_idx
+            pending_signal_idx = None
+            sig_row = df.iloc[sig_i]
+            atr = float(sig_row["atr_14"]) if not pd.isna(sig_row["atr_14"]) else 0.0
+            if atr <= 0 or open_ <= 0:
+                continue
+            entry_price = open_
+            stop_price = entry_price - atr_stop_mult * atr if direction == "long" else entry_price + atr_stop_mult * atr
+            target_price = entry_price + atr_target_mult * atr if direction == "long" else entry_price - atr_target_mult * atr
+            sig_score = float(score.iloc[sig_i])
+            risk_pct = (_scaled_risk_pct(sig_score, base_risk_pct, entry_threshold) if score_scaled else base_risk_pct)
+            shares = _position_size(account_capital, risk_pct, entry_price, stop_price)
+            if shares < 1:
+                continue
+            entry_idx = i
+            in_trade = True
+            df.at[df.index[i], "_score"] = sig_score
+            df.at[df.index[i], "_tier"] = _assign_tier(sig_score, algo)
+            continue
+
+        if bool(gates.iloc[i]) and score.iloc[i] >= entry_threshold and close > 0:
+            if enter_next_bar:
+                pending_signal_idx = i
+                continue
             atr = float(row["atr_14"]) if not pd.isna(row["atr_14"]) else 0.0
             if atr <= 0:
                 continue
@@ -1291,12 +1325,17 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
     if algo == "long_pullback":
         gates = _gates_long_pullback(df)
         score, factors = score_long_pullback(df)
-        trades = _run_direct_trades(df, gates, score, algo, "long", 0.55, 1.5, 3.0, 1.0, True, account_capital)
+        # enter_next_bar=True: fill at the next day's open, not the signal day's
+        # own close — the signal day's close/indicators aren't known until that
+        # day's market has already shut, so same-bar-close fills were look-ahead.
+        trades = _run_direct_trades(df, gates, score, algo, "long", 0.55, 1.5, 3.0, 1.0, True, account_capital,
+                                    enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "short_bounce":
         gates = _gates_short_bounce(df)
         score, factors = score_short_bounce(df)
-        trades = _run_direct_trades(df, gates, score, algo, "short", 0.55, 1.5, 3.0, 0.75, False, account_capital)
+        trades = _run_direct_trades(df, gates, score, algo, "short", 0.55, 1.5, 3.0, 0.75, False, account_capital,
+                                    enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "accumulation":
         gates = _gates_accumulation(df, is_fno)
