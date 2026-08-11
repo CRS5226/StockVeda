@@ -793,3 +793,40 @@ requirement filtered out most setups without concentrating on the good
 ones. Also a much thinner sample (201 vs 1114 trades) to trust. Reverted
 via `git checkout`, no code change kept; idea #19 (threshold 0.65,
 direct entry) remains the production baseline.
+
+## Idea #21 — Short Bounce: confluence-zone stop/target
+
+Requested explicitly: not-just-ATR-multiple stops/targets, using
+support/resistance confluence the same way `swing_pullback` does for
+longs, mirrored for a short. Built `_short_bounce_zone_levels`: reused the
+existing level-pool machinery (swing highs/lows, MAs, weekly pivots, round
+numbers, role-reversal — **no Fibonacci**, per idea #9's ablation finding
+that it hurts holdout performance) to require price be testing a confirmed
+**resistance** confluence (omega≥4, same threshold `swing_pullback` uses)
+before shorting; stop set just above that zone, target at the nearest
+confluence **support** wall below, gated at ≥2:1 R:R. Also extended
+`_run_direct_trades`'s `enter_next_bar` mode to accept `stop_series`/
+`target_series` (previously only supported in the same-bar path), so this
+stays consistent with idea #17's look-ahead fix.
+
+Full F&O universe, 3yr:
+
+| | Committed (idea #19) | Confluence-zone |
+|---|---|---|
+| Trades | 1114 | **9** |
+| Win rate | 32.3% | 33.3% |
+| PF | 0.94× | **1.42×** |
+| P&L | -₹3,35,608 | **+₹18,415** |
+
+**Genuinely promising on paper — and genuinely untrustworthy at this
+sample size.** 9 trades across the entire market over 3 years is the same
+problem idea #15's Accumulation-algo hit: too rare to distinguish real
+edge from luck. Reverted via `git checkout`, no code change kept (the
+`_run_direct_trades` `enter_next_bar`+`stop_series` extension was reverted
+along with it — worth re-adding if this idea is revisited, since it's
+generically useful infra, not specific to this experiment).
+
+**Not rejected — parked pending a larger sample.** Next step (not yet
+tested): loosen the confluence-confirmation bar (omega≥4→≥3) and the R:R
+gate (≥2.0→≥1.5) to see if the profitable signal holds up with more
+trades, or dissolves the way Accumulation's did under relaxation.
