@@ -765,3 +765,31 @@ short by design. A genuinely different entry redesign — waiting for
 confirmed bounce-*failure* (price rolling over and breaking a recent
 swing high/support) instead of just measuring distance off the low — is
 flagged as the next idea to test, not yet implemented.
+
+## Idea #20 — Short Bounce: bounce-failure entry redesign — REJECTED
+
+Reused the codebase's existing arm-then-trigger pattern (`_run_armed_trades`,
+already used by `accumulation`/`distribution`) instead of `short_bounce`'s
+direct-entry style: score ≥0.65 arms a watch, entry only fires once price
+actually breaks below a prior structural low (`low_20_prior`) with volume
+≥1.5× confirmation — i.e. wait for the bounce to visibly fail, not just
+measure distance off the low. Directly matches external research on
+short-selling technique (confirmation-based entries, volume validation).
+
+Full F&O universe, 3yr, vs. the just-committed 0.65-threshold direct-entry
+baseline:
+
+| | Committed (idea #19) | Bounce-failure redesign |
+|---|---|---|
+| Trades | 1114 | 201 |
+| Win rate | 32.3% | 31.3% |
+| PF | 0.94× | 0.88× |
+| P&L | -₹3,35,608 | -₹1,20,422 |
+
+**Rejected — smaller absolute loss, but worse per-trade quality (both win
+rate and PF), not better.** The smaller loss is purely a function of
+trading 82% less often, not higher-conviction signals — the confirmation
+requirement filtered out most setups without concentrating on the good
+ones. Also a much thinner sample (201 vs 1114 trades) to trust. Reverted
+via `git checkout`, no code change kept; idea #19 (threshold 0.65,
+direct entry) remains the production baseline.
