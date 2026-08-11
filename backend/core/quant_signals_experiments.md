@@ -826,7 +826,36 @@ edge from luck. Reverted via `git checkout`, no code change kept (the
 along with it — worth re-adding if this idea is revisited, since it's
 generically useful infra, not specific to this experiment).
 
-**Not rejected — parked pending a larger sample.** Next step (not yet
-tested): loosen the confluence-confirmation bar (omega≥4→≥3) and the R:R
-gate (≥2.0→≥1.5) to see if the profitable signal holds up with more
-trades, or dissolves the way Accumulation's did under relaxation.
+**Follow-up: loosened the confluence bar** (omega≥4→≥3) and R:R gate
+(≥2.0→≥1.5) to test whether the profitable n=9 signal holds up with more
+trades.
+
+| | omega≥4, R:R≥2.0 (n=9) | omega≥3, R:R≥1.5 (n=34) |
+|---|---|---|
+| Trades | 9 | 34 |
+| Win rate | 33.3% | 29.4% |
+| PF | 1.42× | 0.81× |
+| P&L | +₹18,415 | -₹33,992 |
+
+**Dissolved under relaxation — same pattern as Accumulation (idea #16).**
+More trades, but PF flipped from profitable to a net loss and win rate
+dropped. This is now the 3rd time this session a strict filter's apparent
+edge disappeared under loosening (Accumulation's entry mechanism, and now
+this) — a real, repeated signal that the strictness itself is often the
+edge, not an obstacle to it.
+
+**Verdict: REJECTED — not pursued further.** The n=9 result doesn't
+survive expansion, so it can't be distinguished from noise after all.
+Reverted via `git checkout`, no code change kept (including the
+`_run_direct_trades` `enter_next_bar`+`stop_series` extension, worth
+re-adding as generic infra if a future zone-based algo needs it).
+
+**Overall short_bounce status after ideas #17-21:** the only kept change
+is idea #19 (entry threshold 0.65, look-ahead-fixed) — cuts the 3yr loss
+~76% (-₹13.9L→-₹3.4L) but remains net-negative. Three further redesign
+attempts (regime filter, bounce-failure confirmation, confluence-zone
+stop/target) all either hurt performance or couldn't produce a trustworthy
+sample. Recommend treating `short_bounce` as validated-but-marginal at its
+current committed state, not a candidate for further redesign this
+session — the structural headwind shorting faces (per external research)
+appears to be the dominant factor, not fixable via entry/exit mechanics.
