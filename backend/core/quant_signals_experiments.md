@@ -666,3 +666,68 @@ toward "the same edge, more often" — it converges toward zero edge with a
 few more trades. No further relaxation attempts planned; the algo is parked
 as-is (original strict thresholds), pending either years more data or live
 paper-trading to validate.
+
+## Idea #17 — Short Bounce: look-ahead entry-timing fix (code correctness, not a tuning experiment)
+
+Tested `short_bounce` on the full 204-stock F&O universe (built this
+session, see below) and found a large net loss: 1833 trades, 29.7% win
+rate, PF 0.84×, -₹15,81,955. Investigating why surfaced a real bug in
+`_run_direct_trades` (shared by `long_pullback` and `short_bounce`, not
+`zone_trade`): it filled entries at the **signal bar's own close** — the
+exact price a same-day EOD score/gate computation can't actually know
+until after the market has shut. Not fillable live.
+
+**Fix:** added `enter_next_bar` mode — signal fires on bar i (using bar i's
+close), fill happens at bar i+1's open instead. `zone_trade` was left
+untouched (its "enter at close on the zone-touch bar" is documented,
+intentional same-day-intrabar-touch design, not an EOD-score artifact).
+
+| | Before fix | After fix |
+|---|---|---|
+| Trades | 1833 | 1737 |
+| Win rate | 29.7% | 30.0% |
+| PF | 0.84× | 0.85× |
+| P&L | -₹15,81,955 | -₹13,92,240 |
+
+**Kept — this is a correctness fix, not a tuning knob.** Barely moved the
+numbers (the look-ahead bug wasn't the main driver of the loss), but it's
+the honest baseline going forward for both `long_pullback` and
+`short_bounce`. Committed directly (no revert), also benefits
+`long_pullback` even though that wasn't separately tested today.
+
+**Root cause of the loss, from the math:** 2:1 R:R (stop 1.5×ATR, target
+3×ATR) needs a 33.3% win rate to break even; actual is 30%. Year-by-year
+win rate from the regime panel: 2024 37.6% (profitable), 2025 28.7%, 2026
+(partial, the one Bearish year) 26.3% — worse in the bearish year than the
+bull years, which is counterintuitive for a short strategy and worth
+treating as a real signal, not noise.
+
+## Idea #18 — Short Bounce: market-regime filter (only short when Nifty is weak)
+
+Different logical basis than the 3 regime filters already rejected for the
+long strategies (VIX gate, sector rotation, market breadth) — those failed
+because they were redundant filters on top of an already-working long
+edge. Here the mismatch is structural: `short_bounce` is a short strategy
+tested mostly across a 3-year bull market. Tested requiring Nifty's own
+close below its 200-day SMA as an additional gate.
+
+| | No filter | + regime filter |
+|---|---|---|
+| Trades | 1737 | 1105 |
+| Win rate | 30.0% | 26.0% |
+| PF | 0.85× | 0.70× |
+| P&L | -₹13,92,240 | -₹18,42,358 |
+
+**Made it worse, not better — hypothesis rejected.** "Nifty below its own
+200-day SMA" is a slow, lagging condition; by the time it triggers, a lot
+of the decline has often already happened, and the market is frequently
+closer to a bottom than mid-decline — exactly the kind of stretch where
+sharp relief rallies happen, which is bad news for a strategy that shorts
+stocks *after* they've already bounced off a low. The filter selected for
+the most panic/whipsaw-prone stretches of the data, not calmer bearish
+conditions. Reverted via `git checkout`, no code change kept.
+
+**4th regime/context filter this session to hurt rather than help** (after
+VIX gate, sector rotation, market breadth for longs). Even in the one case
+with a clear causal story for why it should work, it didn't — worth
+treating any future regime-filter idea with real skepticism by default.
