@@ -1045,3 +1045,46 @@ and profit despite more trades). Reverted via `git checkout`, 0.40 remains
 the production default — confirmed no path to 200 trades exists on this
 lever without also loosening R:R (already shown in idea #24's follow-up to
 destroy quality much faster than it adds volume).
+
+## Idea #26 — Short Bounce: diagnosed a specific zero-trade case (COLPAL), tested next-wall fallback
+
+User was looking at COLPAL's chart (a textbook 3yr downtrend with a huge
+Sept-2024 crash and multiple bounces) and asked why it produced zero
+`short_bounce` trades. Root-cause diagnosis (temp debug instrumentation,
+reverted after): COLPAL's gates and score were never the issue — 234 of
+740 trading days had gates passing *and* score≥0.40 armed. **Every one of
+those 234 days failed the target-wall R:R check.** Sample readings:
+
+| Date | Close | ATR | Nearest wall | Risk | Reward | R:R |
+|---|---|---|---|---|---|---|
+| 2023-09-27 | 1921.3 | 40.6 | 1917.0 | 63.0 | 4.4 | 0.07× |
+| 2024-04-19 | 2509.1 | 66.8 | 2500.0 | 47.0 | 9.1 | 0.19× |
+| 2024-09-20 | 3512.7 | 66.3 | 3501.2 | 58.4 | 11.5 | 0.20× |
+
+The nearest confluence wall is consistently just a few rupees below price
+— COLPAL is a heavily-watched large-cap where MAs, recent swing lows, and
+round numbers all cluster tightly near current price, so `walls[0]`
+(nearest wall, the only one ever tried) essentially never has room to
+clear 2:1 R:R against an ATR-based stop of ₹40-90.
+
+**Tested fix: try each wall from nearest to farthest, use the first that
+clears min_rr, instead of only ever trying the nearest.** Full F&O
+universe, 3yr: **129 trades, PF 2.758×, +₹8,50,598 — byte-identical to the
+current production baseline.** COLPAL specifically still produced 0
+trades even with every wall tried. Conclusion: when the nearest wall
+fails, it's not usually because a farther, adequate wall existed and got
+skipped — it's because *no* combination of levels far enough from price
+ever accumulates enough combined weight (≥2) to register as a wall at
+all. The fallback had nothing further out to find.
+
+**Verdict: REJECTED, no change kept.** Genuinely a null result, not
+"didn't help" from a broken implementation — verified the fallback logic
+itself worked correctly (traced through COLPAL's actual wall lists). This
+confirms the earlier ~150-trade plateau (idea #25's follow-up) has the
+same root cause: for many liquid, well-covered stocks, the confluence-zone
+target design structurally can't find a support level far enough away to
+clear 2:1 R:R, regardless of how many walls are considered. A genuine fix
+would need to change what "far enough" means (e.g. scale min_rr to the
+wall's actual distance, or use a percentage/ATR-multiple fallback target
+when no wall qualifies) rather than trying more walls from the same
+confluence pool — not attempted this session.
