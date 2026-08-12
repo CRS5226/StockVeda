@@ -980,3 +980,46 @@ result across all 8 experiments this session (#17-24) — recommend treating
 more historical data (longer than 3yr) or a genuinely different
 construction (pairs trading, options), not more parameter search on this
 design.
+
+## Idea #25 — Short Bounce: entry-threshold funnel widening — corrects idea #24's premature conclusion
+
+Idea #24's "not achievable" conclusion was wrong — it only ever varied
+`min_rr` and `wall_min_weight`, holding the 0.65 entry threshold fixed. The
+entry threshold controls how many candidates even *reach* the R:R filter
+in the first place (idea #19's plain-ATR sweep showed 0.65 arms ~1114
+candidates full-universe vs. 0.55's ~1737), so a stricter threshold was
+silently starving the R:R filter of raw material — narrowing the front
+door was never tested as a lever, only the back door (wall weight, R:R).
+
+Grid search, wall_min_weight=2 and min_rr=2.0 held fixed, entry threshold
+varied, full F&O universe, 3yr:
+
+| Threshold | Trades | Win rate | PF | P&L |
+|---|---|---|---|---|
+| 0.65 (idea #24 baseline) | 18 | 55.6% | 3.23× | +₹1,27,699 |
+| 0.55 | 59 | 45.8% | 2.69× | +₹3,94,790 |
+| 0.50 | 84 | 42.9% | 1.95× | +₹3,19,508 |
+| 0.45 | 107 | 40.2% | 1.78× | +₹3,60,884 |
+| **0.40** | **129** | **48.1%** | **2.76×** | **+₹8,50,598** |
+| 0.35 | 148 | 45.9% | 2.37× | +₹7,88,238 |
+| 0.30 | 144 | 44.4% | 2.16× | +₹6,84,687 |
+
+**Non-monotonic, with a clear peak at 0.40** — both trade count and PF
+matter, and 0.40 is the point where widening the funnel keeps pace with
+still-selective downstream filtering (R:R≥2.0 unmoved) before quality
+erosion outpaces volume gain past 0.35. 0.40 beats every other tested
+threshold on total P&L and is the second-best on PF (only 0.65's much
+smaller sample is higher).
+
+**Verdict: KEPT — entry threshold lowered 0.65→0.40.** Clears the user's
+~100-trade bar with room to spare (129) while roughly 7x-ing total profit
+vs. idea #24's version. `ALGO_METADATA` updated, `_short_bounce_zone_levels`
+call site updated. Sanity-checked: metadata live, full-universe backtest
+reproduces 129 trades / +₹8,50,598 / PF 2.758× / 48.1% win rate exactly.
+
+**Lesson for future tuning on this or any algo:** a "gate" (R:R, weight
+threshold) and a "funnel" (entry score threshold) interact — tuning one
+while holding the other fixed at an old, possibly-arbitrary value can hide
+a much better joint optimum. Idea #24's grid was correct in isolation but
+incomplete in scope; worth remembering before declaring an idea's ceiling
+"found" after varying only some of its parameters.
