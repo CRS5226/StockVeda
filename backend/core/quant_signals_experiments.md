@@ -1023,3 +1023,25 @@ while holding the other fixed at an old, possibly-arbitrary value can hide
 a much better joint optimum. Idea #24's grid was correct in isolation but
 incomplete in scope; worth remembering before declaring an idea's ceiling
 "found" after varying only some of its parameters.
+
+**Follow-up: pushed the threshold lower still (0.35→0.15), user targeting
+~200 trades.**
+
+| Threshold | Trades | PF | P&L |
+|---|---|---|---|
+| 0.40 (kept) | 129 | 2.76× | +₹8,50,598 |
+| 0.35 | 148 | 2.37× | +₹7,88,238 |
+| 0.30 | 144 | 2.16× | +₹6,84,687 |
+| 0.25 | 141 | 2.04× | +₹6,12,982 |
+| 0.15 | 142 | 2.02× | +₹6,05,781 |
+
+**Plateaus, doesn't reach 200.** From 0.35 down to 0.15, trade count sits
+flat around 140-150 regardless of how low the threshold goes — the entry
+threshold stops being the binding constraint below ~0.35; the R:R≥2.0 gate
+and wall-existence requirement take over as the real ceiling. Every step
+past 0.40 is a strict step backward (lower trades *and* lower PF *and*
+lower profit than 0.35, and 0.35 itself is already worse than 0.40 on PF
+and profit despite more trades). Reverted via `git checkout`, 0.40 remains
+the production default — confirmed no path to 200 trades exists on this
+lever without also loosening R:R (already shown in idea #24's follow-up to
+destroy quality much faster than it adds volume).
