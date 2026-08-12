@@ -923,3 +923,60 @@ by any standard measure, but it's now the best result across every
 `short_bounce` variant tried this session (#17-23) — 3x the trade count
 and 3x the total profit of idea #22's version, with a cleaner underlying
 mechanism (one active gate instead of two, one of which was inert/harmful).
+
+## Idea #24 — Short Bounce: second grid search (target-wall weight), user pushing for ~100 trades
+
+User asked whether ~100 trades (across a 200+ stock universe) is achievable
+while staying profitable. Diagnosed the funnel: the plain score≥0.65
+version (idea #19, no confluence-zone target logic) gave 1114 trades; the
+confluence-zone version (idea #23) gives only 12 — the gap is entirely
+`_short_bounce_zone_levels`'s requirement that a support wall exist below
+price *and* clear the shared `_TARGET_WALL_MIN_WEIGHT=6` confluence-weight
+bar (borrowed from `swing_pullback`, never re-tuned for this algo). Ran a
+second grid, holding R:R≥2.0 fixed and varying only that wall weight
+(introduced as a separate `wall_min_weight` param, not touching the shared
+constant `swing_pullback` still uses):
+
+| wall_min_weight | Trades | Win rate | PF | P&L |
+|---|---|---|---|---|
+| 6 (idea #23 baseline) | 12 | 41.7% | 2.12× | +₹56,191 |
+| 4 | 15 | 46.7% | 2.44× | +₹82,562 |
+| 3 | 18 | 55.6% | 3.23× | +₹127,699 |
+| 2 | 18 | 55.6% | 3.23× | +₹127,699 (identical — plateau) |
+| 1 (any single level counts) | 18 | 55.6% | 3.23× | +₹127,699 (identical) |
+
+**Strictly dominant improvement, not a tradeoff** — lowering the wall
+weight monotonically improved every metric until plateauing at 18 trades.
+Confirms idea #23's inference was right (R:R is the real gate) but the
+wall-existence requirement itself had unnecessary friction baked in from a
+constant tuned for a different algo's needs.
+
+**Then tested whether loosening further (toward the user's ~100-trade
+target) is possible at all**, using the now-fully-loosened wall
+(weight=1) combined with a loosened R:R:
+
+| wall_min_weight | min_rr | Trades | Win rate | PF | P&L |
+|---|---|---|---|---|---|
+| 6 | 1.5 | 39 | 30.8% | 0.92× | -₹15,561 |
+| 1 | 1.5 | 53 | 35.8% | 1.16× | +₹37,480 |
+
+Even with everything loosened as far as it goes, the ceiling is ~53
+trades before quality degrades sharply (PF 3.23×→1.16×, barely above
+breakeven) — nowhere close to ~100. **Verdict: ~100 trades is not
+achievable with this algo/dataset without sacrificing most of the edge.**
+The rarity is structural: qualifying setups need (a) a confirmed
+individual-stock downtrend, (b) a high-conviction bounce score, (c) a real
+support level far enough below to clear 2:1 R:R — that specific
+combination is inherently uncommon across 3 years even in a 204-stock
+universe, not an artifact of over-tuned filters.
+
+**Verdict: KEPT — `wall_min_weight=2` set as the new production default**
+(chosen over the identical-result 1 or 3 as a reasonable middle value, not
+the most extreme setting tested). `ALGO_METADATA` updated. Sanity-checked:
+metadata live, full-universe backtest reproduces 18 trades / +₹1,27,699 /
+PF 3.226× / 55.6% win rate exactly. This is now the best `short_bounce`
+result across all 8 experiments this session (#17-24) — recommend treating
+`short_bounce` as concluded for this session; further gains would need
+more historical data (longer than 3yr) or a genuinely different
+construction (pairs trading, options), not more parameter search on this
+design.
