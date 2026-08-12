@@ -885,3 +885,41 @@ the honest fix is more data (longer backtest window or live paper-trading),
 not further parameter tuning — loosening this exact gate was already shown
 to destroy it (idea #21's follow-up, omega≥3/R:R≥1.5 → -₹33,992 on 34
 trades).
+
+## Idea #23 — Short Bounce: confluence-zone grid search — improved KEPT default
+
+Idea #21's follow-up (omega 4→3, R:R 2.0→1.5, both loosened together)
+destroyed the result, but conflated two separate knobs. Ran a proper grid
+holding one fixed while varying the other, full F&O universe, 3yr:
+
+| omega_min | min_rr | Trades | Win rate | PF | P&L |
+|---|---|---|---|---|---|
+| 4.0 | 2.0 (idea #21 baseline) | 9 | 33.3% | 1.42× | +₹18,415 |
+| 4.0 | 1.5 | 30 | 26.7% | 0.68× | -₹51,551 |
+| 3.5 | 2.0 | 9 | 33.3% | 1.42× | +₹18,415 (identical — omega not binding here) |
+| 3.0 | 2.0 | 10 | 40.0% | 1.87× | +₹37,891 |
+| 2.5 | 2.0 | 10 | 40.0% | 1.87× | +₹37,891 (identical) |
+| 2.0 | 2.0 | 11 | 36.4% | 1.62× | +₹31,154 |
+| 1.0 | 2.0 | 11 | 36.4% | 1.62× | +₹31,154 (identical) |
+| **0.0** | **2.0** | **12** | **41.7%** | **2.12×** | **+₹56,191** |
+| 0.0 | 2.5 | 5 | 40.0% | 2.14× | +₹24,510 |
+
+**Clean, unambiguous finding: R:R≥2.0 is the entire source of quality; the
+resistance-confluence entry requirement (omega) does nothing useful at any
+threshold** — dropping it from 4→0 monotonically *improved* both trade
+count and PF, the opposite of what idea #21's combined-loosening test
+implied. The R:R gate alone (with the target still anchored to a real
+confluence support wall — that part stays) was already doing all the
+selective work; the resistance-zone precondition was pure friction. R:R=2.5
+gave a marginally higher PF but on too few trades (5) and lower total P&L
+to prefer over R:R=2.0's 12.
+
+**Verdict: KEPT — omega/resistance-confluence gate removed entirely.**
+`_short_bounce_zone_levels` simplified (no `omega_min` param), production
+default is now the R:R≥2.0-only version. Sanity-checked: metadata live,
+full-universe backtest reproduces the grid numbers exactly (12 trades,
++₹56,191, PF 2.121×, 41.7% win rate). Still a small sample (12 trades/3yr)
+by any standard measure, but it's now the best result across every
+`short_bounce` variant tried this session (#17-23) — 3x the trade count
+and 3x the total profit of idea #22's version, with a cleaner underlying
+mechanism (one active gate instead of two, one of which was inert/harmful).

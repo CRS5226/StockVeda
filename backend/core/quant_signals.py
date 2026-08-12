@@ -74,11 +74,11 @@ ALGO_METADATA = {
     },
     "short_bounce": {
         "id": "short_bounce", "label": "Short Bounce", "direction": "short", "universe": "fno_only",
-        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close) and requires score ≥0.65 to arm. Stop/target now come from support/resistance confluence (same zone-building logic as Swing Trade Pullback, minus Fibonacci) instead of flat ATR multiples: only shorts when price is testing a confirmed resistance zone, targets the nearest confluence support wall below. ⚠️ Validated on only 9 trades across the full 204-stock F&O universe (3yr) — PF 1.42×, +₹18,415, the one short_bounce variant tested this session that was actually profitable, but the sample is small. Loosening the confluence requirement flipped it to a loss on 34 trades, so this exact strictness is load-bearing — treat as directionally promising, not statistically proven.",
+        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close) and requires score ≥0.65 to arm. Stop/target come from support/resistance confluence (same zone-building logic as Swing Trade Pullback, minus Fibonacci) instead of flat ATR multiples: target is the nearest confluence support wall below, gated at ≥2:1 reward:risk. A grid search across a resistance-confluence entry requirement (an earlier version only shorted when price was testing a confirmed resistance zone) found it never improved results at any threshold and sometimes hurt — removed. Validated on the full 204-stock F&O universe (3yr): 12 trades, PF 2.12×, +₹56,191, 41.7% win rate — still a small sample (this strategy trades rarely), but the best result of every short_bounce variant tested this session.",
         "gates": ["20-day avg turnover ≥ ₹25 cr", "close < SMA50", "SMA50 < SMA200"],
         "weights": WEIGHTS["short_bounce"], "tiers": TIERS["short_bounce"],
-        "entry": "Score ≥ 0.65 arms the setup; fires on the next trading day's open only if price is testing a confirmed resistance confluence zone (omega ≥ 4).",
-        "trade": "Stop = just above the resistance zone · Target = nearest confluence support wall below (≥2:1 R:R required) · 0.75% flat risk.",
+        "entry": "Score ≥ 0.65 arms the setup; fires on the next trading day's open.",
+        "trade": "Stop = just above the signal day's high · Target = nearest confluence support wall below (≥2:1 R:R required) · 0.75% flat risk.",
     },
     "accumulation": {
         "id": "accumulation", "label": "Accumulation", "direction": "long", "universe": "any",
@@ -1105,19 +1105,21 @@ def _position_size(account_capital: float, risk_pct: float, entry: float, stop: 
 
 def _short_bounce_zone_levels(df: pd.DataFrame, sh_idx: np.ndarray, sh_val: np.ndarray,
                               sl_idx: np.ndarray, sl_val: np.ndarray,
-                              omega_min: float = 4.0, min_rr: float = 2.0) -> tuple[pd.Series, pd.Series]:
+                              min_rr: float = 2.0) -> tuple[pd.Series, pd.Series]:
     """Per-bar (stop, target) using the same confluence-zone level pool as
     swing_pullback (swing highs/lows, MAs, weekly pivots, round numbers,
-    role-reversal — no Fibonacci, per this session's ablation finding),
-    mirrored for a short: only signals where price is testing a confirmed
-    RESISTANCE confluence (omega>=omega_min) get a stop just above that zone
-    and a target at the nearest confluence SUPPORT wall below, gated at
-    >=min_rr reward:risk. NOTE: validated on only 9 trades (full 204-stock
-    F&O universe, 3yr) — see quant_signals_experiments.md idea #21. Loosening
-    the gate (omega>=3, R:R>=1.5) flipped this from +Rs18,415 to -Rs33,992 on
-    34 trades, so this exact strictness is load-bearing, not conservative
-    padding — kept as production default per explicit user decision despite
-    the small sample, not because the sample size concern was resolved."""
+    role-reversal — no Fibonacci, per this session's ablation finding):
+    stop just above today's high, target at the nearest confluence SUPPORT
+    wall below, gated at >=min_rr reward:risk. NOTE (idea #22 grid search,
+    quant_signals_experiments.md): an earlier version additionally required
+    price to be testing a confirmed RESISTANCE confluence (omega>=4) before
+    shorting — that gate was tested at every threshold from 4 down to 0 and
+    never improved results; omega=0 (i.e. no resistance-confluence
+    requirement at all) gave the best full-F&O-universe 3yr numbers (12
+    trades, PF 2.12x, +Rs56,191) of anything tested, so the omega check was
+    removed entirely rather than kept as unused/harmful complexity. R:R>=2.0
+    is the gate doing the real work — loosening it to >=1.5 was tested and
+    hurt badly (PF 0.68x)."""
     n = len(df)
     stop_arr = np.full(n, np.nan)
     target_arr = np.full(n, np.nan)
@@ -1157,9 +1159,6 @@ def _short_bounce_zone_levels(df: pd.DataFrame, sh_idx: np.ndarray, sh_val: np.n
                 levels.append((float(v), _LEVEL_WEIGHTS["weekly_pivot"]))
         for lvl in _round_number_levels(close, atr):
             levels.append((lvl, _LEVEL_WEIGHTS["round_number"]))
-
-        if _omega(close, levels, atr) < omega_min:
-            continue  # not actually testing a confirmed resistance zone — skip
 
         below = sorted([(p, wt) for p, wt in levels if p < close - 0.1 * atr], key=lambda t: -t[0])
         walls = _chain_walls(below, atr, _TARGET_WALL_MIN_WEIGHT)
@@ -1411,17 +1410,14 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
                                     enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "short_bounce":
-        # Confluence-zone stop/target (idea #21 in quant_signals_experiments.md):
-        # entry threshold 0.65 (idea #19) arms the setup, but the stop/target now
-        # come from support/resistance confluence (same level pool as
-        # swing_pullback, minus Fibonacci) instead of flat ATR multiples — short
-        # only fires when price is testing a confirmed resistance zone, target is
-        # the nearest confluence support wall below. Validated on only 9 trades
-        # (full F&O universe, 3yr) — PF 1.42x, +Rs18,415, the only short_bounce
-        # variant tested this session that was actually profitable. Kept as
-        # production default per explicit user decision, despite the small
-        # sample — loosening the gate (omega 4->3, R:R 2.0->1.5) flipped it to a
-        # loss on 34 trades, so don't loosen this further without re-validating.
+        # Confluence-zone stop/target (idea #21-22 in quant_signals_experiments.md):
+        # entry threshold 0.65 (idea #19) arms the setup, stop/target come from
+        # support/resistance confluence (same level pool as swing_pullback, minus
+        # Fibonacci) instead of flat ATR multiples — target is the nearest
+        # confluence support wall below, gated at >=2:1 R:R. A grid search (idea
+        # #22) found the resistance-confluence entry requirement never helped at
+        # any threshold and hurt at some — removed. Full F&O universe, 3yr:
+        # 12 trades, PF 2.12x, +Rs56,191, 41.7% win rate.
         df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=False)
         gates = _gates_short_bounce(df)
         score, factors = score_short_bounce(df)
