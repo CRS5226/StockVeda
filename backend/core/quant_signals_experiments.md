@@ -859,3 +859,29 @@ sample. Recommend treating `short_bounce` as validated-but-marginal at its
 current committed state, not a candidate for further redesign this
 session — the structural headwind shorting faces (per external research)
 appears to be the dominant factor, not fixable via entry/exit mechanics.
+
+## Idea #22 — Short Bounce: confluence-zone stop/target re-adopted (n=9, explicit override)
+
+After idea #21 was rejected for its 9-trade sample not surviving
+relaxation, the user was shown all three tested `short_bounce` variants
+side by side (committed 0.65-threshold: -₹3,35,608 / PF 0.94×; bounce-
+failure: -₹1,20,422 / PF 0.88×; confluence-zone strict: +₹18,415 / PF
+1.42×) and explicitly chose the confluence-zone version — the only one
+that shows an actual profit, despite the small-sample caveat repeated
+twice.
+
+**Re-implemented and set as the production default**, `ALGO_METADATA`
+description updated with a ⚠️ small-sample warning so the caveat is visible
+in the UI itself, not just this log. Sanity-checked: metadata is live, and
+the full-universe backtest reproduces the exact idea #21 numbers (9 trades,
++₹18,415, PF 1.424×, 33.3% win rate) — confirms nothing drifted between
+the original test and this permanent implementation.
+
+**This is a decision under known uncertainty, not a newly-validated
+result** — the sample-size concern from idea #21 stands exactly as before.
+Recorded here so a future session (or a future look at this file) knows
+this was a deliberate user call, not an oversight: if this needs revisiting,
+the honest fix is more data (longer backtest window or live paper-trading),
+not further parameter tuning — loosening this exact gate was already shown
+to destroy it (idea #21's follow-up, omega≥3/R:R≥1.5 → -₹33,992 on 34
+trades).

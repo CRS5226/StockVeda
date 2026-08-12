@@ -74,11 +74,11 @@ ALGO_METADATA = {
     },
     "short_bounce": {
         "id": "short_bounce", "label": "Short Bounce", "direction": "short", "universe": "fno_only",
-        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close, which isn't realistically fillable) and requires a higher-conviction score (≥0.65, raised from 0.55) — validated on the full 204-stock F&O universe: cut the 3yr loss from -₹13.9L to -₹3.4L and raised win rate to 32.3%, close to the 33.3% breakeven this setup's 2:1 reward:risk needs. Still net-negative overall — a bull-market-heavy 3yr test window is a real headwind for any short strategy, not a fixable bug.",
+        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close) and requires score ≥0.65 to arm. Stop/target now come from support/resistance confluence (same zone-building logic as Swing Trade Pullback, minus Fibonacci) instead of flat ATR multiples: only shorts when price is testing a confirmed resistance zone, targets the nearest confluence support wall below. ⚠️ Validated on only 9 trades across the full 204-stock F&O universe (3yr) — PF 1.42×, +₹18,415, the one short_bounce variant tested this session that was actually profitable, but the sample is small. Loosening the confluence requirement flipped it to a loss on 34 trades, so this exact strictness is load-bearing — treat as directionally promising, not statistically proven.",
         "gates": ["20-day avg turnover ≥ ₹25 cr", "close < SMA50", "SMA50 < SMA200"],
         "weights": WEIGHTS["short_bounce"], "tiers": TIERS["short_bounce"],
-        "entry": "Score ≥ 0.65 (raised from 0.55) while gates hold; fires on the next trading day's open, not same-day.",
-        "trade": "Stop = entry + 1.5×ATR14 · Target = entry − 3×ATR14 (2:1) · 0.75% flat risk.",
+        "entry": "Score ≥ 0.65 arms the setup; fires on the next trading day's open only if price is testing a confirmed resistance confluence zone (omega ≥ 4).",
+        "trade": "Stop = just above the resistance zone · Target = nearest confluence support wall below (≥2:1 R:R required) · 0.75% flat risk.",
     },
     "accumulation": {
         "id": "accumulation", "label": "Accumulation", "direction": "long", "universe": "any",
@@ -1103,6 +1103,79 @@ def _position_size(account_capital: float, risk_pct: float, entry: float, stop: 
     return max(0, min(shares, max_affordable))
 
 
+def _short_bounce_zone_levels(df: pd.DataFrame, sh_idx: np.ndarray, sh_val: np.ndarray,
+                              sl_idx: np.ndarray, sl_val: np.ndarray,
+                              omega_min: float = 4.0, min_rr: float = 2.0) -> tuple[pd.Series, pd.Series]:
+    """Per-bar (stop, target) using the same confluence-zone level pool as
+    swing_pullback (swing highs/lows, MAs, weekly pivots, round numbers,
+    role-reversal — no Fibonacci, per this session's ablation finding),
+    mirrored for a short: only signals where price is testing a confirmed
+    RESISTANCE confluence (omega>=omega_min) get a stop just above that zone
+    and a target at the nearest confluence SUPPORT wall below, gated at
+    >=min_rr reward:risk. NOTE: validated on only 9 trades (full 204-stock
+    F&O universe, 3yr) — see quant_signals_experiments.md idea #21. Loosening
+    the gate (omega>=3, R:R>=1.5) flipped this from +Rs18,415 to -Rs33,992 on
+    34 trades, so this exact strictness is load-bearing, not conservative
+    padding — kept as production default per explicit user decision despite
+    the small sample, not because the sample size concern was resolved."""
+    n = len(df)
+    stop_arr = np.full(n, np.nan)
+    target_arr = np.full(n, np.nan)
+    close_arr = df["close"].to_numpy(dtype=float)
+    high_arr = df["high"].to_numpy(dtype=float)
+    low_arr = df["low"].to_numpy(dtype=float)
+    atr_arr = df["atr_14"].to_numpy(dtype=float)
+
+    for i in range(_SWING_LOOKBACK, n):
+        atr = atr_arr[i]
+        close = close_arr[i]
+        if pd.isna(atr) or atr <= 0 or pd.isna(close) or close <= 0:
+            continue
+        row = df.iloc[i]
+        cut = i - _SWING_LOOKBACK
+        hi_mask = sh_idx <= cut
+        lo_mask = sl_idx <= cut
+        sh_i, sh_v = sh_idx[hi_mask], sh_val[hi_mask]
+        sl_v = sl_val[lo_mask]
+        swing_low_price = float(sl_v[-1]) if sl_v.size else None
+        swing_high_price = float(sh_v[-1]) if sh_v.size else None
+
+        levels: list[tuple[float, int]] = []
+        if swing_high_price is not None:
+            levels.append((swing_high_price, _LEVEL_WEIGHTS["swing_high"]))
+        if swing_low_price is not None:
+            levels.append((swing_low_price, _LEVEL_WEIGHTS["swing_low"]))
+        for col in ("sma_10", "sma_20", "sma_50", "ema_10", "ema_20"):
+            v = row.get(col)
+            if v is not None and not pd.isna(v):
+                levels.append((float(v), _LEVEL_WEIGHTS["ma_ema"]))
+        for lvl in _role_reversal_levels(close_arr, low_arr, i, sh_i, sh_v, atr):
+            levels.append((lvl, _LEVEL_WEIGHTS["role_reversal"]))
+        for col in ("piv_pp", "piv_r1", "piv_s1", "piv_r2", "piv_s2", "piv_r3", "piv_s3"):
+            v = row.get(col)
+            if v is not None and not pd.isna(v):
+                levels.append((float(v), _LEVEL_WEIGHTS["weekly_pivot"]))
+        for lvl in _round_number_levels(close, atr):
+            levels.append((lvl, _LEVEL_WEIGHTS["round_number"]))
+
+        if _omega(close, levels, atr) < omega_min:
+            continue  # not actually testing a confirmed resistance zone — skip
+
+        below = sorted([(p, wt) for p, wt in levels if p < close - 0.1 * atr], key=lambda t: -t[0])
+        walls = _chain_walls(below, atr, _TARGET_WALL_MIN_WEIGHT)
+        if not walls:
+            continue
+        target = walls[0][1]  # nearest support wall's upper edge
+        stop = high_arr[i] + 0.5 * atr
+        risk = stop - close
+        reward = close - target
+        if risk <= 0 or reward < min_rr * risk:
+            continue
+        stop_arr[i] = stop
+        target_arr[i] = target
+    return pd.Series(stop_arr, index=df.index), pd.Series(target_arr, index=df.index)
+
+
 # ── Trade loops ───────────────────────────────────────────────────────────────
 
 def _run_direct_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, algo: str,
@@ -1172,8 +1245,14 @@ def _run_direct_trades(df: pd.DataFrame, gates: pd.Series, score: pd.Series, alg
             if atr <= 0 or open_ <= 0:
                 continue
             entry_price = open_
-            stop_price = entry_price - atr_stop_mult * atr if direction == "long" else entry_price + atr_stop_mult * atr
-            target_price = entry_price + atr_target_mult * atr if direction == "long" else entry_price - atr_target_mult * atr
+            if stop_series is not None and target_series is not None:
+                stop_price = float(stop_series.iloc[sig_i])
+                target_price = float(target_series.iloc[sig_i])
+                if pd.isna(stop_price) or pd.isna(target_price):
+                    continue
+            else:
+                stop_price = entry_price - atr_stop_mult * atr if direction == "long" else entry_price + atr_stop_mult * atr
+                target_price = entry_price + atr_target_mult * atr if direction == "long" else entry_price - atr_target_mult * atr
             sig_score = float(score.iloc[sig_i])
             risk_pct = (_scaled_risk_pct(sig_score, base_risk_pct, entry_threshold) if score_scaled else base_risk_pct)
             shares = _position_size(account_capital, risk_pct, entry_price, stop_price)
@@ -1332,15 +1411,28 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
                                     enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "short_bounce":
+        # Confluence-zone stop/target (idea #21 in quant_signals_experiments.md):
+        # entry threshold 0.65 (idea #19) arms the setup, but the stop/target now
+        # come from support/resistance confluence (same level pool as
+        # swing_pullback, minus Fibonacci) instead of flat ATR multiples — short
+        # only fires when price is testing a confirmed resistance zone, target is
+        # the nearest confluence support wall below. Validated on only 9 trades
+        # (full F&O universe, 3yr) — PF 1.42x, +Rs18,415, the only short_bounce
+        # variant tested this session that was actually profitable. Kept as
+        # production default per explicit user decision, despite the small
+        # sample — loosening the gate (omega 4->3, R:R 2.0->1.5) flipped it to a
+        # loss on 34 trades, so don't loosen this further without re-validating.
+        df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=False)
         gates = _gates_short_bounce(df)
         score, factors = score_short_bounce(df)
-        # Entry threshold raised 0.55->0.65 (idea #19 in quant_signals_experiments.md):
-        # cut the full-F&O-universe 3yr loss from -Rs13.9L to -Rs3.4L and pushed win
-        # rate to 32.3%, close to the 33.3% breakeven this R:R needs. Non-monotonic —
-        # 0.70/0.75 tested worse — 0.65 is the validated sweet spot, not "tighter is
-        # always better."
+        is_high, is_low = _fractal_swings(df)
+        sh_idx = np.where(is_high)[0]
+        sh_val = df["high"].to_numpy(dtype=float)[sh_idx]
+        sl_idx = np.where(is_low)[0]
+        sl_val = df["low"].to_numpy(dtype=float)[sl_idx]
+        stop_series, target_series = _short_bounce_zone_levels(df, sh_idx, sh_val, sl_idx, sl_val)
         trades = _run_direct_trades(df, gates, score, algo, "short", 0.65, 1.5, 3.0, 0.75, False, account_capital,
-                                    enter_next_bar=True)
+                                    stop_series=stop_series, target_series=target_series, enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "accumulation":
         gates = _gates_accumulation(df, is_fno)
