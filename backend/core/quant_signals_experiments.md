@@ -1088,3 +1088,43 @@ would need to change what "far enough" means (e.g. scale min_rr to the
 wall's actual distance, or use a percentage/ATR-multiple fallback target
 when no wall qualifies) rather than trying more walls from the same
 confluence pool — not attempted this session.
+
+## Idea #27 — Short Bounce: ATR-multiple fallback target — KEPT (user override)
+
+Idea #26 identified the actual fix needed: when no confluence wall clears
+min_rr (or none exists), fall back to a plain ATR-multiple target
+(`close - min_rr*risk`, guaranteeing exactly 2:1 by construction) instead
+of skipping the trade entirely. Tested on the full F&O universe, 3yr:
+
+| | Wall-only (idea #25) | ATR fallback |
+|---|---|---|
+| Trades | 129 | **3,315** |
+| Win rate | 48.1% | 34.9% |
+| PF | 2.76× | **1.17×** |
+| P&L | +₹8,50,598 | **+₹26,84,308** |
+
+COLPAL alone went from 0 trades to 24, with a clean pattern of ~₹15-26k
+target hits against ~₹7-7.5k stop losses — confirms the fallback fires
+correctly on exactly the stocks the wall-only version was structurally
+blind to. Full-universe result: massively more trades and 3x the total
+profit, but PF collapsed from 2.76× to 1.17× — barely above breakeven on
+a per-trade basis, because the ATR fallback stopped the confluence-wall
+check from filtering anything meaningful once it kicks in (which turned
+out to be most of the time) — functionally closer to the plain-ATR
+`long_pullback`-style design than a true confluence-zone strategy.
+
+**Verdict: KEPT — explicit user override, prioritizing trade volume and
+total profit over per-trade quality.** User was shown both options with
+the tradeoff stated plainly (thinner margin per trade, more exposure to a
+bad stretch) and chose the ATR-fallback version. `ALGO_METADATA` updated
+with a ⚠️ warning about the thinner margin, same pattern as idea #22's
+small-sample warning. Sanity-checked: metadata live, full-universe
+backtest reproduces 3,315 trades / +₹26,84,308 / PF 1.170× / 34.9% win
+rate exactly.
+
+**Recorded honestly for future reference:** this is now a materially
+different risk profile than every other variant tested this session
+(#17-26) — most of those optimized for PF/win-rate at low volume; this one
+explicitly trades that away for volume and absolute profit. If revisiting
+`short_bounce` in a future session, don't assume "the current version" is
+the high-quality one without checking which tradeoff was chosen here.

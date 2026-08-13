@@ -74,11 +74,11 @@ ALGO_METADATA = {
     },
     "short_bounce": {
         "id": "short_bounce", "label": "Short Bounce", "direction": "short", "universe": "fno_only",
-        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close) and requires score ≥0.40 to arm. Stop/target come from support/resistance confluence (same zone-building logic as Swing Trade Pullback, minus Fibonacci) instead of flat ATR multiples: target is the nearest confluence support wall below (weight ≥2), gated at ≥2:1 reward:risk. The entry threshold was ≥0.65 originally, but a grid search found widening the funnel of candidates feeding the R:R filter (lower threshold) beat tightening it — 0.40 is the profit-maximizing point, not just \"looser is better\" (0.35/0.30 both trade more but earn less). Validated on the full 204-stock F&O universe (3yr): 129 trades, PF 2.76×, +₹8,50,598, 48.1% win rate — clears the ~100-trade bar with room to spare while staying solidly profitable, the best result of every short_bounce variant tested this session.",
+        "description": "Short weak bounces in confirmed downtrends — F&O-eligible symbols only. Fills at the next day's open (not the signal day's own close) and requires score ≥0.40 to arm. Stop/target come from support/resistance confluence (same zone-building logic as Swing Trade Pullback, minus Fibonacci): target is the nearest confluence support wall below (weight ≥2) when one clears ≥2:1 reward:risk, otherwise falls back to a plain ATR-multiple target rather than skipping the trade — diagnosed via COLPAL, a heavily-watched large-cap where every technical level clusters within a few rupees of price, so the wall-only version fired zero trades on it despite 234 qualifying days. Validated on the full 204-stock F&O universe (3yr): 3,315 trades, PF 1.17×, +₹26,84,308, 34.9% win rate. ⚠️ Meaningfully thinner margin per trade than the wall-only version (129 trades, PF 2.76×, +₹8,50,598) — barely above breakeven on a per-trade basis — but 3× the total profit and far more trades, chosen by explicit user preference for volume over per-trade quality.",
         "gates": ["20-day avg turnover ≥ ₹25 cr", "close < SMA50", "SMA50 < SMA200"],
         "weights": WEIGHTS["short_bounce"], "tiers": TIERS["short_bounce"],
         "entry": "Score ≥ 0.40 arms the setup; fires on the next trading day's open.",
-        "trade": "Stop = just above the signal day's high · Target = nearest confluence support wall below (≥2:1 R:R required) · 0.75% flat risk.",
+        "trade": "Stop = just above the signal day's high · Target = nearest confluence support wall below if it clears ≥2:1 R:R, else a plain ATR-based 2:1 target · 0.75% flat risk.",
     },
     "accumulation": {
         "id": "accumulation", "label": "Accumulation", "direction": "long", "universe": "any",
@@ -1110,19 +1110,17 @@ def _short_bounce_zone_levels(df: pd.DataFrame, sh_idx: np.ndarray, sh_val: np.n
     swing_pullback (swing highs/lows, MAs, weekly pivots, round numbers,
     role-reversal — no Fibonacci, per this session's ablation finding):
     stop just above today's high, target at the nearest confluence SUPPORT
-    wall below (weight >= wall_min_weight), gated at >=min_rr reward:risk.
-    NOTE (ideas #22-24, quant_signals_experiments.md): an earlier version
-    also required price to be testing a confirmed RESISTANCE confluence
-    (omega>=4) before shorting — tested at every threshold down to 0 and
-    never helped, removed entirely. The target-wall weight bar (originally
-    the shared swing_pullback constant, 6) was then found to be the true
-    remaining bottleneck for this algo specifically — lowering it to 2
-    strictly dominated every other setting tested (more trades AND better
-    PF: 18 trades, PF 3.23x, +Rs1,27,699 vs the omega-removal-only version's
-    12/2.12x/+Rs56,191). R:R>=2.0 is the gate actually doing the selective
-    work — loosening it to >=1.5 was tested (with wall_min_weight also
-    loosened to 1) and still hurt badly (PF collapsed to ~1.1-1.2x even
-    with 3x more trades)."""
+    wall below (weight >= wall_min_weight) if one clears >=min_rr reward:risk;
+    otherwise falls back to a plain ATR-multiple target (close - min_rr*risk)
+    so a missing/too-close wall doesn't silently kill the trade. NOTE (idea #27,
+    quant_signals_experiments.md): diagnosed via COLPAL — a heavily-watched
+    large-cap where every technical level clusters within a few rupees of
+    price, so the wall-only version fired zero trades on it despite 234
+    qualifying days. Wall-only: 129 trades, PF 2.76x, +Rs8,50,598. ATR
+    fallback: 3315 trades, PF 1.17x, +Rs26,84,308 — much thinner margin per
+    trade (barely above breakeven) but 3x the total profit and the volume the
+    user explicitly wanted, chosen over the higher-PF/lower-volume version by
+    deliberate user decision."""
     n = len(df)
     stop_arr = np.full(n, np.nan)
     target_arr = np.full(n, np.nan)
@@ -1165,14 +1163,17 @@ def _short_bounce_zone_levels(df: pd.DataFrame, sh_idx: np.ndarray, sh_val: np.n
 
         below = sorted([(p, wt) for p, wt in levels if p < close - 0.1 * atr], key=lambda t: -t[0])
         walls = _chain_walls(below, atr, wall_min_weight)
-        if not walls:
-            continue
-        target = walls[0][1]  # nearest support wall's upper edge
         stop = high_arr[i] + 0.5 * atr
         risk = stop - close
-        reward = close - target
-        if risk <= 0 or reward < min_rr * risk:
+        if risk <= 0:
             continue
+        target = None
+        if walls:
+            candidate = walls[0][1]  # nearest confluence support wall's upper edge
+            if close - candidate >= min_rr * risk:
+                target = candidate
+        if target is None:
+            target = close - min_rr * risk  # ATR-based fallback, no qualifying wall
         stop_arr[i] = stop
         target_arr[i] = target
     return pd.Series(stop_arr, index=df.index), pd.Series(target_arr, index=df.index)
@@ -1413,16 +1414,17 @@ def run_quant_signal(df: pd.DataFrame, algo: str, is_fno: bool, account_capital:
                                     enter_next_bar=True)
         armed_not_triggered = []
     elif algo == "short_bounce":
-        # Confluence-zone stop/target (idea #21-25 in quant_signals_experiments.md):
-        # stop/target come from support/resistance confluence (same level pool as
-        # swing_pullback, minus Fibonacci) instead of flat ATR multiples — target
-        # is the nearest confluence support wall (weight>=2) below, gated at >=2:1
-        # R:R. Entry threshold lowered 0.65->0.40 (idea #25): widening the funnel
-        # of candidates feeding the R:R filter, while the filter itself stayed
-        # fixed, was strictly better than tightening the funnel — a grid search
-        # across thresholds found 0.40 as the profit-maximizing point (non-
-        # monotonic; 0.35/0.30 both trade more but earn less). Full F&O universe,
-        # 3yr: 129 trades, PF 2.76x, +Rs8,50,598, 48.1% win rate.
+        # Confluence-zone stop/target with ATR fallback (idea #21-27 in
+        # quant_signals_experiments.md): target is the nearest confluence support
+        # wall (weight>=2) below when one clears >=2:1 R:R, otherwise falls back
+        # to a plain ATR-multiple target instead of skipping the trade (idea #27
+        # — the wall-only version fired zero trades on heavily-watched large-caps
+        # like COLPAL, where every technical level clusters within a few rupees
+        # of price). Entry threshold 0.40 (idea #25). Full F&O universe, 3yr:
+        # 3315 trades, PF 1.17x, +Rs26,84,308, 34.9% win rate — thinner margin
+        # per trade than the wall-only version (129 trades, PF 2.76x) but 3x the
+        # total profit and far higher trade volume, chosen by explicit user
+        # decision over the higher-PF/lower-volume alternative.
         df = attach_swing_pullback_factors(df, symbol=symbol, sector_rs=False)
         gates = _gates_short_bounce(df)
         score, factors = score_short_bounce(df)
