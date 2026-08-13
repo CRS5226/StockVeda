@@ -1128,3 +1128,41 @@ different risk profile than every other variant tested this session
 explicitly trades that away for volume and absolute profit. If revisiting
 `short_bounce` in a future session, don't assume "the current version" is
 the high-quality one without checking which tradeoff was chosen here.
+
+## Idea #28 — Short Bounce: split into two selectable algos instead of one tradeoff
+
+Following idea #27's train/holdout validation on the ATR-fallback version
+(both halves profitable and consistent — train PF 1.42×/769 trades,
+holdout PF 1.32×/1,305 trades, no overfitting red flag), user asked to
+expose *both* the high-volume and high-quality versions as separate
+selectable options in the UI, rather than picking one.
+
+**Implementation:** added an `atr_fallback: bool` toggle to
+`_short_bounce_zone_levels` (default True — when a wall doesn't qualify,
+fall back to a plain ATR-multiple target; False — skip the trade instead,
+matching idea #25's pre-#27 behavior). Registered `short_bounce_v2` as a
+new algo (own `ALGO_METADATA` entry, own weights/tiers dict, F&O-only
+gating same as `short_bounce`), dispatch branches on `algo == "short_bounce"`
+for the fallback flag. `short_bounce` (unchanged) keeps `atr_fallback=True`.
+
+Sanity-checked both variants together on the full F&O universe, 3yr:
+
+| Algo | Trades | Win rate | PF | P&L |
+|---|---|---|---|---|
+| `short_bounce` | 3,315 | 34.9% | 1.17× | +₹26,84,308 |
+| `short_bounce_v2` | 129 | 48.1% | 2.76× | +₹8,50,598 |
+
+Both reproduce their respective idea #25/#27 numbers exactly — confirms
+the split didn't change either variant's behavior, just exposed a choice
+that was previously baked into a single algo ID. `frontend/src/lib/api.ts`
+`QuantAlgoId` type updated (this file is the actual API contract, unlike
+the 4 unrelated in-progress frontend files left untouched all session) —
+frontend algo selector renders both from live `ALGO_METADATA`, no other UI
+change needed.
+
+**Verdict: KEPT — both algos live.** `short_bounce` = high-volume/lower-PF
+(explicit user choice, idea #27). `short_bounce_v2` = high-quality/
+low-volume (the original wall-only design, idea #25). Recommend `v2` for
+anyone wanting fewer, more defensible setups; `short_bounce` for anyone
+prioritizing trade count and total profit and comfortable with a thinner
+per-trade margin.

@@ -925,7 +925,7 @@ def run_ml_stream(req: MlRequest):
 # ── Quant Signals (Long Pullback / Short Bounce / Accumulation / Distribution) ─
 
 class QuantSignalRequest(BaseModel):
-    algo: Literal["long_pullback", "short_bounce", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4", "swing_pullback_v5"]
+    algo: Literal["long_pullback", "short_bounce", "short_bounce_v2", "accumulation", "distribution", "zone_trade", "swing_pullback", "swing_pullback_v2", "swing_pullback_sector_rs", "swing_pullback_v4", "swing_pullback_v5"]
     symbols: list[str] = Field(..., min_length=1, max_length=qs.MAX_SYMBOLS)
     from_date: str
     to_date: str
@@ -950,7 +950,7 @@ def run_quant_signals(req: QuantSignalRequest):
     """SSE endpoint — 4 weighted-scoring algos (see quant_signals.py). F&O-only
     algos (short_bounce, distribution) exclude non-F&O-eligible symbols."""
     symbols = [s.upper() for s in req.symbols]
-    fno_only = req.algo in ("short_bounce", "distribution")
+    fno_only = req.algo in ("short_bounce", "short_bounce_v2", "distribution")
     excluded_symbols: list[dict] = []
     if fno_only:
         eligible = [s for s in symbols if qs.is_fno_eligible(s)]
