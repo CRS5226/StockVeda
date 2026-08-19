@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Radar, Check } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Radar, Check, GitBranch } from "lucide-react";
+import Analysis from "./Analysis";
 import { api, ConditionRow, SweepDim } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
@@ -3165,6 +3166,7 @@ export default function Backtest() {
             { key: "grid"        as const, Icon: SlidersHorizontal, label: "Grid Search", desc: "tune thresholds & periods" },
             { key: "ml"          as const, Icon: BrainCircuit,     label: "ML Models",   desc: "learned entry filter" },
             { key: "quant"       as const, Icon: Radar,            label: "Quant Signals", desc: "pullback/bounce/accum/distrib" },
+            { key: "analysis"    as const, Icon: GitBranch,        label: "Analysis",    desc: "markov / monte carlo / index fund" },
           ]).map((m) => {
             const active = mode === m.key;
             return (
@@ -3188,6 +3190,8 @@ export default function Backtest() {
           })}
         </div>
       </div>
+
+      {mode === "analysis" && <Analysis />}
 
       {/* ── Section 1: Universe (Multi-Stock, Matrix, Grid, ML modes) ── */}
       {(mode === "multi_stock" || mode === "matrix" || mode === "grid" || mode === "ml" || mode === "quant") && <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
