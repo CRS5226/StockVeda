@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import MarketDashboard from "./pages/MarketDashboard";
@@ -6,7 +6,6 @@ import StockDetail from "./pages/StockDetail";
 import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
 import FnO from "./pages/FnO";
-import Analysis from "./pages/Analysis";
 
 export default function App() {
   return (
@@ -19,7 +18,7 @@ export default function App() {
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/fno" element={<FnO />} />
-          <Route path="/analysis" element={<Analysis />} />
+          <Route path="/analysis" element={<Navigate to="/backtest" replace />} />
         </Routes>
       </main>
       <Footer />
