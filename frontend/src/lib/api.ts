@@ -220,49 +220,6 @@ export interface MlResult {
   models: Record<string, MlModelResult>;
 }
 
-// ── Quant Signals (Long Pullback / Short Bounce / Accumulation / Distribution) ─
-export type QuantAlgoId = "long_pullback" | "short_bounce" | "short_bounce_v2" | "accumulation" | "distribution" | "zone_trade" | "swing_pullback" | "swing_pullback_v2" | "swing_pullback_sector_rs" | "swing_pullback_v4" | "swing_pullback_v5";
-export interface QuantAlgoMeta {
-  id: QuantAlgoId; label: string; direction: "long" | "short"; universe: "any" | "fno_only";
-  description: string; gates: string[]; weights: Record<string, number>;
-  tiers: [number, string][]; entry: string; trade: string;
-}
-export interface QuantTrade {
-  entry_date: string; exit_date: string; entry_price: number; stop_price: number; target_price: number;
-  exit_price: number; exit_reason: string; direction: "long" | "short"; shares: number;
-  pnl: number; pnl_pct: number;
-  score?: number; tier?: string;                       // direct-entry algos (1/2)
-  arm_date?: string; trigger_date?: string; arm_score?: number;  // arm/trigger algos (3/4)
-}
-export interface QuantArmedNotTriggered { arm_date: string; arm_score: number; expired_date: string }
-export interface QuantSignalDiagnostics {
-  qualifying_days: number; armed: number; expired_unfilled: number;
-  reject_sl: number; reject_rr: number; no_anchor: number; no_data: number; qty_zero: number;
-}
-export interface QuantSymbolResult {
-  trades: QuantTrade[];
-  armed_not_triggered: QuantArmedNotTriggered[];
-  ohlcv: { date: string; open: number; high: number; low: number; close: number }[];
-  score_series: { date: string; score: number; tier: string }[];
-  stats: GridComboStats;
-  diagnostics?: QuantSignalDiagnostics;
-  error?: string;
-}
-export interface QuantSignalResult {
-  algo: QuantAlgoId;
-  symbols: Record<string, QuantSymbolResult>;
-  excluded_symbols: { symbol: string; reason: string }[];
-  pooled_stats: GridComboStats;
-  diagnostics?: QuantSignalDiagnostics;
-}
-
-export interface MarketRegimeYear {
-  year: number;
-  label: "Bullish" | "Bearish";
-  nifty: { start: number; end: number; return_pct: number; from_date: string; to_date: string };
-  sensex: { start: number; end: number; return_pct: number; from_date: string; to_date: string } | null;
-}
-
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -604,9 +561,6 @@ export const api = {
       "/backtest/grid-sweepables"
     ),
   getMlModels: () => apiFetch<MlModelInfo[]>("/backtest/ml-models"),
-  getQuantSignalAlgos: () => apiFetch<QuantAlgoMeta[]>("/backtest/quant-signals"),
-  getMarketRegime: (fromDate: string, toDate: string) =>
-    apiFetch<MarketRegimeYear[]>(`/backtest/market-regime?from_date=${fromDate}&to_date=${toDate}`),
 
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });

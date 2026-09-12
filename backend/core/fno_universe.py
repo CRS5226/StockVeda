@@ -1,7 +1,7 @@
 """
-NSE F&O-eligible universe — shared between routes/fno.py (option chain, search)
-and core/quant_signals.py (F&O-only algo eligibility gate). Extracted from
-routes/fno.py so core modules don't import from routes.
+NSE F&O-eligible universe — shared across route/core modules that need to
+check F&O eligibility. Extracted from routes/fno.py so core modules don't
+import from routes.
 """
 
 INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "NIFTYBANK"}

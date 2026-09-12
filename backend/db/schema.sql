@@ -61,8 +61,6 @@ CREATE TABLE IF NOT EXISTS india_vix (
 
 -- Cache for yfinance's per-stock "sector" classification — previously fetched
 -- live on every request (e.g. sector-compare chart), no caching at all.
--- Used by swing_pullback's sector-relative-strength factor to avoid a live
--- yfinance call per symbol on every backtest run.
 CREATE TABLE IF NOT EXISTS stock_sector (
     symbol      VARCHAR PRIMARY KEY,
     sector      VARCHAR,
