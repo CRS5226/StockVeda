@@ -5,16 +5,7 @@ export default function Footer() {
     <footer className="border-t border-slate-200 bg-white">
       <div className="max-w-[1400px] w-full mx-auto px-4 py-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center whitespace-nowrap">
         <span className="text-xs text-slate-500">
-          © {year} StockVeda · Built by{" "}
-          <a
-            href="https://www.linkedin.com/in/chitraksh-singh/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-blue-600 hover:underline"
-          >
-            Chitraksh
-          </a>
-          . All rights reserved. ·{" "}
+          © {year} StockVeda ·{" "}
           <a
             href="https://github.com/CRS5226/StockVeda"
             target="_blank"
