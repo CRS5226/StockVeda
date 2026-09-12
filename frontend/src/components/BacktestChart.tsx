@@ -157,7 +157,12 @@ export default function BacktestChart({
       pendingTimeouts.current.forEach(clearTimeout);
       pendingTimeouts.current = [];
       chart.timeScale().unsubscribeVisibleTimeRangeChange(recomputeZones);
-      ro.disconnect(); chart.remove(); chartRef.current = null;
+      ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null;
+      // Trade-line series belong to the chart instance being destroyed above —
+      // drop the stale refs so a later "draw trade markers" effect (which runs
+      // independently, e.g. under StrictMode's mount->cleanup->remount in dev)
+      // never calls removeSeries() on a series whose chart no longer exists.
+      tradeLines.current = [];
     };
   }, []);
 
