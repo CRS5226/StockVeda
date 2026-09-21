@@ -6,6 +6,8 @@ import StockDetail from "./pages/StockDetail";
 import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
 import FnO from "./pages/FnO";
+import MutualFunds from "./pages/MutualFunds";
+import MutualFundDetail from "./pages/MutualFundDetail";
 
 export default function App() {
   return (
@@ -18,6 +20,8 @@ export default function App() {
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/fno" element={<FnO />} />
+          <Route path="/mutual-funds" element={<MutualFunds />} />
+          <Route path="/mutual-funds/:schemeCode" element={<MutualFundDetail />} />
           <Route path="/analysis" element={<Navigate to="/backtest" replace />} />
         </Routes>
       </main>

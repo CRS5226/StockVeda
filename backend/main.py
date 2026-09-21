@@ -1,7 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
-from backend.routes import stock, screener, macro, backtest, analysis, fno, index_fund, intraday
+from backend.routes import stock, screener, macro, backtest, analysis, fno, index_fund, intraday, mutual_fund
 
 app = FastAPI(title="StockVeda API", version="0.1.0")
 
@@ -25,6 +25,7 @@ app.include_router(analysis.router)
 app.include_router(fno.router, prefix="/api")
 app.include_router(index_fund.router, prefix="/api")
 app.include_router(intraday.router, prefix="/api")
+app.include_router(mutual_fund.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -57,6 +58,7 @@ _SYNC_MODULES = {
     "fundamentals":      "backend.data_sync.sync_fundamentals",
     "currency":          "backend.data_sync.sync_currency",
     "amfi":              "backend.data_sync.sync_amfi",
+    "mf_schemes":        "backend.data_sync.sync_mf_scheme_master",
     "global_macro":      "backend.data_sync.sync_global",
     "india_macro":       "backend.data_sync.sync_macro_india",
     "rbi":               "backend.data_sync.sync_rbi",

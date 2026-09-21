@@ -300,6 +300,19 @@ CREATE TABLE IF NOT EXISTS mf_nav (
     PRIMARY KEY (date, scheme_code)
 );
 
+CREATE TABLE IF NOT EXISTS mf_scheme_master (
+    scheme_code VARCHAR PRIMARY KEY,
+    isin VARCHAR,
+    scheme_name VARCHAR,
+    amc VARCHAR,
+    category VARCHAR,
+    bucket VARCHAR,
+    plan VARCHAR,
+    option_type VARCHAR,
+    latest_nav DOUBLE,
+    latest_nav_date DATE
+);
+
 CREATE TABLE IF NOT EXISTS stock_technical_cache (
     symbol      VARCHAR,
     date        DATE,
