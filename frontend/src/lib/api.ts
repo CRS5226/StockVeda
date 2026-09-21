@@ -278,9 +278,80 @@ export interface CommonHolderPair {
   overlap_score: number; fii_overlap: number; mf_overlap: number;
 }
 
+export interface MfCategory { bucket: string; category: string; scheme_count: number; }
+export interface MfScheme {
+  scheme_code: string; scheme_name: string; amc: string; category: string; bucket: string;
+  plan: string; option_type: string; latest_nav: number; latest_nav_date: string; isin?: string | null;
+  return_1m: number | null; return_3m: number | null; return_6m: number | null;
+  return_1y: number | null; return_3y: number | null; return_5y: number | null;
+  cagr_1y?: number | null; cagr_3y?: number | null; cagr_5y?: number | null;
+  stockveda_score?: number | null;
+}
+export interface MfNavPoint { date: string; nav: number; }
+export interface MfRollingCagrPoint { date: string; cagr: number; }
+export interface MfRisk {
+  volatility_annualized_pct: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  max_drawdown_pct: number | null;
+  risk_free_rate_pct: number;
+  beta: number | null;
+  alpha_annualized_pct: number | null;
+  r_squared: number | null;
+  n_obs?: number;
+  benchmark: string;
+  benchmark_type: string;
+  lookback_days_used: number;
+  rolling_3y_cagr: MfRollingCagrPoint[];
+  note?: string;
+}
+export interface MfSchemeDetail {
+  meta: MfScheme;
+  latest_nav: number; latest_nav_date: string;
+  return_1m: number | null; return_3m: number | null; return_6m: number | null;
+  return_1y: number | null; return_3y: number | null; return_5y: number | null;
+  cagr_1y: number | null; cagr_3y: number | null; cagr_5y: number | null;
+  risk: MfRisk;
+  nav_history: MfNavPoint[];
+}
+export interface MfSipResult {
+  invested: number; current_value: number; units: number;
+  xirr: number | null; n_installments: number; start_date: string; end_date: string;
+}
+export interface MfProjection {
+  drift_annualized: number; volatility_annualized: number;
+  horizon_days: number; n_simulations: number;
+  percentile_paths: { p5: number[]; p50: number[]; p95: number[] };
+  last_nav: number; as_of_date: string; lookback_days_used: number;
+}
+
 // ── API functions ──────────────────────────────────────────────────────────
 
 export const api = {
+  getMfCategories: () => apiFetch<MfCategory[]>(`/mutual-fund/categories`),
+
+  getMfSchemes: (params: { bucket?: string; category?: string; q?: string; limit?: number; sort?: string }) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, String(v)); });
+    return apiFetch<MfScheme[]>(`/mutual-fund/schemes?${p}`);
+  },
+
+  getMfSchemeDetail: (schemeCode: string) =>
+    apiFetch<MfSchemeDetail>(`/mutual-fund/scheme/${schemeCode}`),
+
+  getMfSip: (schemeCode: string, req: { monthly_amount: number; start_date: string; end_date?: string }) =>
+    apiFetch<MfSipResult>(`/mutual-fund/scheme/${schemeCode}/sip`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }),
+
+  getMfProjection: (schemeCode: string, params: { horizon_days?: number; n_simulations?: number; lookback_days?: number }) => {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v != null) p.set(k, String(v)); });
+    return apiFetch<MfProjection>(`/mutual-fund/scheme/${schemeCode}/projection?${p}`);
+  },
+
   getCandleStats: (symbols: string[]) =>
     apiFetch<CandleStat[]>(`/stock/candle-stats?symbols=${symbols.map(encodeURIComponent).join(",")}`),
 

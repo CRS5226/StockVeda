@@ -1,4 +1,5 @@
 .env
+.claude/
 *.duckdb
 *.duckdb.wal
 *.duckdb.tmp/
