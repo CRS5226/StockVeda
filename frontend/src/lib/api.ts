@@ -248,6 +248,14 @@ export interface MlEdaResult {
   correlation: { features: string[]; matrix: number[][] };
 }
 
+export interface ClusteringResult {
+  clusters: Record<string, number>;   // symbol -> cluster id (-1 = DBSCAN noise)
+  pca: Record<string, [number, number]>;
+  feature_cols: string[];
+  n_clusters: number | null;
+  noise_count: number | null;
+}
+
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -677,6 +685,16 @@ export const api = {
     timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
   }) =>
     apiFetch<MlEdaResult>("/backtest/ml-eda", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+  runClustering: (params: {
+    symbols: string[]; from_date: string; to_date: string;
+    algo: "kmeans" | "hierarchical" | "dbscan"; k: number; eps: number; min_samples: number;
+    lookback_days: number; timeframe: string; data_source: "cash" | "futures";
+  }) =>
+    apiFetch<ClusteringResult>("/backtest/run-clustering", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),

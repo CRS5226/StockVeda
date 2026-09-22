@@ -24,6 +24,7 @@ from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
 from backend.core.backtest_engine import prepare_frame
 from backend.core import grid_search as gs
 from backend.core import ml_backtest as mlb
+from backend.core import stock_clustering as sc
 from backend.data_sync.sync_intraday import VALID_INTERVALS as INTRADAY_INTERVALS
 import importlib.util
 import numpy as np
@@ -1089,3 +1090,52 @@ def run_ml_regression_stream(req: MlRegressionRequest):
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+# ── Stock Clustering (unsupervised — one feature row per stock, not per bar) ──
+
+class ClusteringRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1, max_length=gs.MAX_SYMBOLS)
+    from_date: str
+    to_date: str
+    algo: Literal["kmeans", "hierarchical", "dbscan"] = "kmeans"
+    k: int = Field(3, ge=2, le=10)
+    eps: float = Field(1.5, gt=0)
+    min_samples: int = Field(2, ge=1)
+    lookback_days: int = Field(60, ge=20, le=252)
+    timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
+
+
+@router.post("/run-clustering")
+def run_clustering(req: ClusteringRequest):
+    intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+    db = get_db()
+    raw: dict[str, pd.DataFrame] = {}
+    for sym in req.symbols:
+        s = sym.upper()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        if len(df) >= req.lookback_days:
+            raw[s] = df
+    if not raw:
+        raise HTTPException(400, f"No data (need ≥{req.lookback_days} bars/symbol). Sync data first.")
+
+    feat_frames: dict[str, pd.DataFrame] = {}
+    for sym, df in raw.items():
+        try:
+            feat_frames[sym] = prepare_frame(df, req.timeframe)
+        except Exception:
+            pass
+
+    fv = sc.build_stock_feature_vectors(feat_frames, req.lookback_days)
+    result = sc.run_clustering(fv, req.algo, k=req.k, eps=req.eps, min_samples=req.min_samples)
+    if result.error:
+        raise HTTPException(400, result.error)
+
+    return {
+        "clusters": result.clusters,
+        "pca": result.pca,
+        "feature_cols": result.feature_cols,
+        "n_clusters": result.n_clusters,
+        "noise_count": result.noise_count,
+    }

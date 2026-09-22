@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
          Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch } from "lucide-react";
 import Analysis from "./Analysis";
-import { api, ConditionRow, SweepDim, MlFeatureDistribution } from "../lib/api";
+import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
@@ -2368,18 +2368,181 @@ function MlTimeframeInline() {
   );
 }
 
-function MlClusteringPlaceholder() {
+const CLUSTER_NOISE_COLOR = "#94a3b8"; // slate-400 — DBSCAN "doesn't fit any cluster", not a real cluster hue
+const CLUSTER_ALGOS = [
+  { key: "kmeans" as const, label: "K-Means" },
+  { key: "hierarchical" as const, label: "Hierarchical" },
+  { key: "dbscan" as const, label: "DBSCAN" },
+];
+
+function MlClusteringPanel() {
+  const {
+    pickedSymbols, clustering, clusteringResult, clusteringLoading, clusteringError,
+    setClustering, runClustering,
+  } = useBacktestStore();
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const canRun = pickedSymbols.length >= 4 && !clusteringLoading;
+
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-      <div className="flex items-center gap-2 mb-2">
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
         <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">3</div>
-        <span className="text-sm font-semibold text-slate-700">Clustering</span>
+        <span className="text-sm font-semibold text-slate-700">Clustering — group stocks by trend character</span>
       </div>
-      <div className="text-center py-10 border border-dashed border-slate-200 rounded-xl">
-        <div className="text-sm font-medium text-slate-500">Coming soon</div>
-        <div className="text-xs text-slate-400 mt-1">Group picked stocks by trend character (K-Means / Hierarchical / DBSCAN).</div>
+
+      {pickedSymbols.length < 4 && (
+        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Pick at least 4 stocks to cluster (currently {pickedSymbols.length}).
+        </div>
+      )}
+
+      <div>
+        <div className="text-xs text-slate-400 font-medium mb-1.5">Algorithm</div>
+        <div className="flex flex-wrap gap-2">
+          {CLUSTER_ALGOS.map((a) => (
+            <button key={a.key} onClick={() => setClustering({ algo: a.key })}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                clustering.algo === a.key ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+              {a.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      <div className="flex flex-wrap gap-4">
+        {clustering.algo !== "dbscan" ? (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-slate-400 font-medium">Clusters (k)</span>
+            <input type="number" step="1" min={2} max={10} value={clustering.k}
+              onChange={(e) => setClustering({ k: parseInt(e.target.value) || 2 })}
+              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </label>
+        ) : (
+          <>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400 font-medium">Epsilon (eps)</span>
+              <input type="number" step="0.1" min={0.1} value={clustering.eps}
+                onChange={(e) => setClustering({ eps: parseFloat(e.target.value) || 0.1 })}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400 font-medium">Min samples</span>
+              <input type="number" step="1" min={1} value={clustering.min_samples}
+                onChange={(e) => setClustering({ min_samples: parseInt(e.target.value) || 1 })}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </label>
+          </>
+        )}
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-400 font-medium">Lookback (days)</span>
+          <input type="number" step="10" min={20} max={252} value={clustering.lookback_days}
+            onChange={(e) => setClustering({ lookback_days: parseInt(e.target.value) || 60 })}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        </label>
+      </div>
+
+      <button onClick={runClustering} disabled={!canRun}
+        className="self-start px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+        {clusteringLoading ? "Clustering…" : "Run Clustering"}
+      </button>
+
+      {clusteringError && <div className="text-xs text-red-600">{clusteringError}</div>}
+
+      {clusteringResult && (
+        <MlClusteringResults result={clusteringResult} hovered={hovered} onHover={setHovered} />
+      )}
     </section>
+  );
+}
+
+function MlClusteringResults({ result, hovered, onHover }: {
+  result: ClusteringResult; hovered: string | null; onHover: (s: string | null) => void;
+}) {
+  const symbols = Object.keys(result.clusters);
+  const xs = symbols.map((s) => result.pca[s][0]);
+  const ys = symbols.map((s) => result.pca[s][1]);
+  const [minX, maxX] = [Math.min(...xs), Math.max(...xs)];
+  const [minY, maxY] = [Math.min(...ys), Math.max(...ys)];
+  const padX = (maxX - minX || 1) * 0.15, padY = (maxY - minY || 1) * 0.15;
+  const W = 560, H = 360, M = 28;
+  const sx = (x: number) => M + ((x - (minX - padX)) / ((maxX + padX) - (minX - padX) || 1)) * (W - 2 * M);
+  const sy = (y: number) => H - M - ((y - (minY - padY)) / ((maxY + padY) - (minY - padY) || 1)) * (H - 2 * M);
+  const colorFor = (cid: number) => cid === -1 ? CLUSTER_NOISE_COLOR : ALGO_COLORS[cid % ALGO_COLORS.length];
+
+  const byCluster = new Map<number, string[]>();
+  for (const s of symbols) {
+    const cid = result.clusters[s];
+    if (!byCluster.has(cid)) byCluster.set(cid, []);
+    byCluster.get(cid)!.push(s);
+  }
+  const clusterIds = [...byCluster.keys()].sort((a, b) => a - b);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-xs text-slate-500">
+          {result.n_clusters} cluster{result.n_clusters === 1 ? "" : "s"} · {symbols.length} stocks
+          {result.noise_count ? ` · ${result.noise_count} flagged as noise (doesn't fit any cluster)` : ""}
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {clusterIds.map((cid) => (
+            <span key={cid} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
+              {cid === -1 ? "Noise" : `Cluster ${cid}`}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative border border-slate-100 rounded-lg overflow-visible">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="block">
+          <line x1={M} y1={H - M} x2={W - M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
+          <line x1={M} y1={M} x2={M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
+          <text x={W / 2} y={H - 6} textAnchor="middle" className="fill-slate-400" fontSize={10}>PC1</text>
+          <text x={10} y={H / 2} textAnchor="middle" className="fill-slate-400" fontSize={10}
+            transform={`rotate(-90, 10, ${H / 2})`}>PC2</text>
+          {symbols.map((s) => {
+            const cid = result.clusters[s];
+            const cx = sx(result.pca[s][0]), cy = sy(result.pca[s][1]);
+            const active = hovered === s;
+            return (
+              <g key={s} onMouseEnter={() => onHover(s)} onMouseLeave={() => onHover(null)} className="cursor-pointer">
+                <circle cx={cx} cy={cy} r={active ? 7 : 5} fill={colorFor(cid)}
+                  stroke="#fff" strokeWidth={2} opacity={active ? 1 : 0.85} />
+                <text x={cx + 8} y={cy + 3} fontSize={10} className="fill-slate-500 select-none">{s}</text>
+              </g>
+            );
+          })}
+        </svg>
+        {hovered && (
+          <div className="absolute top-2 right-2 bg-slate-800 text-white text-[11px] rounded-lg px-2.5 py-1.5 shadow-lg pointer-events-none">
+            <div className="font-semibold">{hovered}</div>
+            <div className="text-slate-300">
+              {result.clusters[hovered] === -1 ? "Noise" : `Cluster ${result.clusters[hovered]}`}
+              {" · "}PC1 {result.pca[hovered][0].toFixed(2)}, PC2 {result.pca[hovered][1].toFixed(2)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {clusterIds.map((cid) => (
+          <div key={cid} className="border border-slate-100 rounded-lg p-2.5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
+              <span className="text-xs font-semibold text-slate-600">{cid === -1 ? "Noise" : `Cluster ${cid}`}</span>
+              <span className="text-[10px] text-slate-400">({byCluster.get(cid)!.length})</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {byCluster.get(cid)!.map((s) => (
+                <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{s}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -3053,7 +3216,7 @@ function MlWizard() {
       {mlAlgoType !== "clustering" && <MlEdaPanel />}
       {mlAlgoType === "regression" && <MlRegressionPanel />}
       {mlAlgoType === "classification" && <MlPanel />}
-      {mlAlgoType === "clustering" && <MlClusteringPlaceholder />}
+      {mlAlgoType === "clustering" && <MlClusteringPanel />}
     </>
   );
 }
