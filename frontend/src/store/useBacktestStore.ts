@@ -119,6 +119,7 @@ export interface MlConfig {
   max_bars: number;
   timeframe: string;   // "1D" or an intraday interval (1m/5m/15m/30m/60m) — separate from
                         // the shared `strategy.timeframe` used by other backtest modes.
+  features: string[] | null;  // subset of ML_FEATURES to train on; null = use all
 }
 
 export interface MlRegressionConfig {
@@ -128,6 +129,7 @@ export interface MlRegressionConfig {
   horizon_bars: number;
   train_ratio: number;
   timeframe: string;
+  features: string[] | null;
 }
 
 // Recommended default lookback (days) per interval — a sensible starting point within
@@ -246,6 +248,7 @@ const DEFAULT_ML: MlConfig = {
   sl_pct: 4,
   max_bars: 25,
   timeframe: "1D",
+  features: null,
 };
 
 const DEFAULT_ML_REGRESSION: MlRegressionConfig = {
@@ -255,6 +258,7 @@ const DEFAULT_ML_REGRESSION: MlRegressionConfig = {
   horizon_bars: 10,
   train_ratio: 0.7,
   timeframe: "1D",
+  features: null,
 };
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -382,6 +386,10 @@ interface BacktestState {
   mlEdaLoading: boolean;
   mlEdaError: string | null;
   runMlEda: () => Promise<void>;
+
+  // Feature picker — shared list of trainable columns, selection lives on ml.features / mlReg.features
+  mlFeatureList: string[];
+  loadMlFeatures: () => Promise<void>;
 
   // Intraday data check/sync for the ML wizard (multi-symbol, unlike ORB's single-symbol flow)
   mlDataStatus: Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }> | null;
@@ -816,7 +824,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           models: ml.models, prob_threshold: ml.prob_threshold, train_ratio: ml.train_ratio,
           target_pct: ml.target_pct, sl_pct: ml.sl_pct, max_bars: ml.max_bars,
           capital_per_trade: strategy.capital_per_trade, timeframe: ml.timeframe,
-          data_source: strategy.data_source,
+          data_source: strategy.data_source, features: ml.features,
         }),
       });
       if (!res.ok) {
@@ -881,7 +889,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           from_date: strategy.from_date, to_date: strategy.to_date,
           entry_conditions: mlReg.entry_conditions, sample_mode: mlReg.sample_mode,
           models: mlReg.models, horizon_bars: mlReg.horizon_bars, train_ratio: mlReg.train_ratio,
-          timeframe: mlReg.timeframe, data_source: strategy.data_source,
+          timeframe: mlReg.timeframe, data_source: strategy.data_source, features: mlReg.features,
         }),
       });
       if (!res.ok) {
@@ -929,13 +937,22 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         symbols: pickedSymbols,
         from_date: strategy.from_date, to_date: strategy.to_date,
         entry_conditions: cfg.entry_conditions, sample_mode: cfg.sample_mode,
-        timeframe: cfg.timeframe, data_source: strategy.data_source,
+        timeframe: cfg.timeframe, data_source: strategy.data_source, features: cfg.features,
       });
       if (result.error) set({ mlEdaError: result.error, mlEdaLoading: false });
       else set({ mlEdaResult: result, mlEdaLoading: false });
     } catch (e) {
       set({ mlEdaLoading: false, mlEdaError: String(e) });
     }
+  },
+
+  mlFeatureList: [],
+  loadMlFeatures: async () => {
+    if (get().mlFeatureList.length) return;
+    try {
+      const { features } = await api.getMlFeatures();
+      set({ mlFeatureList: features });
+    } catch {}
   },
 
   // ── Intraday data check/sync for the ML wizard (multi-symbol batch) ───────

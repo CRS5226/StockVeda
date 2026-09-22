@@ -2386,27 +2386,69 @@ function MlClusteringPlaceholder() {
 // ── ML EDA panel (feature distributions + correlation, shared by classification/regression) ──
 
 function MlEdaPanel() {
-  const { pickedSymbols, mlEdaResult, mlEdaLoading, mlEdaError, runMlEda } = useBacktestStore();
+  const {
+    pickedSymbols, mlEdaResult, mlEdaLoading, mlEdaError, runMlEda,
+    mlAlgoType, ml, mlReg, setMl, setMlReg, mlFeatureList, loadMlFeatures,
+  } = useBacktestStore();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => { if (open) loadMlFeatures(); }, [open, loadMlFeatures]);
+
+  const cfg = mlAlgoType === "regression" ? mlReg : ml;
+  const setCfg = mlAlgoType === "regression" ? setMlReg : setMl;
+  const selected = cfg.features ?? mlFeatureList;
+  const toggleFeature = (name: string) => {
+    const next = selected.includes(name) ? selected.filter((f) => f !== name) : [...selected, name];
+    if (next.length === 0) return; // keep at least one feature selected
+    setCfg({ features: next.length === mlFeatureList.length ? null : next });
+  };
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">Explore Features (EDA)</span>
-          <span className="text-xs text-slate-400">distributions + correlation, before training</span>
+          <span className="text-sm font-semibold text-slate-700">Explore & Select Features</span>
+          <span className="text-xs text-slate-400">distributions, correlation, and which columns to train on</span>
         </div>
         <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="mt-3 pt-3 border-t border-slate-100">
+        <div className="mt-3 pt-3 border-t border-slate-100 space-y-4">
+          {mlFeatureList.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-xs text-slate-400 font-medium">
+                  Features used for training — {selected.length}/{mlFeatureList.length} selected
+                  {selected.length < mlFeatureList.length && " (drop ones that show as highly correlated below)"}
+                </div>
+                {cfg.features !== null && (
+                  <button onClick={() => setCfg({ features: null })} className="text-xs text-blue-600 hover:underline shrink-0">
+                    Select all
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {mlFeatureList.map((f) => {
+                  const on = selected.includes(f);
+                  return (
+                    <button key={f} onClick={() => toggleFeature(f)}
+                      className={`px-2 py-1 rounded-md border text-[11px] font-mono transition-colors ${
+                        on ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-400 hover:border-slate-400"}`}>
+                      {f}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <button onClick={runMlEda} disabled={!pickedSymbols.length || mlEdaLoading}
             className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
             {mlEdaLoading ? "Analyzing…" : "Run EDA"}
           </button>
           {mlEdaError && <div className="mt-2 text-xs text-red-600">{mlEdaError}</div>}
           {mlEdaResult && (
-            <div className="mt-4 space-y-5">
+            <div className="space-y-5">
               <div className="text-xs text-slate-400">{mlEdaResult.n_samples} samples</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {Object.entries(mlEdaResult.distributions).map(([feat, d]) => (
