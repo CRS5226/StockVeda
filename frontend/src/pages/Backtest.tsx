@@ -2465,7 +2465,7 @@ function MlClusteringResults({ result, hovered, onHover }: {
   const [minX, maxX] = [Math.min(...xs), Math.max(...xs)];
   const [minY, maxY] = [Math.min(...ys), Math.max(...ys)];
   const padX = (maxX - minX || 1) * 0.15, padY = (maxY - minY || 1) * 0.15;
-  const W = 560, H = 360, M = 28;
+  const W = 360, H = 240, M = 24;
   const sx = (x: number) => M + ((x - (minX - padX)) / ((maxX + padX) - (minX - padX) || 1)) * (W - 2 * M);
   const sy = (y: number) => H - M - ((y - (minY - padY)) / ((maxY + padY) - (minY - padY) || 1)) * (H - 2 * M);
   const colorFor = (cid: number) => cid === -1 ? CLUSTER_NOISE_COLOR : ALGO_COLORS[cid % ALGO_COLORS.length];
@@ -2495,7 +2495,11 @@ function MlClusteringResults({ result, hovered, onHover }: {
         </div>
       </div>
 
-      <div className="relative border border-slate-100 rounded-lg overflow-visible">
+      <div className="text-[11px] text-slate-400">
+        Based on: {result.feature_cols.join(", ")}
+      </div>
+
+      <div className="relative border border-slate-100 rounded-lg overflow-visible max-w-sm">
         <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="block">
           <line x1={M} y1={H - M} x2={W - M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
           <line x1={M} y1={M} x2={M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
