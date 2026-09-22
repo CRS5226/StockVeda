@@ -106,7 +106,9 @@ def build_dataset(
     sl_pct: float,
     max_bars: int,
     train_ratio: float,
+    features: list[str] | None = None,
 ) -> MlDataset:
+    feature_cols = features if features else ML_FEATURES
     Xtr, ytr, Xte, yte = [], [], [], []
     test_meta: list[tuple[str, int]] = []
     test_candidates: dict[str, list[int]] = {}
@@ -132,13 +134,13 @@ def build_dataset(
         test_candidates[sym] = []
 
         close = frame["close"].to_numpy(dtype=float)
-        feat_ok = frame[ML_FEATURES].notna().all(axis=1).to_numpy()
+        feat_ok = frame[feature_cols].notna().all(axis=1).to_numpy()
         if sample_mode == "entry_signals":
             base = _eval_conditions(frame, entry_conditions).to_numpy()
         else:
             base = np.ones(n, dtype=bool)
 
-        feat_matrix = frame[ML_FEATURES].to_numpy(dtype=float)
+        feat_matrix = frame[feature_cols].to_numpy(dtype=float)
 
         for i in range(n):
             if not (base[i] and feat_ok[i]):
@@ -178,11 +180,11 @@ def build_dataset(
                 test_candidates[sym].append(local)
 
     ds = MlDataset(
-        X_train=np.array(Xtr, dtype=float) if Xtr else np.empty((0, len(ML_FEATURES))),
+        X_train=np.array(Xtr, dtype=float) if Xtr else np.empty((0, len(feature_cols))),
         y_train=np.array(ytr, dtype=int),
-        X_test=np.array(Xte, dtype=float) if Xte else np.empty((0, len(ML_FEATURES))),
+        X_test=np.array(Xte, dtype=float) if Xte else np.empty((0, len(feature_cols))),
         y_test=np.array(yte, dtype=int),
-        features=list(ML_FEATURES),
+        features=list(feature_cols),
         test_meta=test_meta,
         test_candidates=test_candidates,
         split_idx=split_idx,
@@ -195,6 +197,206 @@ def build_dataset(
     elif len(np.unique(ds.y_train)) < 2:
         ds.error = "Training labels are single-class (all win or all loss) — cannot train. Adjust target/SL or the base setup."
     return ds
+
+
+# ── EDA: feature distributions + correlation heatmap, no label/model needed ──
+# Pools every candidate bar's feature row across all picked symbols (same
+# candidate-selection logic as build_dataset, minus the triple-barrier labeling
+# and train/test split) so a user can sanity-check the feature set — e.g. spot a
+# near-constant or near-duplicate feature — before spending time training models.
+
+def _pool_feature_rows(frames: dict[str, pd.DataFrame], entry_conditions: list,
+                        sample_mode: str, feature_cols: list[str]) -> pd.DataFrame:
+    rows = []
+    for frame in frames.values():
+        n = len(frame)
+        if n < 60:
+            continue
+        feat_ok = frame[feature_cols].notna().all(axis=1)
+        if sample_mode == "entry_signals":
+            base = _eval_conditions(frame, entry_conditions)
+        else:
+            base = pd.Series(True, index=frame.index)
+        rows.append(frame.loc[base & feat_ok, feature_cols])
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=feature_cols)
+
+
+def compute_eda(frames: dict[str, pd.DataFrame], entry_conditions: list, sample_mode: str,
+                 features: list[str] | None = None, bins: int = 20) -> dict:
+    feature_cols = features if features else ML_FEATURES
+    pooled = _pool_feature_rows(frames, entry_conditions, sample_mode, feature_cols)
+    if len(pooled) < 5:
+        return {"error": "Not enough sampled bars to compute EDA — widen the date range or pick more symbols.",
+                "n_samples": len(pooled), "distributions": {}, "correlation": {"features": [], "matrix": []}}
+
+    distributions = {}
+    for col in feature_cols:
+        vals = pooled[col].to_numpy(dtype=float)
+        counts, edges = np.histogram(vals, bins=bins)
+        distributions[col] = {
+            "counts": counts.tolist(),
+            "bin_edges": [round(float(e), 4) for e in edges],
+            "mean": round(float(np.mean(vals)), 4),
+            "std": round(float(np.std(vals)), 4),
+            "min": round(float(np.min(vals)), 4),
+            "max": round(float(np.max(vals)), 4),
+            "median": round(float(np.median(vals)), 4),
+        }
+
+    corr = pooled[feature_cols].corr(method="pearson").round(3)
+    corr = corr.fillna(0.0)  # a zero-variance feature (e.g. all-NaN candle flag) -> undefined corr, show as 0
+    correlation = {"features": feature_cols, "matrix": corr.to_numpy().tolist()}
+
+    return {"error": None, "n_samples": len(pooled), "distributions": distributions, "correlation": correlation}
+
+
+# ── Regression mode: predict forward N-bar return magnitude, not win/loss ────
+
+ML_REGRESSORS = [
+    {"id": "ridge", "label": "Ridge Regression"},
+    {"id": "rf_reg", "label": "Random Forest Regressor"},
+    {"id": "xgb_reg", "label": "XGBoost Regressor"},
+]
+ML_REGRESSOR_IDS = {m["id"] for m in ML_REGRESSORS}
+_ML_REGRESSOR_LABELS = {m["id"]: m["label"] for m in ML_REGRESSORS}
+
+
+@dataclass
+class MlRegressionDataset:
+    X_train: np.ndarray
+    y_train: np.ndarray
+    X_test: np.ndarray
+    y_test: np.ndarray
+    features: list[str]
+    test_meta: list[tuple[str, int]]
+    split_idx: dict[str, int]
+    train_period: dict | None = None
+    test_period: dict | None = None
+    error: str | None = None
+
+
+def build_regression_dataset(
+    frames: dict[str, pd.DataFrame],
+    entry_conditions: list,
+    sample_mode: str,
+    horizon_bars: int,
+    train_ratio: float,
+    features: list[str] | None = None,
+) -> MlRegressionDataset:
+    """Same candidate-selection and chronological-split/purge discipline as
+    build_dataset(), but the target is the continuous forward `horizon_bars`
+    return (%) instead of a triple-barrier win/loss label."""
+    feature_cols = features if features else ML_FEATURES
+    Xtr, ytr, Xte, yte = [], [], [], []
+    test_meta: list[tuple[str, int]] = []
+    split_idx: dict[str, int] = {}
+    tr_starts, tr_ends, te_starts, te_ends = [], [], [], []
+
+    for sym, frame in frames.items():
+        n = len(frame)
+        if n < 60:
+            continue
+        k = int(n * train_ratio)
+        split_idx[sym] = k
+        if k > 0:
+            tr_starts.append(str(frame.iloc[0]["date"]))
+            tr_ends.append(str(frame.iloc[k - 1]["date"]))
+        if k < n:
+            te_starts.append(str(frame.iloc[k]["date"]))
+            te_ends.append(str(frame.iloc[n - 1]["date"]))
+
+        close = frame["close"].to_numpy(dtype=float)
+        feat_ok = frame[feature_cols].notna().all(axis=1).to_numpy()
+        if sample_mode == "entry_signals":
+            base = _eval_conditions(frame, entry_conditions).to_numpy()
+        else:
+            base = np.ones(n, dtype=bool)
+
+        feat_matrix = frame[feature_cols].to_numpy(dtype=float)
+
+        for i in range(n):
+            if not (base[i] and feat_ok[i]):
+                continue
+            j = i + horizon_bars
+            if j >= n:
+                continue  # forward window runs past the end of data — drop, don't guess
+            fwd_return = (close[j] / close[i] - 1) * 100
+            # Purge train samples whose forward window would reach into the test period.
+            if i < k and j >= k:
+                continue
+
+            feat = feat_matrix[i]
+            if i < k:
+                Xtr.append(feat)
+                ytr.append(fwd_return)
+            else:
+                Xte.append(feat)
+                yte.append(fwd_return)
+                test_meta.append((sym, i - k))
+
+    ds = MlRegressionDataset(
+        X_train=np.array(Xtr, dtype=float) if Xtr else np.empty((0, len(feature_cols))),
+        y_train=np.array(ytr, dtype=float),
+        X_test=np.array(Xte, dtype=float) if Xte else np.empty((0, len(feature_cols))),
+        y_test=np.array(yte, dtype=float),
+        features=list(feature_cols),
+        test_meta=test_meta,
+        split_idx=split_idx,
+        train_period={"start": min(tr_starts), "end": max(tr_ends)} if tr_starts else None,
+        test_period={"start": min(te_starts), "end": max(te_ends)} if te_starts else None,
+    )
+    if len(ds.y_train) < MIN_TRAIN_SAMPLES:
+        ds.error = f"Not enough training samples ({len(ds.y_train)} < {MIN_TRAIN_SAMPLES}). Add symbols or widen the date range."
+    return ds
+
+
+def make_regressor(model_id: str):
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import Ridge
+    from sklearn.ensemble import RandomForestRegressor
+
+    if model_id == "ridge":
+        return make_pipeline(StandardScaler(), Ridge(alpha=1.0))
+    if model_id == "rf_reg":
+        return RandomForestRegressor(n_estimators=300, max_depth=6, n_jobs=-1, random_state=42)
+    if model_id == "xgb_reg":
+        from xgboost import XGBRegressor
+        return XGBRegressor(n_estimators=300, max_depth=4, learning_rate=0.05,
+                            subsample=0.9, colsample_bytree=0.9, n_jobs=-1, random_state=42)
+    raise ValueError(f"Unknown regressor id: {model_id}")
+
+
+def _regression_metrics(y_true, y_pred) -> dict:
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    return {
+        "rmse": round(float(mean_squared_error(y_true, y_pred) ** 0.5), 4),
+        "mae":  round(float(mean_absolute_error(y_true, y_pred)), 4),
+        "r2":   round(float(r2_score(y_true, y_pred)), 4) if len(y_true) > 1 else None,
+    }
+
+
+def train_and_evaluate_regression(model_id: str, ds: MlRegressionDataset) -> dict:
+    label = _ML_REGRESSOR_LABELS.get(model_id, model_id)
+    _err = lambda msg: {"label": label, "error": msg, "train_metrics": None, "test_metrics": None,
+                        "feature_importance": None}
+    try:
+        model = make_regressor(model_id)
+        model.fit(ds.X_train, ds.y_train)
+        pred_train = model.predict(ds.X_train)
+        pred_test = model.predict(ds.X_test)
+    except ImportError:
+        return _err("xgboost not installed on the server.")
+    except Exception as e:
+        return _err(str(e))
+
+    return {
+        "label": label,
+        "error": None,
+        "train_metrics": _regression_metrics(ds.y_train, pred_train),
+        "test_metrics": _regression_metrics(ds.y_test, pred_test),
+        "feature_importance": _feature_importance(model, ds.features),
+    }
 
 
 def make_model(model_id: str, scale_pos_weight: float = 1.0):

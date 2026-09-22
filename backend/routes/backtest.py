@@ -24,13 +24,24 @@ from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
 from backend.core.backtest_engine import prepare_frame
 from backend.core import grid_search as gs
 from backend.core import ml_backtest as mlb
+from backend.data_sync.sync_intraday import VALID_INTERVALS as INTRADAY_INTERVALS
 import importlib.util
 import numpy as np
 import pandas as pd
 
 
-def _load_price_df(db, sym: str, from_date: str, to_date: str, data_source: str) -> pd.DataFrame:
-    """data_source: 'cash' (stock_ohlcv) or 'futures' (continuous roll-adjusted near-month series)."""
+def _load_price_df(db, sym: str, from_date: str, to_date: str, data_source: str, interval: str | None = None) -> pd.DataFrame:
+    """data_source: 'cash' (stock_ohlcv) or 'futures' (continuous roll-adjusted near-month series).
+    interval: one of sync_intraday.VALID_INTERVALS to read stock_intraday_ohlcv instead of the
+    daily stock_ohlcv table — the `datetime` column is aliased to `date` so downstream code
+    (prepare_frame, ml_backtest, etc.) works unchanged regardless of bar granularity, since the
+    triple-barrier/rolling-window logic is already bar-index-based, not calendar-based."""
+    if interval:
+        return db.execute(
+            """SELECT datetime AS date, open, high, low, close, volume FROM stock_intraday_ohlcv
+               WHERE symbol = ? AND interval = ? AND datetime BETWEEN ? AND ? ORDER BY datetime""",
+            [sym, interval, from_date, to_date],
+        ).df()
     if data_source == "futures":
         return build_continuous_futures(sym, from_date, to_date)
     return db.execute(
@@ -816,6 +827,7 @@ class MlRequest(BaseModel):
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
     data_source: Literal["cash", "futures"] = "cash"
+    features: list[str] | None = None  # subset of mlb.ML_FEATURES; None = use all
 
 
 @router.get("/ml-models")
@@ -825,6 +837,57 @@ def get_ml_models():
         {**m, "available": (m["id"] != "xgb") or xgb_ok}
         for m in mlb.ML_MODELS
     ]
+
+
+@router.get("/ml-features")
+def get_ml_features():
+    """Feature column names available for the ML section's feature picker —
+    same list used by classification, regression, and the EDA view."""
+    return {"features": mlb.ML_FEATURES}
+
+
+class MlEdaRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1, max_length=gs.MAX_SYMBOLS)
+    from_date: str
+    to_date: str
+    entry_conditions: list[ConditionRowIn] = []
+    sample_mode: Literal["entry_signals", "all_bars"] = "entry_signals"
+    timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
+    features: list[str] | None = None
+
+
+@router.post("/ml-eda")
+def run_ml_eda(req: MlEdaRequest):
+    """Feature distributions + correlation heatmap over every sampled bar —
+    no labeling/training, just a quick look at the feature set before running
+    classification/regression. Not streamed: this is a single pass, not a
+    per-model training loop, so it's fast enough to return directly."""
+    entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
+    intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+
+    db = get_db()
+    raw: dict[str, pd.DataFrame] = {}
+    for sym in req.symbols:
+        s = sym.upper()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        if len(df) >= 60:
+            raw[s] = df if intraday_interval else attach_markov_signals(
+                attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
+            )
+    if not raw:
+        raise HTTPException(400, "No data (need ≥60 bars/symbol). Sync data first.")
+
+    feat_frames: dict[str, pd.DataFrame] = {}
+    for sym, df in raw.items():
+        try:
+            feat_frames[sym] = mlb.build_features(prepare_frame(df, req.timeframe))
+        except Exception:
+            pass
+    if not feat_frames:
+        raise HTTPException(400, "Could not build features for any symbol.")
+
+    return mlb.compute_eda(feat_frames, entry_rows, req.sample_mode, features=req.features)
 
 
 @router.post("/run-ml-stream")
@@ -839,17 +902,25 @@ def run_ml_stream(req: MlRequest):
 
     entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
 
+    intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+
     db = get_db()
     raw: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
         if len(df) >= 60:
-            raw[s] = attach_markov_signals(
-                attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
-            )
+            # F&O/Markov signals are daily-only series — skip attaching them onto intraday bars.
+            if intraday_interval:
+                raw[s] = df
+            else:
+                raw[s] = attach_markov_signals(
+                    attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
+                )
     if not raw:
-        raise HTTPException(400, "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
+        msg = ("No intraday data synced for these symbols/interval yet — sync it first."
+               if intraday_interval else "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
+        raise HTTPException(400, msg)
 
     base_params = BacktestParamsV2(
         entry_conditions=entry_rows, exit_conditions=[],
@@ -871,6 +942,7 @@ def run_ml_stream(req: MlRequest):
         ds = mlb.build_dataset(
             feat_frames, entry_rows, req.sample_mode,
             req.target_pct, req.sl_pct, req.max_bars, req.train_ratio,
+            features=req.features,
         )
         if ds.error:
             yield f"data: {json.dumps({'phase': 'error', 'error': ds.error})}\n\n"
@@ -910,6 +982,104 @@ def run_ml_stream(req: MlRequest):
             },
             "ohlcv": ohlcv,
             "baseline": baseline,
+            "models": models_out,
+        }
+        yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+# ── ML Regression (predict forward return magnitude) ──────────────────────────
+
+class MlRegressionRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1, max_length=gs.MAX_SYMBOLS)
+    from_date: str
+    to_date: str
+    entry_conditions: list[ConditionRowIn] = []
+    sample_mode: Literal["entry_signals", "all_bars"] = "entry_signals"
+    models: list[str] = Field(..., min_length=1)
+    horizon_bars: int = Field(10, ge=1, le=252)
+    train_ratio: float = Field(0.7, ge=0.5, le=0.9)
+    timeframe: str = "1D"
+    data_source: Literal["cash", "futures"] = "cash"
+    features: list[str] | None = None  # subset of mlb.ML_FEATURES; None = use all
+
+
+@router.get("/ml-regressors")
+def get_ml_regressors():
+    xgb_ok = importlib.util.find_spec("xgboost") is not None
+    return [
+        {**m, "available": (m["id"] != "xgb_reg") or xgb_ok}
+        for m in mlb.ML_REGRESSORS
+    ]
+
+
+@router.post("/run-ml-regression-stream")
+def run_ml_regression_stream(req: MlRegressionRequest):
+    """SSE endpoint — same dataset-prep/candidate-selection shape as run-ml-stream,
+    but the label is a continuous forward return instead of a triple-barrier win/loss."""
+    model_ids = [m for m in req.models if m in mlb.ML_REGRESSOR_IDS]
+    if not model_ids:
+        raise HTTPException(400, "No valid regressors selected.")
+    if req.sample_mode == "entry_signals" and not req.entry_conditions:
+        raise HTTPException(400, "Entry conditions are required unless sample mode is 'all bars'.")
+
+    entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
+    intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+
+    db = get_db()
+    raw: dict[str, pd.DataFrame] = {}
+    for sym in req.symbols:
+        s = sym.upper()
+        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        if len(df) >= 60:
+            if intraday_interval:
+                raw[s] = df
+            else:
+                raw[s] = attach_markov_signals(
+                    attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
+                )
+    if not raw:
+        msg = ("No intraday data synced for these symbols/interval yet — sync it first."
+               if intraday_interval else "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
+        raise HTTPException(400, msg)
+
+    def generate():
+        feat_frames: dict[str, pd.DataFrame] = {}
+        n_sym = len(raw)
+        for i, (sym, df) in enumerate(raw.items(), 1):
+            try:
+                feat_frames[sym] = mlb.build_features(prepare_frame(df, req.timeframe))
+            except Exception:
+                pass
+            yield f"data: {json.dumps({'phase': 'dataset', 'done': i, 'total': n_sym})}\n\n"
+
+        ds = mlb.build_regression_dataset(
+            feat_frames, entry_rows, req.sample_mode, req.horizon_bars, req.train_ratio,
+            features=req.features,
+        )
+        if ds.error:
+            yield f"data: {json.dumps({'phase': 'error', 'error': ds.error})}\n\n"
+            return
+
+        models_out: dict = {}
+        for j, mid in enumerate(model_ids, 1):
+            models_out[mid] = mlb.train_and_evaluate_regression(mid, ds)
+            yield f"data: {json.dumps({'phase': 'train', 'model': mid, 'done': j, 'total': len(model_ids)})}\n\n"
+
+        result = {
+            "dataset": {
+                "n_train": int(len(ds.y_train)),
+                "n_test": int(len(ds.y_test)),
+                "n_features": len(ds.features),
+                "features": ds.features,
+                "train_period": ds.train_period,
+                "test_period": ds.test_period,
+            },
             "models": models_out,
         }
         yield f"data: {json.dumps({'phase': 'done', 'result': result})}\n\n"

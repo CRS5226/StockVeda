@@ -6,10 +6,13 @@ bhavcopy is: yfinance intraday lookback is capped (~7 days for 1m bars, longer
 for coarser intervals), and fetches are per-symbol, not exchange-wide.
 """
 
+from datetime import datetime, timedelta
+
 import pandas as pd
 import yfinance as yf
 
 from backend.data_sync.base import upsert_df
+from backend.db.connection import get_db
 
 VALID_INTERVALS = ("1m", "5m", "15m", "30m", "60m")
 
@@ -51,3 +54,52 @@ def _run_intraday_fetch_job(job_id: str, symbol: str, interval: str, days: int) 
         intraday_fetch_jobs[job_id].update({"status": "done", "inserted": count, "done": 1, "total": 1})
     except Exception as e:
         intraday_fetch_jobs[job_id].update({"status": "error", "error": str(e), "done": 1, "total": 1})
+
+
+def _existing_coverage(symbol: str, interval: str) -> tuple[datetime | None, datetime | None]:
+    db = get_db()
+    row = db.execute(
+        "SELECT MIN(datetime), MAX(datetime) FROM stock_intraday_ohlcv WHERE symbol = ? AND interval = ?",
+        [symbol, interval],
+    ).fetchone()
+    if not row or row[0] is None:
+        return None, None
+    earliest = row[0] if isinstance(row[0], datetime) else datetime.fromisoformat(str(row[0]))
+    latest = row[1] if isinstance(row[1], datetime) else datetime.fromisoformat(str(row[1]))
+    return earliest, latest
+
+
+def sync_intraday_batch(symbols: list[str], interval: str, days: int, job_id: str) -> None:
+    """Multi-symbol incremental intraday sync — mirrors screener_universe.smart_sync's
+    per-symbol gap-fetch pattern (check what's already covered, fetch only what's
+    missing), unlike fetch_intraday_symbol's single-shot full-window refetch. One
+    job_id tracks progress across all symbols via intraday_fetch_jobs (same dict
+    the single-symbol fetch job uses, since both are polled the same way)."""
+    max_days = MAX_LOOKBACK_DAYS.get(interval, 60)
+    days = min(days, max_days)
+    required_from = datetime.now() - timedelta(days=days)
+
+    intraday_fetch_jobs[job_id] = {
+        "done": 0, "total": len(symbols), "inserted": 0,
+        "status": "running", "current": "", "interval": interval,
+    }
+
+    for sym in symbols:
+        s = sym.strip().upper()
+        intraday_fetch_jobs[job_id]["current"] = s
+        try:
+            earliest, latest = _existing_coverage(s, interval)
+            if earliest is not None and earliest <= required_from and latest is not None and \
+                    latest >= datetime.now() - timedelta(minutes=30):
+                # Already covers the requested window — skip re-fetching this symbol.
+                pass
+            else:
+                df = fetch_intraday_symbol(s, interval, days)
+                if not df.empty:
+                    count = upsert_df(df, "stock_intraday_ohlcv")
+                    intraday_fetch_jobs[job_id]["inserted"] += count
+        except Exception:
+            pass  # best-effort per symbol — one bad symbol shouldn't abort the batch
+        intraday_fetch_jobs[job_id]["done"] += 1
+
+    intraday_fetch_jobs[job_id]["status"] = "done"
