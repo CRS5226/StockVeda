@@ -1105,6 +1105,12 @@ class ClusteringRequest(BaseModel):
     lookback_days: int = Field(60, ge=20, le=252)
     timeframe: str = "1D"
     data_source: Literal["cash", "futures"] = "cash"
+    features: list[str] | None = None  # subset of sc.ALL_CLUSTER_FEATURES; None = use all
+
+
+@router.get("/clustering-features")
+def get_clustering_features():
+    return {"trend": sc.TREND_FEATURES, "value_quality": sc.FUNDAMENTAL_FEATURES}
 
 
 @router.post("/run-clustering")
@@ -1127,8 +1133,13 @@ def run_clustering(req: ClusteringRequest):
         except Exception:
             pass
 
-    fv = sc.build_stock_feature_vectors(feat_frames, req.lookback_days)
-    result = sc.run_clustering(fv, req.algo, k=req.k, eps=req.eps, min_samples=req.min_samples)
+    trend_fv = sc.build_stock_feature_vectors(feat_frames, req.lookback_days)
+    last_close = {sym: float(df["close"].iloc[-1]) for sym, df in raw.items()}
+    fundamental_fv = sc.build_fundamental_features(db, list(raw.keys()), last_close)
+    combined = pd.concat([trend_fv, fundamental_fv], axis=1)
+
+    feature_cols = req.features if req.features else sc.ALL_CLUSTER_FEATURES
+    result = sc.run_clustering(combined, feature_cols, req.algo, k=req.k, eps=req.eps, min_samples=req.min_samples)
     if result.error:
         raise HTTPException(400, result.error)
 
@@ -1138,4 +1149,5 @@ def run_clustering(req: ClusteringRequest):
         "feature_cols": result.feature_cols,
         "n_clusters": result.n_clusters,
         "noise_count": result.noise_count,
+        "cluster_summary": result.cluster_summary,
     }

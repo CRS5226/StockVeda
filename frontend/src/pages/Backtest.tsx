@@ -2378,22 +2378,65 @@ const CLUSTER_ALGOS = [
 function MlClusteringPanel() {
   const {
     pickedSymbols, clustering, clusteringResult, clusteringLoading, clusteringError,
-    setClustering, runClustering,
+    setClustering, runClustering, clusterFeatureGroups, loadClusterFeatures,
   } = useBacktestStore();
   const [hovered, setHovered] = useState<string | null>(null);
 
+  useEffect(() => { loadClusterFeatures(); }, [loadClusterFeatures]);
+
   const canRun = pickedSymbols.length >= 4 && !clusteringLoading;
+  const allFeatures = clusterFeatureGroups ? [...clusterFeatureGroups.trend, ...clusterFeatureGroups.value_quality] : [];
+  const selected = clustering.features ?? allFeatures;
+  const toggleFeature = (name: string) => {
+    const next = selected.includes(name) ? selected.filter((f) => f !== name) : [...selected, name];
+    if (next.length === 0) return;
+    setClustering({ features: next.length === allFeatures.length ? null : next });
+  };
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">3</div>
-        <span className="text-sm font-semibold text-slate-700">Clustering — group stocks by trend character</span>
+        <span className="text-sm font-semibold text-slate-700">Clustering — group stocks by trend + value/quality character</span>
       </div>
 
       {pickedSymbols.length < 4 && (
         <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Pick at least 4 stocks to cluster (currently {pickedSymbols.length}).
+        </div>
+      )}
+
+      {clusterFeatureGroups && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-slate-400 font-medium">
+              Features — {selected.length}/{allFeatures.length} selected
+            </div>
+            {clustering.features !== null && (
+              <button onClick={() => setClustering({ features: null })} className="text-xs text-blue-600 hover:underline">
+                Select all
+              </button>
+            )}
+          </div>
+          {([["Trend / momentum", clusterFeatureGroups.trend], ["Value / quality", clusterFeatureGroups.value_quality]] as const).map(
+            ([label, cols]) => (
+              <div key={label}>
+                <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">{label}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {cols.map((f) => {
+                    const on = selected.includes(f);
+                    return (
+                      <button key={f} onClick={() => toggleFeature(f)}
+                        className={`px-2 py-1 rounded-md border text-[11px] font-mono transition-colors ${
+                          on ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-400 hover:border-slate-400"}`}>
+                        {f}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )
+          )}
         </div>
       )}
 
@@ -2531,20 +2574,28 @@ function MlClusteringResults({ result, hovered, onHover }: {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {clusterIds.map((cid) => (
-          <div key={cid} className="border border-slate-100 rounded-lg p-2.5">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
-              <span className="text-xs font-semibold text-slate-600">{cid === -1 ? "Noise" : `Cluster ${cid}`}</span>
-              <span className="text-[10px] text-slate-400">({byCluster.get(cid)!.length})</span>
+        {clusterIds.map((cid) => {
+          const stats = result.cluster_summary?.[cid];
+          return (
+            <div key={cid} className="border border-slate-100 rounded-lg p-2.5">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
+                <span className="text-xs font-semibold text-slate-600">{cid === -1 ? "Noise" : `Cluster ${cid}`}</span>
+                <span className="text-[10px] text-slate-400">({byCluster.get(cid)!.length})</span>
+              </div>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {byCluster.get(cid)!.map((s) => (
+                  <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{s}</span>
+                ))}
+              </div>
+              {stats && (
+                <div className="text-[10px] text-slate-400 leading-relaxed">
+                  {Object.entries(stats).map(([f, v]) => `${f} ${v}`).join(" · ")}
+                </div>
+              )}
             </div>
-            <div className="flex flex-wrap gap-1">
-              {byCluster.get(cid)!.map((s) => (
-                <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{s}</span>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

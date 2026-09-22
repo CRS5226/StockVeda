@@ -139,6 +139,7 @@ export interface ClusteringConfig {
   min_samples: number;
   lookback_days: number;
   timeframe: string;
+  features: string[] | null;  // subset of trend + value_quality features; null = use all
 }
 
 // Recommended default lookback (days) per interval — a sensible starting point within
@@ -278,6 +279,7 @@ const DEFAULT_CLUSTERING: ClusteringConfig = {
   min_samples: 2,
   lookback_days: 60,
   timeframe: "1D",
+  features: null,
 };
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -417,6 +419,8 @@ interface BacktestState {
   clusteringError: string | null;
   setClustering: (p: Partial<ClusteringConfig>) => void;
   runClustering: () => Promise<void>;
+  clusterFeatureGroups: { trend: string[]; value_quality: string[] } | null;
+  loadClusterFeatures: () => Promise<void>;
 
   // Intraday data check/sync for the ML wizard (multi-symbol, unlike ORB's single-symbol flow)
   mlDataStatus: Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }> | null;
@@ -998,11 +1002,21 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         from_date: strategy.from_date, to_date: strategy.to_date,
         algo: clustering.algo, k: clustering.k, eps: clustering.eps, min_samples: clustering.min_samples,
         lookback_days: clustering.lookback_days, timeframe: clustering.timeframe, data_source: strategy.data_source,
+        features: clustering.features,
       });
       set({ clusteringResult: result, clusteringLoading: false });
     } catch (e) {
       set({ clusteringLoading: false, clusteringError: e instanceof Error ? e.message : String(e) });
     }
+  },
+
+  clusterFeatureGroups: null,
+  loadClusterFeatures: async () => {
+    if (get().clusterFeatureGroups) return;
+    try {
+      const groups = await api.getClusteringFeatures();
+      set({ clusterFeatureGroups: groups });
+    } catch {}
   },
 
   // ── Intraday data check/sync for the ML wizard (multi-symbol batch) ───────

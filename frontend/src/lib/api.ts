@@ -254,6 +254,7 @@ export interface ClusteringResult {
   feature_cols: string[];
   n_clusters: number | null;
   noise_count: number | null;
+  cluster_summary: Record<number, Record<string, number>> | null;  // cluster id -> {feature: mean}
 }
 
 export interface Strategy {
@@ -689,10 +690,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     }),
+  getClusteringFeatures: () => apiFetch<{ trend: string[]; value_quality: string[] }>("/backtest/clustering-features"),
   runClustering: (params: {
     symbols: string[]; from_date: string; to_date: string;
     algo: "kmeans" | "hierarchical" | "dbscan"; k: number; eps: number; min_samples: number;
-    lookback_days: number; timeframe: string; data_source: "cash" | "futures";
+    lookback_days: number; timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
   }) =>
     apiFetch<ClusteringResult>("/backtest/run-clustering", {
       method: "POST",
