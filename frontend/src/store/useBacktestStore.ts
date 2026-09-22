@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult, MlRegressionResult, MlEdaResult } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -117,7 +117,30 @@ export interface MlConfig {
   target_pct: number;
   sl_pct: number;
   max_bars: number;
+  timeframe: string;   // "1D" or an intraday interval (1m/5m/15m/30m/60m) — separate from
+                        // the shared `strategy.timeframe` used by other backtest modes.
 }
+
+export interface MlRegressionConfig {
+  entry_conditions: ConditionRow[];
+  sample_mode: "entry_signals" | "all_bars";
+  models: string[];
+  horizon_bars: number;
+  train_ratio: number;
+  timeframe: string;
+}
+
+// Recommended default lookback (days) per interval — a sensible starting point within
+// the real yfinance ceiling (backend/data_sync/sync_intraday.py's MAX_LOOKBACK_DAYS),
+// not a new limit. 1m is capped at 7 days total by yfinance itself (hard external limit).
+export const ML_TIMEFRAME_OPTIONS = [
+  { value: "1D",  label: "1 Day",  defaultDays: null as number | null, maxDays: null as number | null },
+  { value: "60m", label: "1 Hour", defaultDays: 60, maxDays: 730 },
+  { value: "30m", label: "30 Min", defaultDays: 60, maxDays: 60 },
+  { value: "15m", label: "15 Min", defaultDays: 15, maxDays: 60 },
+  { value: "5m",  label: "5 Min",  defaultDays: 15, maxDays: 60 },
+  { value: "1m",  label: "1 Min",  defaultDays: 7,  maxDays: 7 },
+];
 
 // 5 perceptually distinct colours — blue, orange, teal, violet, rose
 export const ALGO_COLORS = ["#3b82f6", "#f97316", "#14b8a6", "#8b5cf6", "#f43f5e"];
@@ -222,6 +245,16 @@ const DEFAULT_ML: MlConfig = {
   target_pct: 6,
   sl_pct: 4,
   max_bars: 25,
+  timeframe: "1D",
+};
+
+const DEFAULT_ML_REGRESSION: MlRegressionConfig = {
+  entry_conditions: [{ left: "rsi_14", operator: "above", right: "50" }],
+  sample_mode: "entry_signals",
+  models: ["rf_reg", "xgb_reg"],
+  horizon_bars: 10,
+  train_ratio: 0.7,
+  timeframe: "1D",
 };
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -318,7 +351,11 @@ interface BacktestState {
   loadGridSweepables: () => Promise<void>;
   runGridSearch: () => Promise<void>;
 
-  // ML Models mode
+  // ML section — shared algo-type tab (Regression/Classification/Clustering)
+  mlAlgoType: "regression" | "classification" | "clustering";
+  setMlAlgoType: (t: "regression" | "classification" | "clustering") => void;
+
+  // ML Models mode (Classification)
   ml: MlConfig;
   mlResults: MlResult | null;
   mlLoading: boolean;
@@ -328,6 +365,31 @@ interface BacktestState {
   setMl: (p: Partial<MlConfig>) => void;
   loadMlModels: () => Promise<void>;
   runMl: () => Promise<void>;
+
+  // ML Regression mode
+  mlReg: MlRegressionConfig;
+  mlRegResults: MlRegressionResult | null;
+  mlRegLoading: boolean;
+  mlRegError: string | null;
+  mlRegProgress: { phase: string; model?: string; done: number; total: number } | null;
+  mlRegressorList: MlModelInfo[];
+  setMlReg: (p: Partial<MlRegressionConfig>) => void;
+  loadMlRegressors: () => Promise<void>;
+  runMlRegression: () => Promise<void>;
+
+  // ML EDA (feature distributions + correlation) — shared by classification & regression
+  mlEdaResult: MlEdaResult | null;
+  mlEdaLoading: boolean;
+  mlEdaError: string | null;
+  runMlEda: () => Promise<void>;
+
+  // Intraday data check/sync for the ML wizard (multi-symbol, unlike ORB's single-symbol flow)
+  mlDataStatus: Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }> | null;
+  mlDataStatusLoading: boolean;
+  mlSyncJobId: string | null;
+  mlSyncProgress: { done: number; total: number; status: string; current?: string } | null;
+  loadMlDataStatus: () => Promise<void>;
+  startMlIntradaySync: (days: number) => Promise<void>;
 
   addSymbol: (sym: string) => void;
   removeSymbol: (sym: string) => void;
@@ -717,7 +779,11 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     }
   },
 
-  // ── ML Models mode ────────────────────────────────────────────────────────
+  // ── ML section — shared algo-type tab ─────────────────────────────────────
+  mlAlgoType: "classification",
+  setMlAlgoType: (t) => set({ mlAlgoType: t }),
+
+  // ── ML Models mode (Classification) ───────────────────────────────────────
   ml: DEFAULT_ML,
   mlResults: null,
   mlLoading: false,
@@ -749,7 +815,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           entry_conditions: ml.entry_conditions, sample_mode: ml.sample_mode,
           models: ml.models, prob_threshold: ml.prob_threshold, train_ratio: ml.train_ratio,
           target_pct: ml.target_pct, sl_pct: ml.sl_pct, max_bars: ml.max_bars,
-          capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
+          capital_per_trade: strategy.capital_per_trade, timeframe: ml.timeframe,
           data_source: strategy.data_source,
         }),
       });
@@ -781,6 +847,136 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       }
     } catch (e) {
       set({ mlLoading: false, mlError: String(e), mlProgress: null });
+    }
+  },
+
+  // ── ML Regression mode ─────────────────────────────────────────────────────
+  mlReg: DEFAULT_ML_REGRESSION,
+  mlRegResults: null,
+  mlRegLoading: false,
+  mlRegError: null,
+  mlRegProgress: null,
+  mlRegressorList: [],
+
+  setMlReg: (p) => set((s) => ({ mlReg: { ...s.mlReg, ...p } })),
+
+  loadMlRegressors: async () => {
+    try {
+      const list = await api.getMlRegressors();
+      set({ mlRegressorList: list });
+    } catch {}
+  },
+
+  runMlRegression: async () => {
+    const { pickedSymbols, mlReg, strategy } = get();
+    if (!pickedSymbols.length || !mlReg.models.length) return;
+    set({ mlRegLoading: true, mlRegError: null, mlRegResults: null, mlRegProgress: null });
+    try {
+      const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
+      const res = await fetch(`${BASE}/backtest/run-ml-regression-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: pickedSymbols,
+          from_date: strategy.from_date, to_date: strategy.to_date,
+          entry_conditions: mlReg.entry_conditions, sample_mode: mlReg.sample_mode,
+          models: mlReg.models, horizon_bars: mlReg.horizon_bars, train_ratio: mlReg.train_ratio,
+          timeframe: mlReg.timeframe, data_source: strategy.data_source,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        const msg = Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail ?? res.statusText);
+        throw new Error(String(msg));
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.result) {
+            set({ mlRegResults: data.result, mlRegLoading: false, mlRegProgress: null });
+          } else if (data.phase === "error") {
+            set({ mlRegLoading: false, mlRegError: data.error, mlRegProgress: null });
+          } else {
+            set({ mlRegProgress: { phase: data.phase, model: data.model, done: data.done, total: data.total } });
+          }
+        }
+      }
+    } catch (e) {
+      set({ mlRegLoading: false, mlRegError: String(e), mlRegProgress: null });
+    }
+  },
+
+  mlEdaResult: null,
+  mlEdaLoading: false,
+  mlEdaError: null,
+
+  runMlEda: async () => {
+    const { pickedSymbols, mlAlgoType, ml, mlReg, strategy } = get();
+    if (!pickedSymbols.length) return;
+    const cfg = mlAlgoType === "regression" ? mlReg : ml;
+    set({ mlEdaLoading: true, mlEdaError: null, mlEdaResult: null });
+    try {
+      const result = await api.runMlEda({
+        symbols: pickedSymbols,
+        from_date: strategy.from_date, to_date: strategy.to_date,
+        entry_conditions: cfg.entry_conditions, sample_mode: cfg.sample_mode,
+        timeframe: cfg.timeframe, data_source: strategy.data_source,
+      });
+      if (result.error) set({ mlEdaError: result.error, mlEdaLoading: false });
+      else set({ mlEdaResult: result, mlEdaLoading: false });
+    } catch (e) {
+      set({ mlEdaLoading: false, mlEdaError: String(e) });
+    }
+  },
+
+  // ── Intraday data check/sync for the ML wizard (multi-symbol batch) ───────
+  mlDataStatus: null,
+  mlDataStatusLoading: false,
+  mlSyncJobId: null,
+  mlSyncProgress: null,
+
+  loadMlDataStatus: async () => {
+    const { pickedSymbols, ml, mlAlgoType, mlReg } = get();
+    const timeframe = mlAlgoType === "regression" ? mlReg.timeframe : ml.timeframe;
+    if (!pickedSymbols.length || timeframe === "1D") { set({ mlDataStatus: null }); return; }
+    set({ mlDataStatusLoading: true });
+    try {
+      const status = await api.intradayDataStatusBatch(pickedSymbols, timeframe);
+      set({ mlDataStatus: status, mlDataStatusLoading: false });
+    } catch {
+      set({ mlDataStatus: null, mlDataStatusLoading: false });
+    }
+  },
+
+  startMlIntradaySync: async (days) => {
+    const { pickedSymbols, ml, mlAlgoType, mlReg } = get();
+    const timeframe = mlAlgoType === "regression" ? mlReg.timeframe : ml.timeframe;
+    if (!pickedSymbols.length || timeframe === "1D") return;
+    try {
+      const res = await api.fetchIntradayBatch(pickedSymbols, timeframe, days);
+      set({ mlSyncJobId: res.job_id, mlSyncProgress: { done: 0, total: pickedSymbols.length, status: "queued" } });
+      const poll = setInterval(async () => {
+        try {
+          const job = await api.intradayFetchJob(res.job_id);
+          set({ mlSyncProgress: { done: job.done, total: job.total, status: job.status, current: (job as { current?: string }).current } });
+          if (job.status === "done" || job.status === "error") {
+            clearInterval(poll);
+            set({ mlSyncJobId: null });
+            get().loadMlDataStatus();
+          }
+        } catch { clearInterval(poll); set({ mlSyncJobId: null }); }
+      }, 1500);
+    } catch {
+      set({ mlSyncJobId: null });
     }
   },
 

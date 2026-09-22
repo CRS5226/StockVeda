@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
          Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch } from "lucide-react";
 import Analysis from "./Analysis";
-import { api, ConditionRow, SweepDim } from "../lib/api";
-import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult } from "../store/useBacktestStore";
+import { api, ConditionRow, SweepDim, MlFeatureDistribution } from "../lib/api";
+import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
 import FnoFetchPanel, { INDEX_SYMBOLS } from "../components/FnoFetchPanel";
@@ -2260,6 +2260,220 @@ function GridSearchPanel() {
 
 type SweepDimLocal = SweepDim;
 
+// ── ML section wizard: Algo Type → Timeframe/Data Check → the selected panel ──
+
+const ML_ALGO_TYPES = [
+  { key: "regression" as const, label: "Regression", desc: "predict forward return magnitude" },
+  { key: "classification" as const, label: "Classification", desc: "predict win/loss (triple-barrier)" },
+  { key: "clustering" as const, label: "Clustering", desc: "group stocks by trend character" },
+];
+
+function MlAlgoTypeStep() {
+  const { mlAlgoType, setMlAlgoType } = useBacktestStore();
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
+        <span className="text-sm font-semibold text-slate-700">Algorithm Type</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {ML_ALGO_TYPES.map((t) => (
+          <button key={t.key} onClick={() => setMlAlgoType(t.key)} title={t.desc}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              mlAlgoType === t.key ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Timeframe picker + (for intraday) a data-availability check and sync-if-needed
+ * flow — batch version of ORB's IntradayFetchPanel, since ML picks multiple stocks. */
+/** Timeframe picker, nested inside the "Pick Stocks" step (only shown once at
+ * least one stock is picked and we're in ML mode) rather than a separate step. */
+function MlTimeframeInline() {
+  const {
+    pickedSymbols, mlAlgoType, ml, mlReg, setMl, setMlReg,
+    mlDataStatus, mlDataStatusLoading, mlSyncJobId, mlSyncProgress,
+    loadMlDataStatus, startMlIntradaySync,
+  } = useBacktestStore();
+
+  const timeframe = mlAlgoType === "regression" ? mlReg.timeframe : ml.timeframe;
+  const setTimeframe = (tf: string) => (mlAlgoType === "regression" ? setMlReg({ timeframe: tf }) : setMl({ timeframe: tf }));
+  const opt = ML_TIMEFRAME_OPTIONS.find((o) => o.value === timeframe) ?? ML_TIMEFRAME_OPTIONS[0];
+  const [days, setDays] = useState(opt.defaultDays ?? 60);
+
+  useEffect(() => { setDays(opt.defaultDays ?? 60); }, [timeframe]); // eslint-disable-line react-hooks/exhaustive-deps
+  const symbolsKey = pickedSymbols.join(",");
+  useEffect(() => { loadMlDataStatus(); }, [timeframe, symbolsKey, loadMlDataStatus]);
+
+  const statuses = mlDataStatus ? Object.entries(mlDataStatus) : [];
+  const covered = statuses.filter(([, s]) => s.total_bars > 0).length;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100 w-full">
+      <div className="text-xs text-slate-400 font-medium mb-2">Timeframe</div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {ML_TIMEFRAME_OPTIONS.map((o) => (
+          <button key={o.value} onClick={() => setTimeframe(o.value)}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+              timeframe === o.value ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {timeframe !== "1D" && pickedSymbols.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+          <div className="text-xs text-blue-700">
+            {mlDataStatusLoading ? "Checking data coverage…" :
+              `${covered}/${pickedSymbols.length} stocks have ${timeframe} candles synced` +
+              (opt.maxDays ? ` (max lookback ${opt.maxDays} days for this interval)` : "")}
+          </div>
+          {statuses.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {statuses.map(([sym, s]) => (
+                <span key={sym}
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${s.total_bars > 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
+                  title={s.total_bars > 0 ? `${s.earliest_datetime} → ${s.latest_datetime} (${s.total_bars} bars)` : "no data synced yet"}>
+                  {sym}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">Days (max {opt.maxDays})</label>
+              <input type="number" value={days} min={1} max={opt.maxDays ?? 730}
+                onChange={(e) => setDays(Math.min(opt.maxDays ?? 730, Math.max(1, parseInt(e.target.value) || 1)))}
+                disabled={!!mlSyncJobId}
+                className="border border-blue-200 bg-white rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50" />
+            </div>
+            <button onClick={() => startMlIntradaySync(days)} disabled={!!mlSyncJobId}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {mlSyncJobId ? "Syncing…" : "Sync intraday data"}
+            </button>
+          </div>
+          {mlSyncProgress && (
+            <div className="text-[11px] text-blue-700">
+              {mlSyncProgress.status} · {mlSyncProgress.done}/{mlSyncProgress.total} symbols
+              {mlSyncProgress.current ? ` (${mlSyncProgress.current})` : ""}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MlClusteringPlaceholder() {
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">3</div>
+        <span className="text-sm font-semibold text-slate-700">Clustering</span>
+      </div>
+      <div className="text-center py-10 border border-dashed border-slate-200 rounded-xl">
+        <div className="text-sm font-medium text-slate-500">Coming soon</div>
+        <div className="text-xs text-slate-400 mt-1">Group picked stocks by trend character (K-Means / Hierarchical / DBSCAN).</div>
+      </div>
+    </section>
+  );
+}
+
+// ── ML EDA panel (feature distributions + correlation, shared by classification/regression) ──
+
+function MlEdaPanel() {
+  const { pickedSymbols, mlEdaResult, mlEdaLoading, mlEdaError, runMlEda } = useBacktestStore();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-700">Explore Features (EDA)</span>
+          <span className="text-xs text-slate-400">distributions + correlation, before training</span>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <button onClick={runMlEda} disabled={!pickedSymbols.length || mlEdaLoading}
+            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            {mlEdaLoading ? "Analyzing…" : "Run EDA"}
+          </button>
+          {mlEdaError && <div className="mt-2 text-xs text-red-600">{mlEdaError}</div>}
+          {mlEdaResult && (
+            <div className="mt-4 space-y-5">
+              <div className="text-xs text-slate-400">{mlEdaResult.n_samples} samples</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {Object.entries(mlEdaResult.distributions).map(([feat, d]) => (
+                  <MlFeatureHistogram key={feat} name={feat} dist={d} />
+                ))}
+              </div>
+              <MlCorrelationHeatmap correlation={mlEdaResult.correlation} />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MlFeatureHistogram({ name, dist }: { name: string; dist: MlFeatureDistribution }) {
+  const max = Math.max(1, ...dist.counts);
+  return (
+    <div className="border border-slate-100 rounded-lg p-2">
+      <div className="text-[11px] font-semibold text-slate-600 mb-1 truncate" title={name}>{name}</div>
+      <div className="flex items-end gap-[2px] h-12">
+        {dist.counts.map((c, i) => (
+          <div key={i} className="flex-1 bg-blue-400 rounded-sm min-h-[1px]" style={{ height: `${(c / max) * 100}%` }} title={`${c}`} />
+        ))}
+      </div>
+      <div className="mt-1 text-[10px] text-slate-400 flex justify-between">
+        <span>{dist.min.toFixed(2)}</span>
+        <span>{dist.max.toFixed(2)}</span>
+      </div>
+      <div className="text-[10px] text-slate-400">μ {dist.mean.toFixed(2)} · σ {dist.std.toFixed(2)} · med {dist.median.toFixed(2)}</div>
+    </div>
+  );
+}
+
+function MlCorrelationHeatmap({ correlation }: { correlation: { features: string[]; matrix: number[][] } }) {
+  const { features, matrix } = correlation;
+  const cellColor = (v: number) =>
+    v >= 0 ? `rgba(16,185,129,${0.08 + 0.55 * Math.abs(v)})` : `rgba(239,68,68,${0.08 + 0.55 * Math.abs(v)})`;
+  return (
+    <div className="overflow-x-auto">
+      <div className="text-xs text-slate-500 mb-2">Feature correlation</div>
+      <table className="text-[10px] border-separate" style={{ borderSpacing: "2px" }}>
+        <thead>
+          <tr>
+            <th></th>
+            {features.map((f) => (
+              <th key={f} className="font-mono text-slate-400 px-1 font-normal" title={f}>{f.slice(0, 4)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {features.map((rf, i) => (
+            <tr key={rf}>
+              <th className="text-right pr-1.5 font-mono text-slate-400 font-normal whitespace-nowrap" title={rf}>{rf}</th>
+              {features.map((cf, j) => (
+                <td key={cf} style={{ backgroundColor: cellColor(matrix[i][j]) }}
+                  title={`${rf} × ${cf} = ${matrix[i][j].toFixed(2)}`}
+                  className="w-6 h-6 text-center align-middle rounded" />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── ML Models panel ──────────────────────────────────────────────────────────
 
 function MlPanel() {
@@ -2303,8 +2517,8 @@ function MlPanel() {
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
-        <span className="text-sm font-semibold text-slate-700">ML Models — learned entry filter</span>
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">3</div>
+        <span className="text-sm font-semibold text-slate-700">Classification — learned entry filter</span>
         <span className="text-xs text-slate-400 ml-1">classify each setup: does it hit target before stop? (triple-barrier)</span>
       </div>
 
@@ -2584,6 +2798,224 @@ function MlPanel() {
   );
 }
 
+// ── ML Regression panel ───────────────────────────────────────────────────────
+
+function MlRegressionPanel() {
+  const { pickedSymbols, mlReg, mlRegResults, mlRegLoading, mlRegError, mlRegProgress, mlRegressorList,
+          setMlReg, loadMlRegressors, runMlRegression } = useBacktestStore();
+  const [activePreset, setActivePreset] = useState<string | null>("RSI Midline Surge");
+  const [activeModel, setActiveModel] = useState<string | null>(null);
+
+  useEffect(() => { loadMlRegressors(); }, [loadMlRegressors]);
+  useEffect(() => {
+    if (mlRegResults) {
+      const ids = Object.keys(mlRegResults.models);
+      setActiveModel((m) => m && ids.includes(m) ? m : ids[0] ?? null);
+    }
+  }, [mlRegResults]);
+
+  const toggleModel = (id: string) => {
+    setMlReg({ models: mlReg.models.includes(id) ? mlReg.models.filter((m) => m !== id) : [...mlReg.models, id] });
+  };
+  const applyPreset = (label: string, conditions: ConditionRow[]) => {
+    setActivePreset(label);
+    setMlReg({ entry_conditions: conditions });
+  };
+
+  const canRun = pickedSymbols.length > 0 && mlReg.models.length > 0 && !mlRegLoading &&
+    (mlReg.sample_mode === "all_bars" || mlReg.entry_conditions.length > 0);
+
+  const selModel = mlRegResults && activeModel ? mlRegResults.models[activeModel] : null;
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">3</div>
+        <span className="text-sm font-semibold text-slate-700">Regression — predict forward return</span>
+        <span className="text-xs text-slate-400 ml-1">predicts the % return N bars ahead, not just win/loss</span>
+      </div>
+
+      {/* Sample mode + base setup */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-slate-400 font-medium">Sample bars from:</span>
+          {(["entry_signals", "all_bars"] as const).map((sm) => (
+            <button key={sm} onClick={() => setMlReg({ sample_mode: sm })}
+              className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                mlReg.sample_mode === sm ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+              {sm === "entry_signals" ? "Base setup signals (meta-labeling)" : "Every bar"}
+            </button>
+          ))}
+        </div>
+        {mlReg.sample_mode === "entry_signals" && (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => (
+                <button key={p.label} onClick={() => applyPreset(p.label, p.conditions)}
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                    activePreset === p.label ? "bg-blue-500 text-white border-blue-500" : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {mlReg.entry_conditions.map((c, i) => (
+                <span key={i} className="text-[11px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.left} {c.operator} {c.right}</span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Models */}
+      <div>
+        <div className="text-xs text-slate-400 mb-2 font-medium">Models</div>
+        <div className="flex flex-wrap gap-2">
+          {mlRegressorList.map((m) => (
+            <label key={m.id}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
+                !m.available ? "opacity-40 cursor-not-allowed border-slate-200" :
+                mlReg.models.includes(m.id) ? "bg-blue-50 border-blue-300 text-blue-700" : "border-slate-200 text-slate-600 hover:border-blue-300"}`}>
+              <input type="checkbox" disabled={!m.available} checked={mlReg.models.includes(m.id)}
+                onChange={() => toggleModel(m.id)} className="accent-blue-500" />
+              {m.label}{!m.available && <span className="text-[10px] text-slate-400">(not installed)</span>}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-wrap gap-4 items-end">
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Horizon (bars forward)</div>
+          <input type="number" min={1} max={252} value={mlReg.horizon_bars}
+            onChange={(e) => setMlReg({ horizon_bars: parseInt(e.target.value) || 10 })}
+            className="w-20 text-xs border border-slate-200 rounded px-2 py-1" />
+        </label>
+        <label className="text-xs text-slate-500">
+          <div className="mb-1">Train split: <span className="font-semibold text-slate-700">{Math.round(mlReg.train_ratio * 100)}%</span></div>
+          <input type="range" min={0.5} max={0.9} step={0.05} value={mlReg.train_ratio}
+            onChange={(e) => setMlReg({ train_ratio: parseFloat(e.target.value) })} className="w-36" />
+        </label>
+        <button onClick={runMlRegression} disabled={!canRun}
+          className="ml-auto px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors">
+          {mlRegLoading ? "Training…" : "Train & evaluate"}
+        </button>
+      </div>
+
+      {mlRegError && <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{mlRegError}</div>}
+      {mlRegProgress && (
+        <div className="text-[11px] text-slate-500">
+          {mlRegProgress.phase === "dataset" ? `Building dataset… ${mlRegProgress.done}/${mlRegProgress.total}` :
+           `Training ${mlRegResults?.models?.[mlRegProgress.model ?? ""]?.label ?? mlRegProgress.model ?? "model"}… ${mlRegProgress.done}/${mlRegProgress.total}`}
+        </div>
+      )}
+
+      {/* Results */}
+      {mlRegResults && (
+        <>
+          <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1 bg-slate-50 rounded-lg p-2">
+            <span>Train samples: <b className="text-slate-700">{mlRegResults.dataset.n_train}</b></span>
+            <span>Test samples: <b className="text-slate-700">{mlRegResults.dataset.n_test}</b></span>
+            <span>Features: <b className="text-slate-700">{mlRegResults.dataset.n_features}</b></span>
+          </div>
+          {(mlRegResults.dataset.train_period || mlRegResults.dataset.test_period) && (
+            <div className="text-[11px] flex flex-wrap gap-x-4 gap-y-1 -mt-2">
+              {mlRegResults.dataset.train_period && (
+                <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 rounded-md px-2 py-1">
+                  <span className="font-semibold">Train window</span>
+                  <span className="font-mono">{mlRegResults.dataset.train_period.start} → {mlRegResults.dataset.train_period.end}</span>
+                </span>
+              )}
+              {mlRegResults.dataset.test_period && (
+                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 rounded-md px-2 py-1">
+                  <span className="font-semibold">Test window</span>
+                  <span className="font-mono">{mlRegResults.dataset.test_period.start} → {mlRegResults.dataset.test_period.end}</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Comparison table */}
+          <div className="overflow-x-auto">
+            <div className="text-[11px] text-slate-400 mb-1">RMSE/MAE/R² below compare <b className="text-slate-500">train vs. held-out test</b> — a large gap means the model overfit.</div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-200">
+                  <th className="text-left py-1.5 pr-3">Model</th>
+                  <th className="text-right py-1.5 pr-3">RMSE (train)</th>
+                  <th className="text-right py-1.5 pr-3">RMSE (test)</th>
+                  <th className="text-right py-1.5 pr-3">MAE (test)</th>
+                  <th className="text-right py-1.5 pr-3">R² (train)</th>
+                  <th className="text-right py-1.5 pr-3">R² (test)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(mlRegResults.models).map(([id, m]) => (
+                  <tr key={id} className="border-b border-slate-50">
+                    <td className="py-1.5 pr-3 text-slate-700">{m.label}{m.error && <span className="text-[10px] text-red-500 ml-1">{m.error}</span>}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{m.train_metrics ? m.train_metrics.rmse.toFixed(3) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right font-medium text-slate-700">{m.test_metrics ? m.test_metrics.rmse.toFixed(3) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{m.test_metrics ? m.test_metrics.mae.toFixed(3) : "—"}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{m.train_metrics?.r2 == null ? "—" : m.train_metrics.r2.toFixed(3)}</td>
+                    <td className="py-1.5 pr-3 text-right text-slate-500">{m.test_metrics?.r2 == null ? "—" : m.test_metrics.r2.toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Feature importance for the selected model */}
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(mlRegResults.models).map(([id, m]) => (
+              <button key={id} onClick={() => setActiveModel(id)}
+                className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                  activeModel === id ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-600 hover:border-slate-400"}`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          {selModel && (
+            <div>
+              <div className="text-xs text-slate-400 mb-2 font-medium">Feature importance — {selModel.label}</div>
+              {selModel.feature_importance ? (
+                <div className="flex flex-col gap-1">
+                  {selModel.feature_importance.slice(0, 10).map((f) => (
+                    <div key={f.feature} className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-slate-500 w-28 shrink-0 text-right">{f.feature}</span>
+                      <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
+                        <div className="h-full bg-blue-400" style={{ width: `${Math.min(100, f.importance * 100 / (selModel.feature_importance![0]?.importance || 1))}%` }} />
+                      </div>
+                      <span className="text-[10px] text-slate-400 w-10">{(f.importance * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-400 italic">Not available for this model.</div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ── ML wizard shell: Algo Type → Timeframe/Data Check → the selected panel ────
+
+function MlWizard() {
+  const { mlAlgoType } = useBacktestStore();
+  return (
+    <>
+      <MlAlgoTypeStep />
+      {mlAlgoType !== "clustering" && <MlEdaPanel />}
+      {mlAlgoType === "regression" && <MlRegressionPanel />}
+      {mlAlgoType === "classification" && <MlPanel />}
+      {mlAlgoType === "clustering" && <MlClusteringPlaceholder />}
+    </>
+  );
+}
+
 export default function Backtest() {
   const store = useBacktestStore();
   const {
@@ -2735,6 +3167,10 @@ export default function Backtest() {
   const activeOutlookLoading = outlookLoading[_activePatternSym] ?? false;
 
   return (
+    // Breaks out of App.tsx's shared max-w-[1400px] centered container so this page
+    // alone uses the full browser width — scoped here, not global, so every other
+    // page keeps the standard centered layout.
+    <div className="w-screen relative left-1/2 -translate-x-1/2 px-4 sm:px-6 lg:px-8">
     <div className="flex flex-col gap-4">
 
       {/* ── Mode Toggle ── */}
@@ -2803,6 +3239,8 @@ export default function Backtest() {
             No stocks selected — search above or load a watchlist
           </div>
         )}
+
+        {mode === "ml" && pickedSymbols.length > 0 && <MlTimeframeInline />}
       </section>}
 
       {/* ── Multi-Algo mode: stock picker + algo stack ── */}
@@ -2883,7 +3321,7 @@ export default function Backtest() {
       {mode === "grid" && <GridSearchPanel />}
 
       {/* ── ML Models mode ── */}
-      {mode === "ml" && <MlPanel />}
+      {mode === "ml" && <MlWizard />}
 
       {/* ── Section 2: Strategy (Multi-Stock mode only) ── */}
       {mode === "multi_stock" && <section className={`bg-white border border-slate-200 rounded-xl shadow-sm p-4 transition-opacity ${pickedSymbols.length === 0 ? "opacity-40 pointer-events-none" : ""}`}>
@@ -3913,6 +4351,7 @@ export default function Backtest() {
         </section>
       )}
 
+    </div>
     </div>
   );
 }
