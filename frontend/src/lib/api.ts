@@ -220,6 +220,34 @@ export interface MlResult {
   models: Record<string, MlModelResult>;
 }
 
+export interface MlRegressionMetrics { rmse: number; mae: number; r2: number | null }
+export interface MlRegressorModelResult {
+  label: string;
+  error: string | null;
+  train_metrics: MlRegressionMetrics | null;
+  test_metrics: MlRegressionMetrics | null;
+  feature_importance: { feature: string; importance: number }[] | null;
+}
+export interface MlRegressionResult {
+  dataset: {
+    n_train: number; n_test: number; n_features: number; features: string[];
+    train_period: { start: string; end: string } | null;
+    test_period: { start: string; end: string } | null;
+  };
+  models: Record<string, MlRegressorModelResult>;
+}
+
+export interface MlFeatureDistribution {
+  counts: number[]; bin_edges: number[];
+  mean: number; std: number; min: number; max: number; median: number;
+}
+export interface MlEdaResult {
+  error: string | null;
+  n_samples: number;
+  distributions: Record<string, MlFeatureDistribution>;
+  correlation: { features: string[]; matrix: number[][] };
+}
+
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -606,6 +634,15 @@ export const api = {
     apiFetch<{ earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }>(
       `/intraday/data-status/${symbol}?interval=${interval}`
     ),
+  fetchIntradayBatch: (symbols: string[], interval: string, days: number) =>
+    apiFetch<{ job_id: string; symbols: string[]; interval: string; days: number; max_lookback_days: number }>(
+      `/intraday/fetch-batch?symbols=${symbols.map(encodeURIComponent).join(",")}&interval=${interval}&days=${days}`,
+      { method: "POST" }
+    ),
+  intradayDataStatusBatch: (symbols: string[], interval: string) =>
+    apiFetch<Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }>>(
+      `/intraday/data-status-batch?symbols=${symbols.map(encodeURIComponent).join(",")}&interval=${interval}`
+    ),
 
   runOrbBacktest: (params: {
     symbol: string; from_date: string; to_date: string; or_minutes?: number;
@@ -632,6 +669,18 @@ export const api = {
       "/backtest/grid-sweepables"
     ),
   getMlModels: () => apiFetch<MlModelInfo[]>("/backtest/ml-models"),
+  getMlRegressors: () => apiFetch<MlModelInfo[]>("/backtest/ml-regressors"),
+  getMlFeatures: () => apiFetch<{ features: string[] }>("/backtest/ml-features"),
+  runMlEda: (params: {
+    symbols: string[]; from_date: string; to_date: string;
+    entry_conditions: ConditionRow[]; sample_mode: "entry_signals" | "all_bars";
+    timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
+  }) =>
+    apiFetch<MlEdaResult>("/backtest/ml-eda", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
 
   getIndices: (indexName?: string, fromDate?: string) => {
     const p = new URLSearchParams({ limit: "1000" });
