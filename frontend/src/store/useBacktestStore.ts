@@ -236,16 +236,17 @@ const DEFAULT_GRID: GridConfig = {
   max_bars: 30,
 };
 
-// Balanced barriers (6%/4%/25) keep the triple-barrier labels from collapsing to
-// all-loss the way 15%/7%/30 does — a more useful default for the ML demo.
+// Tight barriers (2%/1%/25) keep the triple-barrier labels from collapsing to
+// all-loss the way wider targets do on a single trending symbol — a more useful
+// default for the ML demo.
 const DEFAULT_ML: MlConfig = {
   entry_conditions: [{ left: "rsi_14", operator: "above", right: "50" }],
   sample_mode: "entry_signals",
   models: ["rf", "xgb"],
   prob_threshold: 0.6,
   train_ratio: 0.7,
-  target_pct: 6,
-  sl_pct: 4,
+  target_pct: 2,
+  sl_pct: 1,
   max_bars: 25,
   timeframe: "1D",
   features: null,
