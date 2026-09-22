@@ -241,7 +241,7 @@ const DEFAULT_GRID: GridConfig = {
 const DEFAULT_ML: MlConfig = {
   entry_conditions: [{ left: "rsi_14", operator: "above", right: "50" }],
   sample_mode: "entry_signals",
-  models: ["logreg", "rf", "xgb"],
+  models: ["rf", "xgb"],
   prob_threshold: 0.6,
   train_ratio: 0.7,
   target_pct: 6,

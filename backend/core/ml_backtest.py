@@ -30,11 +30,8 @@ from backend.core.backtest_engine import (
 from backend.core.indicators import add_indicators
 
 ML_MODELS = [
-    {"id": "logreg", "label": "Logistic Regression"},
-    {"id": "dtree",  "label": "Decision Tree"},
-    {"id": "rf",     "label": "Random Forest"},
-    {"id": "svm",    "label": "SVM (RBF)"},
-    {"id": "xgb",    "label": "XGBoost"},
+    {"id": "rf",  "label": "Random Forest"},
+    {"id": "xgb", "label": "XGBoost"},
 ]
 ML_MODEL_IDS = {m["id"] for m in ML_MODELS}
 _ML_LABELS = {m["id"]: m["label"] for m in ML_MODELS}
@@ -401,23 +398,11 @@ def train_and_evaluate_regression(model_id: str, ds: MlRegressionDataset) -> dic
 
 def make_model(model_id: str, scale_pos_weight: float = 1.0):
     """Estimator factory. xgboost is imported lazily so the app boots without it."""
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.tree import DecisionTreeClassifier
     from sklearn.ensemble import RandomForestClassifier
-    from sklearn.svm import SVC
 
-    if model_id == "logreg":
-        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000, class_weight="balanced"))
-    if model_id == "dtree":
-        return DecisionTreeClassifier(max_depth=5, class_weight="balanced", random_state=42)
     if model_id == "rf":
         return RandomForestClassifier(n_estimators=300, max_depth=6, class_weight="balanced",
                                       n_jobs=-1, random_state=42)
-    if model_id == "svm":
-        return make_pipeline(StandardScaler(), SVC(kernel="rbf", probability=True,
-                                                   class_weight="balanced", random_state=42))
     if model_id == "xgb":
         from xgboost import XGBClassifier
         return XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.05,
