@@ -248,6 +248,24 @@ export interface MlEdaResult {
   correlation: { features: string[]; matrix: number[][] };
 }
 
+export interface StockScore {
+  momentum: number | null;   // 0–100, rank within the picked basket (higher = stronger uptrend)
+  quality: number | null;    // 0–100, null when no fundamentals synced
+  quality_n: number;         // how many of the 4 fundamentals the quality score is based on
+}
+
+export interface ClusteringResult {
+  clustering_error: string | null;    // clustering failed but scores are still returned
+  scores: Record<string, StockScore>;
+  missing_features: Record<string, string[]>;  // symbol -> features with no data (all features, not just selected)
+  clusters: Record<string, number>;   // symbol -> cluster id (-1 = DBSCAN noise)
+  pca: Record<string, [number, number]>;
+  feature_cols: string[];
+  n_clusters: number | null;
+  noise_count: number | null;
+  cluster_summary: Record<number, Record<string, number>> | null;  // cluster id -> {feature: mean}
+}
+
 export interface Strategy {
   name: string; description: string;
   params: {
@@ -677,6 +695,17 @@ export const api = {
     timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
   }) =>
     apiFetch<MlEdaResult>("/backtest/ml-eda", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+  getClusteringFeatures: () => apiFetch<{ trend: string[]; value_quality: string[] }>("/backtest/clustering-features"),
+  runClustering: (params: {
+    symbols: string[]; from_date: string; to_date: string;
+    algo: "kmeans" | "hierarchical" | "dbscan"; k: number; eps: number; min_samples: number;
+    lookback_days: number; timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
+  }) =>
+    apiFetch<ClusteringResult>("/backtest/run-clustering", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),

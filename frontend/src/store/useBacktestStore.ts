@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult, MlRegressionResult, MlEdaResult } from "../lib/api";
+import { api, BacktestResult, Strategy, BacktestV2Response, BacktestSymbolResult, EntryCondition, Watchlist, ConditionRow, CandleStat, SyncJob, MatrixResponse, SweepDim, GridSearchResult, MlModelInfo, MlResult, MlRegressionResult, MlEdaResult, ClusteringResult } from "../lib/api";
 
 // ── V1 (kept intact) ───────────────────────────────────────────────────────
 
@@ -132,6 +132,16 @@ export interface MlRegressionConfig {
   features: string[] | null;
 }
 
+export interface ClusteringConfig {
+  algo: "kmeans" | "hierarchical" | "dbscan";
+  k: number;
+  eps: number;
+  min_samples: number;
+  lookback_days: number;
+  timeframe: string;
+  features: string[] | null;  // subset of trend + value_quality features; null = use all
+}
+
 // Recommended default lookback (days) per interval — a sensible starting point within
 // the real yfinance ceiling (backend/data_sync/sync_intraday.py's MAX_LOOKBACK_DAYS),
 // not a new limit. 1m is capped at 7 days total by yfinance itself (hard external limit).
@@ -258,6 +268,16 @@ const DEFAULT_ML_REGRESSION: MlRegressionConfig = {
   models: ["rf_reg", "xgb_reg"],
   horizon_bars: 10,
   train_ratio: 0.7,
+  timeframe: "1D",
+  features: null,
+};
+
+const DEFAULT_CLUSTERING: ClusteringConfig = {
+  algo: "kmeans",
+  k: 3,
+  eps: 1.5,
+  min_samples: 2,
+  lookback_days: 60,
   timeframe: "1D",
   features: null,
 };
@@ -391,6 +411,16 @@ interface BacktestState {
   // Feature picker — shared list of trainable columns, selection lives on ml.features / mlReg.features
   mlFeatureList: string[];
   loadMlFeatures: () => Promise<void>;
+
+  // Stock Clustering (unsupervised — nested in the ML wizard alongside Regression/Classification)
+  clustering: ClusteringConfig;
+  clusteringResult: ClusteringResult | null;
+  clusteringLoading: boolean;
+  clusteringError: string | null;
+  setClustering: (p: Partial<ClusteringConfig>) => void;
+  runClustering: () => Promise<void>;
+  clusterFeatureGroups: { trend: string[]; value_quality: string[] } | null;
+  loadClusterFeatures: () => Promise<void>;
 
   // Intraday data check/sync for the ML wizard (multi-symbol, unlike ORB's single-symbol flow)
   mlDataStatus: Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }> | null;
@@ -953,6 +983,39 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     try {
       const { features } = await api.getMlFeatures();
       set({ mlFeatureList: features });
+    } catch {}
+  },
+
+  clustering: DEFAULT_CLUSTERING,
+  clusteringResult: null,
+  clusteringLoading: false,
+  clusteringError: null,
+  setClustering: (p) => set((s) => ({ clustering: { ...s.clustering, ...p } })),
+
+  runClustering: async () => {
+    const { pickedSymbols, clustering, strategy } = get();
+    if (pickedSymbols.length < 4) return;
+    set({ clusteringLoading: true, clusteringError: null, clusteringResult: null });
+    try {
+      const result = await api.runClustering({
+        symbols: pickedSymbols,
+        from_date: strategy.from_date, to_date: strategy.to_date,
+        algo: clustering.algo, k: clustering.k, eps: clustering.eps, min_samples: clustering.min_samples,
+        lookback_days: clustering.lookback_days, timeframe: clustering.timeframe, data_source: strategy.data_source,
+        features: clustering.features,
+      });
+      set({ clusteringResult: result, clusteringLoading: false });
+    } catch (e) {
+      set({ clusteringLoading: false, clusteringError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  clusterFeatureGroups: null,
+  loadClusterFeatures: async () => {
+    if (get().clusterFeatureGroups) return;
+    try {
+      const groups = await api.getClusteringFeatures();
+      set({ clusterFeatureGroups: groups });
     } catch {}
   },
 
