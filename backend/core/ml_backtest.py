@@ -13,6 +13,13 @@ Framing (classification-first, quant-standard):
 
 Leakage guards: chronological split (no shuffle); a train sample whose label window
 would reach into the test period is purged.
+
+Alternative-data features (ALT_FEATURES, opt-in): FII/DII flows (market-wide) and
+options positioning from attach_fno_signals(). Both are published after the close,
+so each uses the PREVIOUS session's value — the same-day number isn't knowable at a
+close[i] entry. Options features exist only for F&O stocks with synced F&O history;
+elsewhere they're NaN and those bars are excluded (never zero-filled). Daily/weekly
+timeframes only — the source series are daily.
 """
 
 from __future__ import annotations
@@ -46,7 +53,51 @@ ML_FEATURES = [
     "cdl_hammer", "cdl_bull_engulf", "cdl_pin_bar_bull",
 ]
 
+# Opt-in alternative data — never part of the default set, since requiring them
+# would silently drop every non-F&O stock (feat_ok needs all selected features).
+# feature -> source column; the feature is the source shifted one session.
+ALT_FEATURE_SOURCES = {
+    "fii_net_prev": "fii_net",
+    "fii_net_5d_prev": "fii_net_5d",
+    "dii_net_5d_prev": "dii_net_5d",
+    "pcr_oi_prev": "pcr_oi",
+    "oi_concentration_prev": "oi_concentration",
+    "atm_iv_prev": "atm_iv",
+    "max_pain_dist_pct_prev": "max_pain_dist_pct",
+}
+ALT_FEATURES = list(ALT_FEATURE_SOURCES)
+FII_DII_COLUMNS = ["fii_net", "fii_net_5d", "dii_net_5d"]
+
 MIN_TRAIN_SAMPLES = 50
+
+
+def attach_fii_dii(price_df: pd.DataFrame) -> pd.DataFrame:
+    """Left-join market-wide FII/DII net flows (₹ cr) by date, plus 5-session
+    rolling sums over the recorded flow days. Missing dates stay NaN."""
+    from backend.db.connection import get_db
+    flows = get_db().execute("SELECT date, fii_net, dii_net FROM fii_dii_flows ORDER BY date").df()
+    df = price_df.copy()
+    if flows.empty:
+        for col in FII_DII_COLUMNS:
+            df[col] = np.nan
+        return df
+    flows["date"] = flows["date"].astype(str)
+    flows["fii_net_5d"] = flows["fii_net"].rolling(5, min_periods=5).sum()
+    flows["dii_net_5d"] = flows["dii_net"].rolling(5, min_periods=5).sum()
+    df["date"] = df["date"].astype(str)
+    return df.merge(flows[["date", *FII_DII_COLUMNS]], on="date", how="left")
+
+
+def alt_feature_coverage(frames: dict[str, pd.DataFrame], feature_cols: list[str]) -> dict[str, float] | None:
+    """% of each symbol's bars that have every selected alt feature — None when no
+    alt feature is selected. Lets the UI say which stocks were effectively excluded."""
+    alt = [c for c in feature_cols if c in ALT_FEATURE_SOURCES]
+    if not alt:
+        return None
+    return {
+        sym: round(float(frame[alt].notna().all(axis=1).mean() * 100), 1) if len(frame) else 0.0
+        for sym, frame in frames.items()
+    }
 
 
 def build_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -76,6 +127,10 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     frame["ret_1"] = close.pct_change(1) * 100
     frame["ret_5"] = close.pct_change(5) * 100
     frame["ret_10"] = close.pct_change(10) * 100
+    # Previous session's value (see module docstring); all-NaN if the source wasn't
+    # attached (intraday, or no FII/DII/F&O data), so selecting one never KeyErrors.
+    for feat, src in ALT_FEATURE_SOURCES.items():
+        frame[feat] = pd.to_numeric(frame[src], errors="coerce").shift(1) if src in frame else np.nan
     return frame
 
 

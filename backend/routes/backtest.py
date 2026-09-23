@@ -813,6 +813,26 @@ def run_grid_search(req: GridSearchRequest):
 
 # ── ML Models (classification / meta-labeling entry filter) ──────────────────
 
+def _attach_ml_daily_signals(df: pd.DataFrame, sym: str, from_date: str, to_date: str) -> pd.DataFrame:
+    """Daily-only series joined onto a symbol's bars for the ML routes: F&O, Markov, FII/DII."""
+    return mlb.attach_fii_dii(
+        attach_markov_signals(attach_fno_signals(df, sym, from_date, to_date), sym, from_date, to_date)
+    )
+
+
+def _reject_alt_on_intraday(features: list[str] | None, intraday_interval: str | None) -> None:
+    if intraday_interval and features and any(f in mlb.ALT_FEATURE_SOURCES for f in features):
+        raise HTTPException(400, "Alternative-data features (FII/DII, options) are daily-only — "
+                                 "deselect them for intraday timeframes.")
+
+
+def _alt_error_hint(error: str, coverage: dict[str, float] | None) -> str:
+    if coverage and max(coverage.values(), default=0) == 0:
+        return (error + " None of the picked stocks have data for the selected alternative-data features — "
+                "options features need F&O stocks with synced F&O history; FII/DII needs synced flow history.")
+    return error
+
+
 class MlRequest(BaseModel):
     symbols: list[str] = Field(..., min_length=1, max_length=gs.MAX_SYMBOLS)
     from_date: str
@@ -843,8 +863,9 @@ def get_ml_models():
 @router.get("/ml-features")
 def get_ml_features():
     """Feature column names available for the ML section's feature picker —
-    same list used by classification, regression, and the EDA view."""
-    return {"features": mlb.ML_FEATURES}
+    same list used by classification, regression, and the EDA view. `features` is
+    the default (technical) set; `alternative` is the opt-in alt-data group."""
+    return {"features": mlb.ML_FEATURES, "alternative": mlb.ALT_FEATURES}
 
 
 class MlEdaRequest(BaseModel):
@@ -866,6 +887,7 @@ def run_ml_eda(req: MlEdaRequest):
     per-model training loop, so it's fast enough to return directly."""
     entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
     intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+    _reject_alt_on_intraday(req.features, intraday_interval)
 
     db = get_db()
     raw: dict[str, pd.DataFrame] = {}
@@ -873,9 +895,7 @@ def run_ml_eda(req: MlEdaRequest):
         s = sym.upper()
         df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
         if len(df) >= 60:
-            raw[s] = df if intraday_interval else attach_markov_signals(
-                attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
-            )
+            raw[s] = df if intraday_interval else _attach_ml_daily_signals(df, s, req.from_date, req.to_date)
     if not raw:
         raise HTTPException(400, "No data (need ≥60 bars/symbol). Sync data first.")
 
@@ -888,7 +908,11 @@ def run_ml_eda(req: MlEdaRequest):
     if not feat_frames:
         raise HTTPException(400, "Could not build features for any symbol.")
 
-    return mlb.compute_eda(feat_frames, entry_rows, req.sample_mode, features=req.features)
+    eda = mlb.compute_eda(feat_frames, entry_rows, req.sample_mode, features=req.features)
+    eda["alt_coverage"] = mlb.alt_feature_coverage(feat_frames, req.features or mlb.ML_FEATURES)
+    if eda["error"]:
+        eda["error"] = _alt_error_hint(eda["error"], eda["alt_coverage"])
+    return eda
 
 
 @router.post("/run-ml-stream")
@@ -904,6 +928,7 @@ def run_ml_stream(req: MlRequest):
     entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
 
     intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+    _reject_alt_on_intraday(req.features, intraday_interval)
 
     db = get_db()
     raw: dict[str, pd.DataFrame] = {}
@@ -911,13 +936,8 @@ def run_ml_stream(req: MlRequest):
         s = sym.upper()
         df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
         if len(df) >= 60:
-            # F&O/Markov signals are daily-only series — skip attaching them onto intraday bars.
-            if intraday_interval:
-                raw[s] = df
-            else:
-                raw[s] = attach_markov_signals(
-                    attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
-                )
+            # F&O/Markov/FII-DII signals are daily-only series — skip attaching them onto intraday bars.
+            raw[s] = df if intraday_interval else _attach_ml_daily_signals(df, s, req.from_date, req.to_date)
     if not raw:
         msg = ("No intraday data synced for these symbols/interval yet — sync it first."
                if intraday_interval else "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
@@ -945,8 +965,9 @@ def run_ml_stream(req: MlRequest):
             req.target_pct, req.sl_pct, req.max_bars, req.train_ratio,
             features=req.features,
         )
+        alt_coverage = mlb.alt_feature_coverage(feat_frames, ds.features)
         if ds.error:
-            yield f"data: {json.dumps({'phase': 'error', 'error': ds.error})}\n\n"
+            yield f"data: {json.dumps({'phase': 'error', 'error': _alt_error_hint(ds.error, alt_coverage)})}\n\n"
             return
 
         # Test-slice OHLCV for the chart (model-independent).
@@ -980,6 +1001,7 @@ def run_ml_stream(req: MlRequest):
                 "split_dates": ds.split_dates,
                 "train_period": ds.train_period,
                 "test_period": ds.test_period,
+                "alt_coverage": alt_coverage,
             },
             "ohlcv": ohlcv,
             "baseline": baseline,
@@ -1031,6 +1053,7 @@ def run_ml_regression_stream(req: MlRegressionRequest):
 
     entry_rows = [ConditionRow(left=c.left, operator=c.operator, right=c.right) for c in req.entry_conditions]
     intraday_interval = req.timeframe if req.timeframe in INTRADAY_INTERVALS else None
+    _reject_alt_on_intraday(req.features, intraday_interval)
 
     db = get_db()
     raw: dict[str, pd.DataFrame] = {}
@@ -1038,12 +1061,7 @@ def run_ml_regression_stream(req: MlRegressionRequest):
         s = sym.upper()
         df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
         if len(df) >= 60:
-            if intraday_interval:
-                raw[s] = df
-            else:
-                raw[s] = attach_markov_signals(
-                    attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
-                )
+            raw[s] = df if intraday_interval else _attach_ml_daily_signals(df, s, req.from_date, req.to_date)
     if not raw:
         msg = ("No intraday data synced for these symbols/interval yet — sync it first."
                if intraday_interval else "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
@@ -1063,8 +1081,9 @@ def run_ml_regression_stream(req: MlRegressionRequest):
             feat_frames, entry_rows, req.sample_mode, req.horizon_bars, req.train_ratio,
             features=req.features,
         )
+        alt_coverage = mlb.alt_feature_coverage(feat_frames, ds.features)
         if ds.error:
-            yield f"data: {json.dumps({'phase': 'error', 'error': ds.error})}\n\n"
+            yield f"data: {json.dumps({'phase': 'error', 'error': _alt_error_hint(ds.error, alt_coverage)})}\n\n"
             return
 
         models_out: dict = {}
@@ -1080,6 +1099,7 @@ def run_ml_regression_stream(req: MlRegressionRequest):
                 "features": ds.features,
                 "train_period": ds.train_period,
                 "test_period": ds.test_period,
+                "alt_coverage": alt_coverage,
             },
             "models": models_out,
         }

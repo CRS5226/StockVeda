@@ -409,7 +409,8 @@ interface BacktestState {
   runMlEda: () => Promise<void>;
 
   // Feature picker — shared list of trainable columns, selection lives on ml.features / mlReg.features
-  mlFeatureList: string[];
+  mlFeatureList: string[];      // default (technical) feature set
+  mlAltFeatureList: string[];   // opt-in alternative-data features (FII/DII, options)
   loadMlFeatures: () => Promise<void>;
 
   // Stock Clustering (unsupervised — nested in the ML wizard alongside Regression/Classification)
@@ -978,11 +979,12 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   },
 
   mlFeatureList: [],
+  mlAltFeatureList: [],
   loadMlFeatures: async () => {
     if (get().mlFeatureList.length) return;
     try {
-      const { features } = await api.getMlFeatures();
-      set({ mlFeatureList: features });
+      const { features, alternative } = await api.getMlFeatures();
+      set({ mlFeatureList: features, mlAltFeatureList: alternative ?? [] });
     } catch {}
   },
 
