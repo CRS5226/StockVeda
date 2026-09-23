@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
          Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch } from "lucide-react";
 import Analysis from "./Analysis";
-import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult } from "../lib/api";
+import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
@@ -250,7 +250,7 @@ function SymbolSearch({ onAdd }: { onAdd: (sym: string) => void }) {
 
 function LoadWatchlistMenu() {
   const [open, setOpen] = useState(false);
-  const { watchlists, loadWatchlistSymbols, activeWatchlistName } = useBacktestStore();
+  const { watchlists, loadWatchlists, loadWatchlistSymbols, activeWatchlistName } = useBacktestStore();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -262,7 +262,8 @@ function LoadWatchlistMenu() {
   return (
     <div className="flex items-center gap-2">
       <div className="relative" ref={ref}>
-        <button onClick={() => setOpen((o) => !o)}
+        {/* Refetch on open — the mount-time load fails silently if the backend was down. */}
+        <button onClick={() => { if (!open) loadWatchlists(); setOpen((o) => !o); }}
           className="flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all">
           Load Watchlist <ChevronDown size={13} />
         </button>
@@ -2375,6 +2376,41 @@ const CLUSTER_ALGOS = [
   { key: "dbscan" as const, label: "DBSCAN" },
 ];
 
+// Keeps the typed text locally so the field can be cleared while editing; only in-range
+// values reach the store, and blur clamps (empty/invalid falls back to min).
+function ClusterNumberInput({ label, value, min, max, step, integer, onCommit }: {
+  label: string; value: number; min: number; max?: number; step: number; integer?: boolean;
+  onCommit: (v: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  const parse = (s: string) => (integer ? parseInt(s) : parseFloat(s));
+  const inRange = (n: number) => Number.isFinite(n) && n >= min && (max === undefined || n <= max);
+
+  useEffect(() => {
+    if (parse(text) !== value) setText(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-slate-400 font-medium">{label}</span>
+      <input type="number" step={step} min={min} max={max} value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          const n = parse(e.target.value);
+          if (inRange(n)) onCommit(n);
+        }}
+        onBlur={() => {
+          const n = parse(text);
+          const v = Number.isFinite(n) ? Math.min(max ?? n, Math.max(min, n)) : min;
+          setText(String(v));
+          onCommit(v);
+        }}
+        className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+    </label>
+  );
+}
+
 function MlClusteringPanel() {
   const {
     pickedSymbols, clustering, clusteringResult, clusteringLoading, clusteringError,
@@ -2392,6 +2428,11 @@ function MlClusteringPanel() {
     if (next.length === 0) return;
     setClustering({ features: next.length === allFeatures.length ? null : next });
   };
+
+  // Data gaps from the last run, limited to currently picked stocks: feature -> stocks lacking it.
+  const gaps = Object.entries(clusteringResult?.missing_features ?? {}).filter(([s]) => pickedSymbols.includes(s));
+  const missingBy = new Map<string, string[]>();
+  for (const [s, cols] of gaps) for (const c of cols) missingBy.set(c, [...(missingBy.get(c) ?? []), s]);
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
@@ -2425,17 +2466,30 @@ function MlClusteringPanel() {
                 <div className="flex flex-wrap gap-1.5">
                   {cols.map((f) => {
                     const on = selected.includes(f);
+                    const lacking = missingBy.get(f);
                     return (
                       <button key={f} onClick={() => toggleFeature(f)}
-                        className={`px-2 py-1 rounded-md border text-[11px] font-mono transition-colors ${
+                        title={lacking ? `No data for: ${lacking.join(", ")}` : undefined}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-mono transition-colors ${
                           on ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-400 hover:border-slate-400"}`}>
                         {f}
+                        {lacking && (
+                          <span className="px-1 rounded bg-amber-100 text-amber-700 text-[10px] font-sans">{lacking.length} missing</span>
+                        )}
                       </button>
                     );
                   })}
                 </div>
               </div>
             )
+          )}
+          {gaps.length > 0 && (
+            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-0.5">
+              <div className="font-medium">Missing data (from last run) — these stocks are skipped when a listed feature is selected:</div>
+              {gaps.map(([s, cols]) => (
+                <div key={s}><span className="font-mono">{s}</span>: {cols.join(", ")}</div>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -2455,34 +2509,18 @@ function MlClusteringPanel() {
 
       <div className="flex flex-wrap gap-4">
         {clustering.algo !== "dbscan" ? (
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-slate-400 font-medium">Clusters (k)</span>
-            <input type="number" step="1" min={2} max={10} value={clustering.k}
-              onChange={(e) => setClustering({ k: parseInt(e.target.value) || 2 })}
-              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-          </label>
+          <ClusterNumberInput label="Clusters (k)" value={clustering.k} min={2} max={10} step={1} integer
+            onCommit={(k) => setClustering({ k })} />
         ) : (
           <>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-400 font-medium">Epsilon (eps)</span>
-              <input type="number" step="0.1" min={0.1} value={clustering.eps}
-                onChange={(e) => setClustering({ eps: parseFloat(e.target.value) || 0.1 })}
-                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-400 font-medium">Min samples</span>
-              <input type="number" step="1" min={1} value={clustering.min_samples}
-                onChange={(e) => setClustering({ min_samples: parseInt(e.target.value) || 1 })}
-                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-            </label>
+            <ClusterNumberInput label="Epsilon (eps)" value={clustering.eps} min={0.1} step={0.1}
+              onCommit={(eps) => setClustering({ eps })} />
+            <ClusterNumberInput label="Min samples" value={clustering.min_samples} min={1} step={1} integer
+              onCommit={(min_samples) => setClustering({ min_samples })} />
           </>
         )}
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-400 font-medium">Lookback (days)</span>
-          <input type="number" step="10" min={20} max={252} value={clustering.lookback_days}
-            onChange={(e) => setClustering({ lookback_days: parseInt(e.target.value) || 60 })}
-            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-        </label>
+        <ClusterNumberInput label="Lookback (days)" value={clustering.lookback_days} min={20} max={252} step={10} integer
+          onCommit={(lookback_days) => setClustering({ lookback_days })} />
       </div>
 
       <button onClick={runClustering} disabled={!canRun}
@@ -2499,19 +2537,80 @@ function MlClusteringPanel() {
   );
 }
 
+type ScatterPoint = { sym: string; x: number; y: number; color: string; hollow?: boolean };
+
+// Shared SVG scatter for the clustering tab. Auto-scales to the data unless a fixed
+// domain is given; `quadrants` adds midlines + corner captions (buy-score plot).
+function ClusterScatter({ title, points, xLabel, yLabel, domain, quadrants, hovered, onHover, tooltip }: {
+  title: string; points: ScatterPoint[]; xLabel: string; yLabel: string;
+  domain?: { x: [number, number]; y: [number, number] };
+  quadrants?: { mid: [number, number]; tl: string; tr: string; bl: string; br: string };
+  hovered: string | null; onHover: (s: string | null) => void;
+  tooltip: (sym: string) => ReactNode;
+}) {
+  const W = 360, H = 240, M = 24;
+  const extent = (vals: number[]): [number, number] => {
+    const [lo, hi] = [Math.min(...vals), Math.max(...vals)];
+    const pad = (hi - lo || 1) * 0.15;
+    return [lo - pad, hi + pad];
+  };
+  const [x0, x1] = domain?.x ?? extent(points.map((p) => p.x));
+  const [y0, y1] = domain?.y ?? extent(points.map((p) => p.y));
+  const sx = (x: number) => M + ((x - x0) / (x1 - x0 || 1)) * (W - 2 * M);
+  const sy = (y: number) => H - M - ((y - y0) / (y1 - y0 || 1)) * (H - 2 * M);
+  const active = hovered && points.some((p) => p.sym === hovered) ? hovered : null;
+
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-semibold text-slate-600">{title}</div>
+      <div className="relative border border-slate-100 rounded-lg">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="block overflow-visible">
+          <line x1={M} y1={H - M} x2={W - M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
+          <line x1={M} y1={M} x2={M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
+          {quadrants && (
+            <g className="fill-slate-300" fontSize={9}>
+              <line x1={sx(quadrants.mid[0])} y1={M} x2={sx(quadrants.mid[0])} y2={H - M} stroke="#e2e8f0" strokeDasharray="3 3" />
+              <line x1={M} y1={sy(quadrants.mid[1])} x2={W - M} y2={sy(quadrants.mid[1])} stroke="#e2e8f0" strokeDasharray="3 3" />
+              <text x={M + 4} y={M + 10}>{quadrants.tl}</text>
+              <text x={W - M - 4} y={M + 10} textAnchor="end">{quadrants.tr}</text>
+              <text x={M + 4} y={H - M - 4}>{quadrants.bl}</text>
+              <text x={W - M - 4} y={H - M - 4} textAnchor="end">{quadrants.br}</text>
+            </g>
+          )}
+          <text x={W / 2} y={H - 6} textAnchor="middle" className="fill-slate-400" fontSize={10}>{xLabel}</text>
+          <text x={10} y={H / 2} textAnchor="middle" className="fill-slate-400" fontSize={10}
+            transform={`rotate(-90, 10, ${H / 2})`}>{yLabel}</text>
+          {points.map((p) => {
+            const cx = sx(p.x), cy = sy(p.y);
+            const on = active === p.sym;
+            return (
+              <g key={p.sym} onMouseEnter={() => onHover(p.sym)} onMouseLeave={() => onHover(null)} className="cursor-pointer">
+                <circle cx={cx} cy={cy} r={on ? 7 : 5} fill={p.hollow ? "#fff" : p.color}
+                  stroke={p.hollow ? p.color : "#fff"} strokeWidth={2} opacity={on ? 1 : 0.85} />
+                <text x={cx + 8} y={cy + 3} fontSize={10} className="fill-slate-500 select-none">{p.sym}</text>
+              </g>
+            );
+          })}
+        </svg>
+        {active && (
+          <div className="absolute top-2 right-2 bg-slate-800 text-white text-[11px] rounded-lg px-2.5 py-1.5 shadow-lg pointer-events-none">
+            <div className="font-semibold">{active}</div>
+            <div className="text-slate-300">{tooltip(active)}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MlClusteringResults({ result, hovered, onHover }: {
   result: ClusteringResult; hovered: string | null; onHover: (s: string | null) => void;
 }) {
   const symbols = Object.keys(result.clusters);
-  const xs = symbols.map((s) => result.pca[s][0]);
-  const ys = symbols.map((s) => result.pca[s][1]);
-  const [minX, maxX] = [Math.min(...xs), Math.max(...xs)];
-  const [minY, maxY] = [Math.min(...ys), Math.max(...ys)];
-  const padX = (maxX - minX || 1) * 0.15, padY = (maxY - minY || 1) * 0.15;
-  const W = 360, H = 240, M = 24;
-  const sx = (x: number) => M + ((x - (minX - padX)) / ((maxX + padX) - (minX - padX) || 1)) * (W - 2 * M);
-  const sy = (y: number) => H - M - ((y - (minY - padY)) / ((maxY + padY) - (minY - padY) || 1)) * (H - 2 * M);
-  const colorFor = (cid: number) => cid === -1 ? CLUSTER_NOISE_COLOR : ALGO_COLORS[cid % ALGO_COLORS.length];
+  const colorFor = (cid: number | undefined) =>
+    cid === undefined || cid === -1 ? CLUSTER_NOISE_COLOR : ALGO_COLORS[cid % ALGO_COLORS.length];
+  const clusterLabel = (cid: number | undefined) =>
+    cid === undefined ? "Not clustered" : cid === -1 ? "Noise" : `Cluster ${cid}`;
 
   const byCluster = new Map<number, string[]>();
   for (const s of symbols) {
@@ -2521,82 +2620,132 @@ function MlClusteringResults({ result, hovered, onHover }: {
   }
   const clusterIds = [...byCluster.keys()].sort((a, b) => a - b);
 
+  // No fundamentals → quality unknown: drawn hollow on the midline rather than dropped.
+  const scored = Object.entries(result.scores).filter(([, v]) => v.momentum !== null);
+  const scorePoints: ScatterPoint[] = scored.map(([s, v]) => ({
+    sym: s, x: v.quality ?? 50, y: v.momentum!, color: colorFor(result.clusters[s]), hollow: v.quality === null,
+  }));
+  const combined = (v: StockScore) => v.quality === null ? null : (v.momentum! + v.quality) / 2;
+  const ranked = [...scored].sort(([, a], [, b]) =>
+    (combined(b) ?? -1) - (combined(a) ?? -1) || b.momentum! - a.momentum!);
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="text-xs text-slate-500">
-          {result.n_clusters} cluster{result.n_clusters === 1 ? "" : "s"} · {symbols.length} stocks
-          {result.noise_count ? ` · ${result.noise_count} flagged as noise (doesn't fit any cluster)` : ""}
+      {result.clustering_error ? (
+        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Clustering skipped: {result.clustering_error} Buy scores below still use every stock.
         </div>
-        <div className="flex flex-wrap gap-3">
-          {clusterIds.map((cid) => (
-            <span key={cid} className="flex items-center gap-1.5 text-[11px] text-slate-500">
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
-              {cid === -1 ? "Noise" : `Cluster ${cid}`}
-            </span>
-          ))}
-        </div>
-      </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="text-xs text-slate-500">
+              {result.n_clusters} cluster{result.n_clusters === 1 ? "" : "s"} · {symbols.length} stocks
+              {result.noise_count ? ` · ${result.noise_count} flagged as noise (doesn't fit any cluster)` : ""}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {clusterIds.map((cid) => (
+                <span key={cid} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
+                  {clusterLabel(cid)}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            Based on: {result.feature_cols.join(", ")}
+          </div>
+        </>
+      )}
 
-      <div className="text-[11px] text-slate-400">
-        Based on: {result.feature_cols.join(", ")}
-      </div>
-
-      <div className="relative border border-slate-100 rounded-lg overflow-visible max-w-sm">
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="block">
-          <line x1={M} y1={H - M} x2={W - M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
-          <line x1={M} y1={M} x2={M} y2={H - M} stroke="#e2e8f0" strokeWidth={1} />
-          <text x={W / 2} y={H - 6} textAnchor="middle" className="fill-slate-400" fontSize={10}>PC1</text>
-          <text x={10} y={H / 2} textAnchor="middle" className="fill-slate-400" fontSize={10}
-            transform={`rotate(-90, 10, ${H / 2})`}>PC2</text>
-          {symbols.map((s) => {
-            const cid = result.clusters[s];
-            const cx = sx(result.pca[s][0]), cy = sy(result.pca[s][1]);
-            const active = hovered === s;
-            return (
-              <g key={s} onMouseEnter={() => onHover(s)} onMouseLeave={() => onHover(null)} className="cursor-pointer">
-                <circle cx={cx} cy={cy} r={active ? 7 : 5} fill={colorFor(cid)}
-                  stroke="#fff" strokeWidth={2} opacity={active ? 1 : 0.85} />
-                <text x={cx + 8} y={cy + 3} fontSize={10} className="fill-slate-500 select-none">{s}</text>
-              </g>
-            );
-          })}
-        </svg>
-        {hovered && (
-          <div className="absolute top-2 right-2 bg-slate-800 text-white text-[11px] rounded-lg px-2.5 py-1.5 shadow-lg pointer-events-none">
-            <div className="font-semibold">{hovered}</div>
-            <div className="text-slate-300">
-              {result.clusters[hovered] === -1 ? "Noise" : `Cluster ${result.clusters[hovered]}`}
-              {" · "}PC1 {result.pca[hovered][0].toFixed(2)}, PC2 {result.pca[hovered][1].toFixed(2)}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl">
+        {!result.clustering_error && (
+          <div className="space-y-1">
+            <ClusterScatter title="Similarity — nearby stocks behave alike" xLabel="PC1" yLabel="PC2"
+              points={symbols.map((s) => ({ sym: s, x: result.pca[s][0], y: result.pca[s][1], color: colorFor(result.clusters[s]) }))}
+              hovered={hovered} onHover={onHover}
+              tooltip={(s) => <>{clusterLabel(result.clusters[s])} · PC1 {result.pca[s][0].toFixed(2)}, PC2 {result.pca[s][1].toFixed(2)}</>} />
+            <div className="text-[10px] text-slate-400">Position here has no good/bad meaning — only distance matters.</div>
+          </div>
+        )}
+        {scorePoints.length > 0 && (
+          <div className="space-y-1">
+            <ClusterScatter title="Buy score — top-right is strongest" xLabel="Quality / value →" yLabel="Momentum ↑"
+              points={scorePoints} domain={{ x: [-8, 108], y: [-8, 108] }}
+              quadrants={{ mid: [50, 50], tl: "Trending, weak fundamentals", tr: "Trending + quality",
+                bl: "Weak on both", br: "Quality, not trending" }}
+              hovered={hovered} onHover={onHover}
+              tooltip={(s) => {
+                const v = result.scores[s];
+                return <>{clusterLabel(result.clusters[s])} · momentum {v.momentum} · quality {v.quality ?? "n/a"}
+                  {v.quality !== null && v.quality_n < 4 ? ` (${v.quality_n}/4 metrics)` : ""}</>;
+              }} />
+            <div className="text-[10px] text-slate-400">
+              Ranked against the stocks you picked — not a back-tested buy signal. Hollow = no fundamentals synced.
             </div>
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {clusterIds.map((cid) => {
-          const stats = result.cluster_summary?.[cid];
-          return (
-            <div key={cid} className="border border-slate-100 rounded-lg p-2.5">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
-                <span className="text-xs font-semibold text-slate-600">{cid === -1 ? "Noise" : `Cluster ${cid}`}</span>
-                <span className="text-[10px] text-slate-400">({byCluster.get(cid)!.length})</span>
-              </div>
-              <div className="flex flex-wrap gap-1 mb-2">
-                {byCluster.get(cid)!.map((s) => (
-                  <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{s}</span>
-                ))}
-              </div>
-              {stats && (
-                <div className="text-[10px] text-slate-400 leading-relaxed">
-                  {Object.entries(stats).map(([f, v]) => `${f} ${v}`).join(" · ")}
+      {ranked.length > 0 && (
+        <table className="text-xs max-w-xl w-full">
+          <thead>
+            <tr className="text-slate-400 text-left border-b border-slate-100">
+              <th className="py-1 font-medium">Stock</th>
+              <th className="py-1 font-medium">Cluster</th>
+              <th className="py-1 font-medium text-right">Momentum</th>
+              <th className="py-1 font-medium text-right">Quality</th>
+              <th className="py-1 font-medium text-right">Combined</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map(([s, v]) => (
+              <tr key={s} onMouseEnter={() => onHover(s)} onMouseLeave={() => onHover(null)}
+                className={`border-b border-slate-50 ${hovered === s ? "bg-slate-50" : ""}`}>
+                <td className="py-1 font-mono text-slate-600">{s}</td>
+                <td className="py-1">
+                  <span className="flex items-center gap-1.5 text-slate-500">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colorFor(result.clusters[s]) }} />
+                    {clusterLabel(result.clusters[s])}
+                  </span>
+                </td>
+                <td className="py-1 text-right text-slate-600">{v.momentum}</td>
+                <td className="py-1 text-right text-slate-600">
+                  {v.quality ?? "—"}
+                  {v.quality !== null && v.quality_n < 4 && <span className="text-slate-400"> ({v.quality_n}/4)</span>}
+                </td>
+                <td className="py-1 text-right font-semibold text-slate-700">{combined(v)?.toFixed(1) ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {!result.clustering_error && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {clusterIds.map((cid) => {
+            const stats = result.cluster_summary?.[cid];
+            return (
+              <div key={cid} className="border border-slate-100 rounded-lg p-2.5">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorFor(cid) }} />
+                  <span className="text-xs font-semibold text-slate-600">{clusterLabel(cid)}</span>
+                  <span className="text-[10px] text-slate-400">({byCluster.get(cid)!.length})</span>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {byCluster.get(cid)!.map((s) => (
+                    <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{s}</span>
+                  ))}
+                </div>
+                {stats && (
+                  <div className="text-[10px] text-slate-400 leading-relaxed">
+                    {Object.entries(stats).map(([f, v]) => `${f} ${v}`).join(" · ")}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

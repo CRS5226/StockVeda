@@ -1140,10 +1140,14 @@ def run_clustering(req: ClusteringRequest):
 
     feature_cols = req.features if req.features else sc.ALL_CLUSTER_FEATURES
     result = sc.run_clustering(combined, feature_cols, req.algo, k=req.k, eps=req.eps, min_samples=req.min_samples)
-    if result.error:
-        raise HTTPException(400, result.error)
 
+    # Clustering failure (e.g. too few symbols with complete fundamentals) is returned
+    # alongside the scores rather than as a 400, so the buy-score plot still renders.
     return {
+        "clustering_error": result.error,
+        "scores": sc.score_stocks(combined),
+        # Across all features, not just the selected ones, so the picker can flag gaps up front.
+        "missing_features": sc.missing_features_by_symbol(combined.reindex(columns=sc.ALL_CLUSTER_FEATURES)),
         "clusters": result.clusters,
         "pca": result.pca,
         "feature_cols": result.feature_cols,

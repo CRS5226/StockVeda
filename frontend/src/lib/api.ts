@@ -248,7 +248,16 @@ export interface MlEdaResult {
   correlation: { features: string[]; matrix: number[][] };
 }
 
+export interface StockScore {
+  momentum: number | null;   // 0–100, rank within the picked basket (higher = stronger uptrend)
+  quality: number | null;    // 0–100, null when no fundamentals synced
+  quality_n: number;         // how many of the 4 fundamentals the quality score is based on
+}
+
 export interface ClusteringResult {
+  clustering_error: string | null;    // clustering failed but scores are still returned
+  scores: Record<string, StockScore>;
+  missing_features: Record<string, string[]>;  // symbol -> features with no data (all features, not just selected)
   clusters: Record<string, number>;   // symbol -> cluster id (-1 = DBSCAN noise)
   pca: Record<string, [number, number]>;
   feature_cols: string[];

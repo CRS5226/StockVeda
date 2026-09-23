@@ -4,11 +4,10 @@ momentum character AND value/quality character (KMeans / Agglomerative /
 DBSCAN), not the per-bar classification/regression modes in ml_backtest.py.
 One feature row per stock, summarizing its trailing window, not one row per bar.
 
-Descriptive grouping only — no causal claim about *why* stocks cluster together,
-and no fixed "good to buy" score. The value/quality features are exposed so a
-cluster that's visibly cheap + high-ROE + trending stands out on its own, but
-which features to include (and how to read the result) is the user's call —
-see the feature picker on the frontend.
+Descriptive grouping only — no causal claim about *why* stocks cluster together.
+score_stocks() adds a separate momentum / quality-value ranking for the buy-score
+quadrant plot; it ranks stocks against each other within the picked basket and
+is not a back-tested buy signal.
 """
 
 from __future__ import annotations
@@ -106,6 +105,14 @@ def build_fundamental_features(db, symbols: list[str], last_close: dict[str, flo
     return pd.DataFrame.from_dict(out, orient="index")
 
 
+def missing_features_by_symbol(features: pd.DataFrame) -> dict[str, list[str]]:
+    """{symbol: [features with no value]} — only symbols that have gaps."""
+    return {
+        str(sym): [col for col, isna in row.items() if isna]
+        for sym, row in features.isna().iterrows() if row.any()
+    }
+
+
 @dataclass
 class ClusteringResult:
     error: str | None
@@ -125,9 +132,12 @@ def run_clustering(combined_features: pd.DataFrame, feature_cols: list[str], alg
 
     feature_df = combined_features[feature_cols].dropna()
     if len(feature_df) < MIN_SYMBOLS:
+        gaps = missing_features_by_symbol(combined_features[feature_cols])
+        skipped = "; ".join(f"{sym} (no {', '.join(cols)})" for sym, cols in gaps.items())
         return ClusteringResult(
             error=f"Need at least {MIN_SYMBOLS} symbols with usable data for the selected features "
-                  f"({len(feature_df)} usable). Pick more stocks or deselect a feature with sparse data.",
+                  f"({len(feature_df)} usable). Skipped: {skipped}. "
+                  f"Pick more stocks or deselect those features.",
             clusters={}, pca={}, feature_cols=feature_cols,
         )
 
@@ -172,3 +182,52 @@ def run_clustering(combined_features: pd.DataFrame, feature_cols: list[str], alg
 
     return ClusteringResult(error=None, clusters=clusters, pca=pca, feature_cols=feature_cols,
                              n_clusters=n_clusters, noise_count=noise_count, cluster_summary=cluster_summary)
+
+
+# Buy-score quadrant — (feature, higher_is_better). Only features with a clear
+# good/bad direction; RSI/bb_pos (overbought is ambiguous), ADX (strength, not
+# direction) and volatility/volume (risk/activity) are deliberately left out.
+MOMENTUM_SCORE_FEATURES = [
+    ("ret_5", True), ("ret_10", True),
+    ("dist_ema20", True), ("dist_sma50", True), ("dist_sma200", True),
+]
+QUALITY_SCORE_FEATURES = [
+    ("roe_pct", True), ("revenue_growth_pct", True),
+    ("pe_ratio", False), ("debt_to_equity", False),
+]
+
+
+def _rank_0_100(s: pd.Series, higher_is_better: bool) -> pd.Series:
+    """Percentile rank within the basket: best = 100, worst = 0, NaN stays NaN.
+    Rank-based so a single outlier (PE > 500) can't stretch the scale."""
+    valid = s.dropna()
+    if len(valid) <= 1:
+        return pd.Series(50.0, index=valid.index).reindex(s.index)
+    r = valid.rank(method="average", ascending=higher_is_better)
+    return ((r - 1) / (len(valid) - 1) * 100).reindex(s.index)
+
+
+def score_stocks(combined_features: pd.DataFrame) -> dict[str, dict]:
+    """Momentum (Y) and quality/value (X) score per symbol, 0–100, relative to the
+    other picked symbols. Independent of the clustering feature picker and dropna,
+    so a stock missing fundamentals still gets a momentum score; quality averages
+    whichever fundamentals exist and reports how many (quality_n)."""
+    df = combined_features.copy()
+    if "pe_ratio" in df:
+        # Loss-making (PE <= 0) ranks worst on "lower PE is better", not best.
+        df["pe_ratio"] = df["pe_ratio"].where(df["pe_ratio"].isna() | (df["pe_ratio"] > 0), np.inf)
+
+    def axis(spec: list[tuple[str, bool]]) -> pd.DataFrame:
+        cols = {col: _rank_0_100(df[col], hib) for col, hib in spec if col in df}
+        return pd.DataFrame(cols, index=df.index)
+
+    mom, qual = axis(MOMENTUM_SCORE_FEATURES), axis(QUALITY_SCORE_FEATURES)
+    mom_score, qual_score, qual_n = mom.mean(axis=1), qual.mean(axis=1), qual.notna().sum(axis=1)
+
+    def val(x) -> float | None:
+        return None if pd.isna(x) else round(float(x), 1)
+
+    return {
+        sym: {"momentum": val(mom_score[sym]), "quality": val(qual_score[sym]), "quality_n": int(qual_n[sym])}
+        for sym in df.index
+    }
