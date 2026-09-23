@@ -214,6 +214,7 @@ export interface MlResult {
     pos_rate_train: number; pos_rate_test: number; split_dates: Record<string, string>;
     train_period: { start: string; end: string } | null;
     test_period: { start: string; end: string } | null;
+    alt_coverage: AltCoverage;
   };
   ohlcv: Record<string, { date: string; open: number; high: number; low: number; close: number }[]>;
   baseline: { stats: GridComboStats };
@@ -233,6 +234,7 @@ export interface MlRegressionResult {
     n_train: number; n_test: number; n_features: number; features: string[];
     train_period: { start: string; end: string } | null;
     test_period: { start: string; end: string } | null;
+    alt_coverage: AltCoverage;
   };
   models: Record<string, MlRegressorModelResult>;
 }
@@ -241,9 +243,13 @@ export interface MlFeatureDistribution {
   counts: number[]; bin_edges: number[];
   mean: number; std: number; min: number; max: number; median: number;
 }
+// symbol -> % of bars that have every selected alternative-data feature; null when none selected
+export type AltCoverage = Record<string, number> | null;
+
 export interface MlEdaResult {
   error: string | null;
   n_samples: number;
+  alt_coverage: AltCoverage;
   distributions: Record<string, MlFeatureDistribution>;
   correlation: { features: string[]; matrix: number[][] };
 }
@@ -688,7 +694,7 @@ export const api = {
     ),
   getMlModels: () => apiFetch<MlModelInfo[]>("/backtest/ml-models"),
   getMlRegressors: () => apiFetch<MlModelInfo[]>("/backtest/ml-regressors"),
-  getMlFeatures: () => apiFetch<{ features: string[] }>("/backtest/ml-features"),
+  getMlFeatures: () => apiFetch<{ features: string[]; alternative: string[] }>("/backtest/ml-features"),
   runMlEda: (params: {
     symbols: string[]; from_date: string; to_date: string;
     entry_conditions: ConditionRow[]; sample_mode: "entry_signals" | "all_bars";

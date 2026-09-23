@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, type ReactNode } from "react"
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
          Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch } from "lucide-react";
 import Analysis from "./Analysis";
-import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore } from "../lib/api";
+import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore, AltCoverage } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
@@ -2755,7 +2755,7 @@ function MlClusteringResults({ result, hovered, onHover }: {
 function MlEdaPanel() {
   const {
     pickedSymbols, mlEdaResult, mlEdaLoading, mlEdaError, runMlEda,
-    mlAlgoType, ml, mlReg, setMl, setMlReg, mlFeatureList, loadMlFeatures,
+    mlAlgoType, ml, mlReg, setMl, setMlReg, mlFeatureList, mlAltFeatureList, loadMlFeatures,
   } = useBacktestStore();
   const [open, setOpen] = useState(false);
 
@@ -2763,11 +2763,23 @@ function MlEdaPanel() {
 
   const cfg = mlAlgoType === "regression" ? mlReg : ml;
   const setCfg = mlAlgoType === "regression" ? setMlReg : setMl;
-  const selected = cfg.features ?? mlFeatureList;
+  const selected = cfg.features ?? mlFeatureList;  // null = default technical set
+  const intraday = cfg.timeframe !== "1D" && cfg.timeframe !== "1W";
   const toggleFeature = (name: string) => {
     const next = selected.includes(name) ? selected.filter((f) => f !== name) : [...selected, name];
     if (next.length === 0) return; // keep at least one feature selected
-    setCfg({ features: next.length === mlFeatureList.length ? null : next });
+    const isDefault = next.length === mlFeatureList.length && mlFeatureList.every((f) => next.includes(f));
+    setCfg({ features: isDefault ? null : next });
+  };
+  const chip = (f: string, disabled = false) => {
+    const on = selected.includes(f);
+    return (
+      <button key={f} onClick={() => toggleFeature(f)} disabled={disabled && !on}
+        className={`px-2 py-1 rounded-md border text-[11px] font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          on ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-400 hover:border-slate-400"}`}>
+        {f}
+      </button>
+    );
   };
 
   return (
@@ -2785,27 +2797,32 @@ function MlEdaPanel() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <div className="text-xs text-slate-400 font-medium">
-                  Features used for training — {selected.length}/{mlFeatureList.length} selected
+                  Features used for training — {selected.length} selected
                   {selected.length < mlFeatureList.length && " (drop ones that show as highly correlated below)"}
                 </div>
                 {cfg.features !== null && (
                   <button onClick={() => setCfg({ features: null })} className="text-xs text-blue-600 hover:underline shrink-0">
-                    Select all
+                    Reset to default
                   </button>
                 )}
               </div>
+              <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Technical (default)</div>
               <div className="flex flex-wrap gap-1.5">
-                {mlFeatureList.map((f) => {
-                  const on = selected.includes(f);
-                  return (
-                    <button key={f} onClick={() => toggleFeature(f)}
-                      className={`px-2 py-1 rounded-md border text-[11px] font-mono transition-colors ${
-                        on ? "bg-slate-700 text-white border-slate-700" : "border-slate-200 text-slate-400 hover:border-slate-400"}`}>
-                      {f}
-                    </button>
-                  );
-                })}
+                {mlFeatureList.map((f) => chip(f))}
               </div>
+              {mlAltFeatureList.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Alternative data (opt-in)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {mlAltFeatureList.map((f) => chip(f, intraday))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                    {intraday
+                      ? "Daily-only data — switch to a 1D/1W timeframe to use these."
+                      : "Previous session's value (FII/DII and F&O data are published after the close). Options features exist only for F&O stocks with synced F&O history; bars without data are excluded, not zero-filled."}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2817,6 +2834,7 @@ function MlEdaPanel() {
           {mlEdaResult && (
             <div className="space-y-5">
               <div className="text-xs text-slate-400">{mlEdaResult.n_samples} samples</div>
+              <AltCoverageNote coverage={mlEdaResult.alt_coverage} />
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {Object.entries(mlEdaResult.distributions).map(([feat, d]) => (
                   <MlFeatureHistogram key={feat} name={feat} dist={d} />
@@ -2828,6 +2846,24 @@ function MlEdaPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+// Which picked stocks actually had the selected alt-data features — a stock at 0% was
+// effectively excluded (not F&O-eligible, or its history isn't synced).
+function AltCoverageNote({ coverage }: { coverage: AltCoverage | undefined }) {
+  if (!coverage) return null;
+  const rows = Object.entries(coverage).sort(([, a], [, b]) => b - a);
+  const missing = rows.filter(([, pct]) => pct === 0).map(([s]) => s);
+  return (
+    <div className={`text-[11px] rounded-lg px-3 py-2 border ${missing.length
+      ? "text-amber-700 bg-amber-50 border-amber-200" : "text-slate-500 bg-slate-50 border-slate-200"}`}>
+      <span className="font-medium">Alternative-data coverage (bars with all selected alt features): </span>
+      {rows.map(([s, pct]) => `${s} ${pct}%`).join(" · ")}
+      {missing.length > 0 && (
+        <div className="mt-0.5">Excluded: {missing.join(", ")} — no options/flow data (not F&O-eligible or history not synced).</div>
+      )}
+    </div>
   );
 }
 
@@ -3034,6 +3070,7 @@ function MlPanel() {
             <span>Win-rate (train): <b className="text-slate-700">{Math.round(mlResults.dataset.pos_rate_train * 100)}%</b></span>
             <span>Win-rate (test): <b className="text-slate-700">{Math.round(mlResults.dataset.pos_rate_test * 100)}%</b></span>
           </div>
+          <AltCoverageNote coverage={mlResults.dataset.alt_coverage} />
           {(mlResults.dataset.train_period || mlResults.dataset.test_period) && (
             <div className="text-[11px] flex flex-wrap gap-x-4 gap-y-1 -mt-2">
               {mlResults.dataset.train_period && (
@@ -3328,6 +3365,7 @@ function MlRegressionPanel() {
             <span>Test samples: <b className="text-slate-700">{mlRegResults.dataset.n_test}</b></span>
             <span>Features: <b className="text-slate-700">{mlRegResults.dataset.n_features}</b></span>
           </div>
+          <AltCoverageNote coverage={mlRegResults.dataset.alt_coverage} />
           {(mlRegResults.dataset.train_period || mlRegResults.dataset.test_period) && (
             <div className="text-[11px] flex flex-wrap gap-x-4 gap-y-1 -mt-2">
               {mlRegResults.dataset.train_period && (
