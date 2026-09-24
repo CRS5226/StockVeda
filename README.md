@@ -1,8 +1,38 @@
 # StockVeda
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Node 18+](https://img.shields.io/badge/node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Good first issues](https://img.shields.io/github/issues/CRS5226/StockVeda/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 Self-hosted Indian stock market research platform — screening, charting, fundamentals, backtesting (rule-based, options, and ML), F&O analytics, and macro data in one tool.
 
 Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the frontend. All data is fetched from free public sources (NSE bhavcopy, yfinance, FRED, RBI) and stored locally in a single DuckDB file — no subscriptions, no external databases.
+
+<!-- Screenshots: add the images under docs/screenshots/ and uncomment.
+<p align="center">
+  <img src="docs/screenshots/demo.gif" alt="StockVeda demo" width="900">
+</p>
+
+| Market Dashboard | Stock Detail |
+|---|---|
+| ![Market Dashboard](docs/screenshots/market-dashboard.png) | ![Stock Detail](docs/screenshots/stock-detail.png) |
+
+| Backtest | F&O Analytics |
+|---|---|
+| ![Backtest](docs/screenshots/backtest.png) | ![F&O](docs/screenshots/fno.png) |
+-->
+
+## Quick start
+
+```bash
+git clone https://github.com/CRS5226/StockVeda.git && cd StockVeda
+uv sync && uv run uvicorn backend.main:app --port 8007 --reload   # backend
+cd frontend && npm install && npm run dev                           # frontend, in a second terminal
+```
+
+Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites (including TA-Lib) and [Initial Data Sync](#initial-data-sync) to load data.
 
 ---
 
@@ -245,6 +275,16 @@ Base URL: `http://localhost:8007/api`
 | `GET /sync/status` | Sync log for all sources |
 
 Full interactive docs: `http://localhost:8007/docs`
+
+---
+
+## Contributing
+
+Contributions are welcome! Start with the [`good first issue`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) list, and read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests and the pull request process.
+
+- **Questions and ideas:** [Discussions](https://github.com/CRS5226/StockVeda/discussions)
+- **Security problems:** report privately, see [SECURITY.md](SECURITY.md)
+- **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ---
 

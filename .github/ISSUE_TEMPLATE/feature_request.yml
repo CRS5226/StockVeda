@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a new feature or an improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! For open-ended questions or brainstorming, [Discussions](https://github.com/CRS5226/StockVeda/discussions) may be a better place.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that StockVeda doesn't support well today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How it could work, in the UI and/or the API.
+    validations:
+      required: true
+  - type: textarea
+    id: data-source
+    attributes:
+      label: Data source
+      description: If this needs new market data, which free public source provides it? Include a URL if you have one.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to work on this myself
