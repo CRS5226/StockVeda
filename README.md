@@ -164,6 +164,7 @@ curl -X POST http://localhost:8007/api/sync/trigger/bhavcopy
 # Indices, FII/DII, currency, macro
 curl -X POST http://localhost:8007/api/sync/trigger/indices
 curl -X POST http://localhost:8007/api/sync/trigger/fii_dii
+curl -X POST http://localhost:8007/api/sync/trigger/fpi   # 12 months of FII flows (NSDL), for ML features
 curl -X POST http://localhost:8007/api/sync/trigger/currency
 ```
 
@@ -179,7 +180,7 @@ Backtests need enough history: the Screener's "Fetch Data" step (up to 3 years) 
 | Fundamentals, ratios, news, price history | yfinance |
 | Sector / index OHLCV | yfinance (^NSEI, ^CNXIT, etc.) |
 | Intraday bars | yfinance |
-| FII/DII flows | NSE bhavcopy |
+| FII/DII flows | NSE API (latest day), NSDL FPI archive (FII history) |
 | Currency pairs | yfinance |
 | Indian macro (CPI, GDP, G-Sec yields) | FRED API |
 | US macro (Fed rate, yield curve) | FRED API |
