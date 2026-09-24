@@ -164,14 +164,18 @@ def run_screen(
         """,
     ]
 
+    # Metric names and operators are allowlisted by _validate; every user value
+    # (symbols, thresholds, limit) goes in as a bound parameter.
     where_clauses = []
+    params: list = []
     if symbols:
-        quoted = ", ".join(f"'{s}'" for s in symbols)
-        where_clauses.append(f"symbol IN ({quoted})")
+        where_clauses.append(f"symbol IN ({', '.join('?' * len(symbols))})")
+        params.extend(symbols)
 
     for c in conditions:
         op = ALLOWED_OPS[c.op]
-        where_clauses.append(f"{c.metric} {op} {c.value}")
+        where_clauses.append(f"{c.metric} {op} ?")
+        params.append(c.value)
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
@@ -191,12 +195,13 @@ def run_screen(
     FROM combined
     WHERE {where_sql}
     ORDER BY close DESC
-    LIMIT {limit}
+    LIMIT ?
     """
+    params.append(limit)
 
     try:
         from backend.db.connection import df_to_records
-        result = db.execute(sql).df()
+        result = db.execute(sql, params).df()
         return df_to_records(result)
     except Exception as e:
         raise RuntimeError(f"Screen query failed: {e}")

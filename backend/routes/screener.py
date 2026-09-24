@@ -45,7 +45,7 @@ class WatchlistCreate(BaseModel):
 def run_screener(req: ScreenRequest):
     try:
         conditions = [Condition(metric=c.metric, op=c.op, value=c.value) for c in req.conditions]
-        results = run_screen(conditions, limit=min(req.limit, 500), symbols=req.symbols or None)
+        results = run_screen(conditions, limit=max(1, min(req.limit, 500)), symbols=req.symbols or None)
         return {"count": len(results), "results": results}
     except ValueError as e:
         raise HTTPException(400, str(e))
