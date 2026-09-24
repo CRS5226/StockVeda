@@ -39,3 +39,70 @@ def test_every_dashboard_sector_has_a_source():
     sources = set(INDICES) | set(NSE_INDICES)
     assert set(SECTOR_INDICES) <= sources
     assert not set(INDICES) & set(NSE_INDICES)  # no index fetched from both
+
+
+class _Resp:
+    def __init__(self, status_code, text=""):
+        self.status_code, self.text = status_code, text
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class _Client:
+    def __init__(self, responses):
+        self.responses = responses  # ddmmyyyy -> _Resp
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get(self, url):
+        return self.responses[url.rsplit("_", 1)[1].removesuffix(".csv")]
+
+
+def _run_sectoral(monkeypatch, statuses):
+    """Run _run_nse_sectoral over the days in `statuses` (date -> HTTP code); return the log_sync call."""
+    from backend.data_sync import sync_indices as si
+
+    days = sorted(statuses)
+    responses = {d.strftime("%d%m%Y"): _Resp(code, SAMPLE.replace("18-09-2026", d.strftime("%d-%m-%Y")))
+                 for d, code in statuses.items()}
+    logged = {}
+    monkeypatch.setattr(si, "last_synced_date", lambda _: date(2026, 9, 11))
+    monkeypatch.setattr(si, "business_days_between", lambda *_: days)
+    monkeypatch.setattr(si, "last_business_day", lambda _: days[-1])
+    monkeypatch.setattr(si, "get_client", lambda: _Client(responses))
+    monkeypatch.setattr(si, "upsert_df", lambda df, _: len(df))
+    monkeypatch.setattr(si, "log_sync", lambda *a: logged.update(args=a))
+    si._run_nse_sectoral()
+    return logged["args"]
+
+
+def test_bookmark_stops_before_mid_batch_failure(monkeypatch):
+    source, status, count, bookmark, error = _run_sectoral(monkeypatch, {
+        date(2026, 9, 14): 200, date(2026, 9, 15): 500,
+        date(2026, 9, 16): 200, date(2026, 9, 17): 200,
+    })
+    assert bookmark == date(2026, 9, 14)  # 15th is retried next run
+    assert status == "partial" and "2026-09-15" in error
+    assert count == 3 * len(NSE_INDICES)  # rows after the gap are still saved
+
+
+def test_bookmark_skips_holidays_without_failing(monkeypatch):
+    source, status, count, bookmark, error = _run_sectoral(monkeypatch, {
+        date(2026, 9, 14): 200, date(2026, 9, 15): 404, date(2026, 9, 16): 200,
+    })
+    assert bookmark == date(2026, 9, 16)
+    assert status == "success" and error is None
+
+
+def test_bookmark_unchanged_when_first_day_fails(monkeypatch):
+    source, status, count, bookmark, error = _run_sectoral(monkeypatch, {
+        date(2026, 9, 14): 503, date(2026, 9, 15): 200,
+    })
+    assert bookmark == date(2026, 9, 11)  # previous bookmark kept
+    assert status == "partial"
