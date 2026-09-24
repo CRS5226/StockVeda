@@ -1,5 +1,6 @@
 # StockVeda
 
+[![CI](https://github.com/CRS5226/StockVeda/actions/workflows/ci.yml/badge.svg)](https://github.com/CRS5226/StockVeda/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node 18+](https://img.shields.io/badge/node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
