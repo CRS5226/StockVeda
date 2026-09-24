@@ -11,7 +11,7 @@ app.add_middleware(
         f"http://localhost:{settings.frontend_port}",
         "http://localhost:5173",
         "http://localhost:4173",
-        "https://harshitkotak.duckdns.org",
+        *(o.strip() for o in settings.cors_origins.split(",") if o.strip()),
     ],
     allow_methods=["*"],
     allow_headers=["*"],

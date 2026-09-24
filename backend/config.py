@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     db_path: str = "./data/stockveda.duckdb"
     nse_base_url: str = "https://archives.nseindia.com"
     sync_timeout_seconds: int = 30
+    # Extra allowed browser origins for a deployed frontend, comma-separated.
+    cors_origins: str = ""
 
 
 settings = Settings()
