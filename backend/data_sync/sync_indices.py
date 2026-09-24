@@ -69,7 +69,9 @@ def _run_nse_sectoral():
         return
 
     print(f"[{NSE_SOURCE_ID}] fetching {len(days)} days of NSE index closes")
-    frames, last_ok = [], None
+    # The bookmark only advances up to the first failed day, so a transient
+    # failure is retried next run instead of leaving a permanent gap.
+    frames, last_ok, failed = [], None, []
     with get_client() as client:
         for d in days:
             try:
@@ -80,8 +82,10 @@ def _run_nse_sectoral():
                 df = _parse_ind_close(resp.text)
                 if not df.empty:
                     frames.append(df)
-                    last_ok = d
+                    if not failed:
+                        last_ok = d
             except Exception as e:
+                failed.append(d)
                 print(f"[{NSE_SOURCE_ID}] {d}: FAILED — {e}")
 
     if not frames:
@@ -89,7 +93,9 @@ def _run_nse_sectoral():
         return
 
     count = upsert_df(pd.concat(frames, ignore_index=True), "index_ohlcv")
-    log_sync(NSE_SOURCE_ID, "success", count, last_ok)
+    status = "partial" if failed else "success"
+    error = f"failed days: {', '.join(map(str, failed))}" if failed else None
+    log_sync(NSE_SOURCE_ID, status, count, last_ok or last, error)
     print(f"[{NSE_SOURCE_ID}] inserted {count} rows")
 
 
