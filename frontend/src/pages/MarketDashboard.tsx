@@ -18,6 +18,7 @@ interface DashSnapshot {
   data: DashboardData;
   fiiHistory: FiiRow[];
   fnoHistory: FiiRow[];
+  fnoFailed: boolean;
   indiaNews: NewsItem[];
   globalNews: NewsItem[];
 }
@@ -414,6 +415,7 @@ export default function MarketDashboard() {
   const [globalNews, setGlobalNews] = useState<NewsItem[]>(_snap?.globalNews ?? []);
   const [fiiHistory, setFiiHistory] = useState<FiiRow[]>(_snap?.fiiHistory ?? []);
   const [fnoHistory, setFnoHistory] = useState<FiiRow[]>(_snap?.fnoHistory ?? []);
+  const [fnoFailed, setFnoFailed] = useState(_snap?.fnoFailed ?? false);
   const [fiiTab, setFiiTab] = useState<"equity" | "futures">("futures");
   const [breadth, setBreadth] = useState<MarketBreadthRow | null>(null);
 
@@ -461,13 +463,14 @@ export default function MarketDashboard() {
         api.getMarketNews().catch(() => [] as NewsItem[]),
         api.getGlobalNews().catch(() => [] as NewsItem[]),
         api.getFiiDiiHistory(252).catch(() => []),
-        api.getFnoParticipantOI(252).catch(() => []),
+        api.getFnoParticipantOI(252).catch(() => null),
       ]);
       if (cancelled) return;
 
       const fiiHist = fiiRows.map(r => ({ date: r.date, fii_net: r.fii_net, dii_net: r.dii_net }));
       const byDate: Record<string, FiiRow> = {};
-      fnoRows.forEach(r => {
+      const fnoErr = fnoRows === null;
+      (fnoRows ?? []).forEach(r => {
         const d = r.date.slice(0, 10);
         if (!byDate[d]) byDate[d] = { date: d, fii_net: 0, dii_net: 0 };
         if (r.participant_type === "FII") byDate[d].fii_net = r.net_oi;
@@ -476,13 +479,14 @@ export default function MarketDashboard() {
       const fnoHist = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 
       // Save to module cache
-      _snap = { data: dash, fiiHistory: fiiHist, fnoHistory: fnoHist, indiaNews: indNews, globalNews: glbNews };
+      _snap = { data: dash, fiiHistory: fiiHist, fnoHistory: fnoHist, fnoFailed: fnoErr, indiaNews: indNews, globalNews: glbNews };
 
       setData(dash);
       setIndiaNews(indNews);
       setGlobalNews(glbNews);
       setFiiHistory(fiiHist);
       setFnoHistory(fnoHist);
+      setFnoFailed(fnoErr);
       if (!background) setLoadPct(100);
       setSeeding(false);
       setLoading(false);
@@ -827,7 +831,11 @@ export default function MarketDashboard() {
               </div>
             </>
           ) : (
-            <div className="h-32 flex items-center justify-center text-slate-400 text-sm">Loading futures data…</div>
+            <div className="h-32 flex items-center justify-center text-slate-400 text-sm text-center px-4">
+              {fnoFailed
+                ? "Couldn't load index futures data — check that the API is running"
+                : "No index futures OI data synced yet — run the fno_participant sync from the Sync panel"}
+            </div>
           )
         ) : (
           fiiHistory.length > 0 ? (
