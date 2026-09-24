@@ -66,26 +66,29 @@ ALT_FEATURE_SOURCES = {
     "max_pain_dist_pct_prev": "max_pain_dist_pct",
 }
 ALT_FEATURES = list(ALT_FEATURE_SOURCES)
-FII_DII_COLUMNS = ["fii_net", "fii_net_5d", "dii_net_5d"]
 
 MIN_TRAIN_SAMPLES = 50
 
 
 def attach_fii_dii(price_df: pd.DataFrame) -> pd.DataFrame:
     """Left-join market-wide FII/DII net flows (₹ cr) by date, plus 5-session
-    rolling sums over the recorded flow days. Missing dates stay NaN."""
+    rolling sums over the recorded flow days. Missing dates stay NaN.
+
+    FII comes from NSDL (fpi_flows, which has history); DII only from NSE's daily
+    sync (fii_dii_flows), which builds up one day at a time. Each source is used on
+    its own so the two never mix within one series."""
     from backend.db.connection import get_db
-    flows = get_db().execute("SELECT date, fii_net, dii_net FROM fii_dii_flows ORDER BY date").df()
+    db = get_db()
+    fii = db.execute("SELECT date, net AS fii_net FROM fpi_flows ORDER BY date").df()
+    dii = db.execute("SELECT date, dii_net FROM fii_dii_flows WHERE dii_net IS NOT NULL ORDER BY date").df()
+    fii["fii_net_5d"] = fii["fii_net"].rolling(5, min_periods=5).sum()
+    dii["dii_net_5d"] = dii["dii_net"].rolling(5, min_periods=5).sum()
     df = price_df.copy()
-    if flows.empty:
-        for col in FII_DII_COLUMNS:
-            df[col] = np.nan
-        return df
-    flows["date"] = flows["date"].astype(str)
-    flows["fii_net_5d"] = flows["fii_net"].rolling(5, min_periods=5).sum()
-    flows["dii_net_5d"] = flows["dii_net"].rolling(5, min_periods=5).sum()
     df["date"] = df["date"].astype(str)
-    return df.merge(flows[["date", *FII_DII_COLUMNS]], on="date", how="left")
+    for flows, cols in ((fii, ["fii_net", "fii_net_5d"]), (dii, ["dii_net_5d"])):
+        flows["date"] = flows["date"].astype(str)
+        df = df.merge(flows[["date", *cols]], on="date", how="left")
+    return df
 
 
 def alt_feature_coverage(frames: dict[str, pd.DataFrame], feature_cols: list[str]) -> dict[str, float] | None:

@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS fii_dii_flows (
     dii_net DOUBLE
 );
 
+-- NSDL FPI equity flows via stock exchanges (₹ cr), keyed by NSDL reporting date:
+-- trades confirmed up to the previous session. Kept apart from fii_dii_flows
+-- (NSE provisional) because the two sources' figures differ.
+CREATE TABLE IF NOT EXISTS fpi_flows (
+    date DATE PRIMARY KEY,
+    buy DOUBLE,
+    sell DOUBLE,
+    net DOUBLE
+);
+
 CREATE TABLE IF NOT EXISTS india_vix (
     date DATE PRIMARY KEY,
     open DOUBLE,

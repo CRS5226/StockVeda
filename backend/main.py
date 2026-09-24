@@ -53,6 +53,7 @@ _SYNC_MODULES = {
     "fno_participant":   "backend.data_sync.sync_fno_participant",
     "fno_bhavcopy":      "backend.data_sync.sync_fno_bhavcopy",
     "fii_dii":           "backend.data_sync.sync_fii_dii",
+    "fpi":               "backend.data_sync.sync_fpi",
     "corporate_actions": "backend.data_sync.sync_corporate_actions",
     "shareholding":      "backend.data_sync.sync_shareholding",
     "fundamentals":      "backend.data_sync.sync_fundamentals",
