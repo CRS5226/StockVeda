@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in StockVeda is broken or shows wrong data
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please search [existing issues](https://github.com/CRS5226/StockVeda/issues) first.
+        **Security problems:** don't report them here. See [SECURITY.md](https://github.com/CRS5226/StockVeda/blob/master/SECURITY.md).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Stock Detail
+        - Screener
+        - Backtest
+        - F&O
+        - Market / Macro Dashboard
+        - Mutual Funds
+        - Data sync
+        - Setup / installation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The page, symbol, settings or API call you used.
+      placeholder: |
+        1. Open Backtest → Multi-Stock
+        2. Pick RELIANCE, 1 year
+        3. Click Run
+        4. Win rate shows ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages or logs
+      description: Backend terminal output, browser console errors, or the API response. This is formatted as code automatically.
+      render: shell
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images here if they help.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, Node version, browser, and the commit or release you're on.
+      placeholder: Windows 11, Python 3.12, Node 20, Chrome, master @ 27f2e62
