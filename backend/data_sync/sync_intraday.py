@@ -6,6 +6,7 @@ bhavcopy is: yfinance intraday lookback is capped (~7 days for 1m bars, longer
 for coarser intervals), and fetches are per-symbol, not exchange-wide.
 """
 
+import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -21,6 +22,7 @@ VALID_INTERVALS = ("1m", "5m", "15m", "30m", "60m")
 MAX_LOOKBACK_DAYS = {"1m": 7, "5m": 60, "15m": 60, "30m": 60, "60m": 730}
 
 intraday_fetch_jobs: dict = {}
+logger = logging.getLogger(__name__)
 
 
 def fetch_intraday_symbol(symbol: str, interval: str, days: int) -> pd.DataFrame:
@@ -52,8 +54,9 @@ def _run_intraday_fetch_job(job_id: str, symbol: str, interval: str, days: int) 
             return
         count = upsert_df(df, "stock_intraday_ohlcv")
         intraday_fetch_jobs[job_id].update({"status": "done", "inserted": count, "done": 1, "total": 1})
-    except Exception as e:
-        intraday_fetch_jobs[job_id].update({"status": "error", "error": str(e), "done": 1, "total": 1})
+    except Exception:
+        logger.exception("Intraday fetch failed for %s", symbol)
+        intraday_fetch_jobs[job_id].update({"status": "error", "error": "Intraday fetch failed; see server logs", "done": 1, "total": 1})
 
 
 def _existing_coverage(symbol: str, interval: str) -> tuple[datetime | None, datetime | None]:
@@ -99,7 +102,7 @@ def sync_intraday_batch(symbols: list[str], interval: str, days: int, job_id: st
                     count = upsert_df(df, "stock_intraday_ohlcv")
                     intraday_fetch_jobs[job_id]["inserted"] += count
         except Exception:
-            pass  # best-effort per symbol — one bad symbol shouldn't abort the batch
+            logger.exception("Intraday batch fetch failed for %s", s)
         intraday_fetch_jobs[job_id]["done"] += 1
 
     intraday_fetch_jobs[job_id]["status"] = "done"

@@ -2,6 +2,7 @@
 Stock routes: OHLCV, fundamentals, delivery, shareholding, corporate actions, insider trades.
 """
 
+import logging
 from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -13,6 +14,7 @@ import pandas as pd
 import yfinance as yf
 
 router = APIRouter(prefix="/stock", tags=["stock"])
+logger = logging.getLogger(__name__)
 
 _SECTOR_INDEX = {
     "Technology": "NIFTY IT",
@@ -689,8 +691,9 @@ def get_ratios(symbol: str):
             "next_earnings":           next_earnings,
             "recommendations_summary": recs,
         }
-    except Exception as e:
-        return {"symbol": sym, "error": str(e)}
+    except Exception:
+        logger.exception("Failed to load stock ratios for %s", sym)
+        return {"symbol": sym, "error": "Failed to load stock information"}
 
 
 @router.get("/beta-history/{symbol}")

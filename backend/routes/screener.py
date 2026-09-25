@@ -2,6 +2,7 @@
 Screener routes — stock filtering, universe management, smart sync, watchlists.
 """
 
+import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -13,6 +14,7 @@ from backend.core.screener_universe import (
 from backend.db.connection import get_db
 
 router = APIRouter(prefix="/screener", tags=["screener"])
+logger = logging.getLogger(__name__)
 
 
 # ── Request models ─────────────────────────────────────────────────────────
@@ -49,8 +51,9 @@ def run_screener(req: ScreenRequest):
         return {"count": len(results), "results": results}
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except RuntimeError as e:
-        raise HTTPException(500, str(e))
+    except RuntimeError:
+        logger.exception("Screener failed")
+        raise HTTPException(500, "Screening failed, see server logs")
 
 
 # ── Universe presets ───────────────────────────────────────────────────────
