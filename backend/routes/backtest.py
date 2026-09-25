@@ -3,6 +3,7 @@ Backtest route — run strategy simulations on historical OHLCV data.
 """
 
 import json
+import logging
 from datetime import date
 from typing import Optional, Literal
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -53,6 +54,7 @@ def _load_price_df(db, sym: str, from_date: str, to_date: str, data_source: str,
 
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
+logger = logging.getLogger(__name__)
 
 
 class BacktestRequest(BaseModel):
@@ -101,8 +103,9 @@ def run(req: BacktestRequest):
 
     try:
         result = run_backtest(df, params)
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except Exception:
+        logger.exception("Backtest failed")
+        raise HTTPException(500, "Backtest failed, see server logs")
 
     if "error" in result:
         raise HTTPException(400, result["error"])
@@ -532,8 +535,9 @@ def run_straddle(req: StraddleRequest):
     )
     try:
         result = run_straddle_backtest(req.symbol, req.from_date, req.to_date, params)
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except Exception:
+        logger.exception("Straddle backtest failed")
+        raise HTTPException(500, "Backtest failed, see server logs")
 
     if result["stats"]["total_trades"] == 0:
         raise HTTPException(
@@ -589,8 +593,9 @@ def run_spread(req: SpreadRequest):
     )
     try:
         result = run_spread_backtest(req.symbol, req.from_date, req.to_date, params)
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except Exception:
+        logger.exception("Spread backtest failed")
+        raise HTTPException(500, "Backtest failed, see server logs")
 
     if result["stats"]["total_trades"] == 0:
         raise HTTPException(
@@ -634,8 +639,9 @@ def run_orb(req: ORBRequest):
     )
     try:
         result = run_orb_backtest(req.symbol, req.from_date, req.to_date, params)
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except Exception:
+        logger.exception("ORB backtest failed")
+        raise HTTPException(500, "Backtest failed, see server logs")
 
     if result["stats"]["total_trades"] == 0:
         raise HTTPException(

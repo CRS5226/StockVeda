@@ -2,6 +2,7 @@
 Macro routes: indices, FII/DII flows, FnO OI, currency, macro monthly/quarterly, market breadth.
 """
 
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -9,6 +10,7 @@ from backend.db.connection import get_db, df_to_records
 import pandas as pd
 
 router = APIRouter(prefix="/macro", tags=["macro"])
+logger = logging.getLogger(__name__)
 
 HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100"]
 SECTOR_INDICES   = ["NIFTY IT", "NIFTY BANK", "NIFTY AUTO", "NIFTY FMCG",
@@ -232,8 +234,9 @@ def bootstrap():
                 return
             run()
             results[name] = "ok"
-        except Exception as e:  # noqa: BLE001 — one source failing must not abort the rest
-            results[name] = f"failed: {e}"
+        except Exception:  # noqa: BLE001 — one source failing must not abort the rest
+            logger.exception("Failed to bootstrap %s", name)
+            results[name] = "failed; see server logs"
 
     # Symbol master powers the search dropdown — seed it first so search works immediately.
     from backend.data_sync import seed_symbols, sync_indices, sync_currency
@@ -245,8 +248,9 @@ def bootstrap():
     try:
         from backend.data_sync import sync_fii_dii
         _seed("fii_dii", "fii_dii_flows", sync_fii_dii.run)
-    except Exception as e:  # noqa: BLE001
-        results["fii_dii"] = f"failed: {e}"
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to bootstrap fii_dii")
+        results["fii_dii"] = "failed; see server logs"
 
     # nifty_pe/pb/div_yield share market_breadth with independently-populated columns
     # (advances/declines/etc.), so use a column-specific presence check rather than _seed's
@@ -259,8 +263,9 @@ def bootstrap():
             results["index_fundamentals"] = "ok"
         else:
             results["index_fundamentals"] = "already_present"
-    except Exception as e:  # noqa: BLE001
-        results["index_fundamentals"] = f"failed: {e}"
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to bootstrap index_fundamentals")
+        results["index_fundamentals"] = "failed; see server logs"
 
     n_idx = db.execute("SELECT COUNT(*) FROM index_ohlcv").fetchone()[0]
     n_sym = db.execute("SELECT COUNT(*) FROM nse_symbols").fetchone()[0]
