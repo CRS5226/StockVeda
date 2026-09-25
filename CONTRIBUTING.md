@@ -6,6 +6,7 @@ Thanks for your interest in StockVeda! Whether it's a typo, a bug fix or a new f
 
 - **New here?** Pick an issue labelled [`good first issue`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Each one lists the files involved and a suggested fix.
 - **More experience?** Look at [`help wanted`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) or the [`enhancement`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement) issues.
+- **Know one part of the stack?** Filter by area: [`area: frontend`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22area%3A+frontend%22), [`area: backend`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22area%3A+backend%22), [`area: data-sync`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22area%3A+data-sync%22), [`area: ml`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22area%3A+ml%22) or [`area: tooling`](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22area%3A+tooling%22).
 - **Found a bug?** [Open an issue](https://github.com/CRS5226/StockVeda/issues/new/choose) with the bug report form.
 - **Found a security problem?** Don't open a public issue. Follow [SECURITY.md](SECURITY.md).
 - **Have a question or an idea?** Ask in [Discussions](https://github.com/CRS5226/StockVeda/discussions).
