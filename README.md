@@ -6,10 +6,13 @@
 [![Node 18+](https://img.shields.io/badge/node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Good first issues](https://img.shields.io/github/issues/CRS5226/StockVeda/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![GitHub stars](https://img.shields.io/github/stars/CRS5226/StockVeda?style=social)](https://github.com/CRS5226/StockVeda/stargazers)
 
 Self-hosted Indian stock market research platform — screening, charting, fundamentals, backtesting (rule-based, options, and ML), F&O analytics, and macro data in one tool.
 
 Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the frontend. All data is fetched from free public sources (NSE bhavcopy, yfinance, FRED, RBI) and stored locally in a single DuckDB file — no subscriptions, no external databases.
+
+⭐ **If StockVeda is useful to you, please [star the repo](https://github.com/CRS5226/StockVeda/stargazers).** Stars help more developers and contributors find the project.
 
 <!-- Screenshots: add the images under docs/screenshots/ and uncomment.
 <p align="center">
@@ -286,6 +289,8 @@ Contributions are welcome! Start with the [`good first issue`](https://github.co
 - **Questions and ideas:** [Discussions](https://github.com/CRS5226/StockVeda/discussions)
 - **Security problems:** report privately, see [SECURITY.md](SECURITY.md)
 - **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+Enjoying the project? A ⭐ on GitHub is a quick way to support it and helps new contributors discover it.
 
 ---
 
