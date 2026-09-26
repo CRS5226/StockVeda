@@ -574,9 +574,9 @@ def get_futures(symbol: str, days: int = 90):
             ORDER BY date
         """, [sym, instr, near_expiry]).fetchall()
         oi_history = [
-            {"date": str(r[0]), "close": float(r[1]) if r[1] else None,
-             "open_interest": int(r[2]) if r[2] else None,
-             "oi_change": int(r[3]) if r[3] else None}
+            {"date": str(r[0]), "close": float(r[1]) if r[1] is not None else None,
+             "open_interest": int(r[2]) if r[2] is not None else None,
+             "oi_change": int(r[3]) if r[3] is not None else None}
             for r in oi_rows
         ]
 
