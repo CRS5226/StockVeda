@@ -10,6 +10,7 @@ import type { PatternHit } from "../lib/candlePatterns";
 import { detectStructureEvents } from "../lib/smcStructure";
 import { detectOrderBlocks, detectFvgZones } from "../lib/smcZones";
 import { detectLiquidityPools, detectLiquiditySweeps, detectInducementPoints } from "../lib/smcLiquidity";
+import { detectSmcBlocks } from "../lib/smcBlocks";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -100,6 +101,7 @@ export default function BacktestChart({
   const [fvgOn, setFvgOn] = useState(false);
   const [liqOn, setLiqOn] = useState(false);
   const [idmOn, setIdmOn] = useState(false);
+  const [blocksOn, setBlocksOn] = useState(false);
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
@@ -382,9 +384,24 @@ export default function BacktestChart({
       });
     }
 
+    // Order-block lifecycle: what happened when price came back to a block —
+    // absorbed as intended (mitigation), invalidated then held anyway (reclaimed),
+    // or invalidated and now flips polarity (breaker).
+    if (blocksOn) {
+      const BLOCK_COLOR = { breaker: "#f97316", reclaimed: "#65a30d", mitigation: "#64748b" } as const;
+      const BLOCK_LABEL = { breaker: "BRK", reclaimed: "RCL", mitigation: "MIT" } as const;
+      detectSmcBlocks(ohlcv).forEach((ev) => {
+        markers.push({
+          time: ev.date as Time,
+          position: ev.direction === "bullish" ? "belowBar" : "aboveBar",
+          shape: "circle", color: BLOCK_COLOR[ev.type], text: BLOCK_LABEL[ev.type], size: 1,
+        });
+      });
+    }
+
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, smcOn, liqOn, idmOn]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, smcOn, liqOn, idmOn, blocksOn]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
@@ -474,6 +491,17 @@ export default function BacktestChart({
         </label>
         {idmOn && (
           <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-fuchsia-500" />IDM</span>
+        )}
+        <label className="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" checked={blocksOn} onChange={(e) => setBlocksOn(e.target.checked)} className="w-3 h-3" />
+          Blocks
+        </label>
+        {blocksOn && (
+          <>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-500" />BRK breaker</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-lime-600" />RCL reclaimed</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-slate-500" />MIT mitigation</span>
+          </>
         )}
       </div>
     </div>

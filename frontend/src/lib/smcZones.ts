@@ -10,6 +10,8 @@ export interface SmcZone {
   endDate: string;
   top: number;
   bottom: number;
+  /** Index (into the ohlcv array) of the zone's origin candle — used by smcBlocks.ts. */
+  originIndex: number;
 }
 
 /** First bar from `fromIndex` onward whose range trades back into [bottom, top] — i.e. mitigation. */
@@ -45,7 +47,7 @@ export function detectOrderBlocks(ohlcv: OhlcvRow[]): SmcZone[] {
         type: "orderBlock", direction: "bullish",
         startDate: prev.date.slice(0, 10),
         endDate: firstMitigationDate(ohlcv, i + 1, top, bottom),
-        top, bottom,
+        top, bottom, originIndex: i - 1,
       });
     }
     if (prevUp && currDown && curr.close < prev.low) {
@@ -53,7 +55,7 @@ export function detectOrderBlocks(ohlcv: OhlcvRow[]): SmcZone[] {
         type: "orderBlock", direction: "bearish",
         startDate: prev.date.slice(0, 10),
         endDate: firstMitigationDate(ohlcv, i + 1, top, bottom),
-        top, bottom,
+        top, bottom, originIndex: i - 1,
       });
     }
   }
@@ -77,7 +79,7 @@ export function detectFvgZones(ohlcv: OhlcvRow[]): SmcZone[] {
         type: "fvg", direction: "bullish",
         startDate: left.date.slice(0, 10),
         endDate: firstMitigationDate(ohlcv, i + 2, top, bottom),
-        top, bottom,
+        top, bottom, originIndex: i - 1,
       });
     }
     if (left.low > right.high) {
@@ -86,7 +88,7 @@ export function detectFvgZones(ohlcv: OhlcvRow[]): SmcZone[] {
         type: "fvg", direction: "bearish",
         startDate: left.date.slice(0, 10),
         endDate: firstMitigationDate(ohlcv, i + 2, top, bottom),
-        top, bottom,
+        top, bottom, originIndex: i - 1,
       });
     }
   }
