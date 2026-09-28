@@ -48,7 +48,6 @@ def get_dashboard():
     today = date.today()
     from1yr = (today - timedelta(days=380)).isoformat()  # ~252 trading days
     from30  = from1yr  # kept for backwards compat
-    from5   = (today - timedelta(days=7)).isoformat()
 
     all_idx = list(dict.fromkeys(HEADLINE_INDICES + SECTOR_INDICES))
     ph = ", ".join("?" * len(all_idx))
