@@ -7,6 +7,7 @@ import {
 } from "lightweight-charts";
 import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
+import { detectStructureEvents } from "../lib/smcStructure";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -91,6 +92,8 @@ export default function BacktestChart({
   const pendingTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mountedRef    = useRef(true);
   const [zoneRects, setZoneRects] = useState<ZoneRect[]>([]);
+  // SMC structure overlay (issue #79) — off by default so existing chart usages are unaffected.
+  const [smcOn, setSmcOn] = useState(false);
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
@@ -286,9 +289,36 @@ export default function BacktestChart({
       });
     });
 
+    // SMC structure overlay: BOS (trend continuation) / ChoCH (trend reversal).
+    // BOS keeps the semantic green/red of its direction; ChoCH is always amber
+    // so a structure change reads as visually distinct from a continuation.
+    if (smcOn) {
+      const events = detectStructureEvents(ohlcv);
+      events.forEach((ev) => {
+        const color = ev.type === "ChoCH" ? "#f59e0b" : ev.direction === "bullish" ? "#16a34a" : "#dc2626";
+        const fromIdx = allDates.indexOf(ev.fromDate);
+        const toIdx   = allDates.indexOf(ev.date);
+        if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) return;
+        const slice = allDates.slice(fromIdx, toIdx + 1);
+        const s = chartRef.current!.addLineSeries({
+          color, lineWidth: 1, lineStyle: LineStyle.Dashed,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        s.setData(slice.map((d) => ({ time: d as Time, value: ev.level } as LineData)));
+        tradeLines.current.push(s);
+
+        markers.push({
+          time: ev.date as Time,
+          position: ev.direction === "bullish" ? "belowBar" : "aboveBar",
+          shape: ev.direction === "bullish" ? "arrowUp" : "arrowDown",
+          color, text: ev.type, size: 1,
+        });
+      });
+    }
+
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, smcOn]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
@@ -331,6 +361,18 @@ export default function BacktestChart({
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500" />Bullish pattern</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-600" />Bearish pattern</span>
             <span className="text-slate-300">MS 3W E H P = bullish · ES 3B BE SS DC = bearish</span>
+          </>
+        )}
+        <span className="text-slate-200">|</span>
+        <label className="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" checked={smcOn} onChange={(e) => setSmcOn(e.target.checked)} className="w-3 h-3" />
+          SMC structure
+        </label>
+        {smcOn && (
+          <>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-600" />Bullish BOS</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-600" />Bearish BOS</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />ChoCH</span>
           </>
         )}
       </div>
