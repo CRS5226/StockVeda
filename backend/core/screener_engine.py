@@ -179,7 +179,6 @@ def run_screen(
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-    tech_result_cols = ", ".join(_TECH_COLS)
     sql = f"""
     WITH {', '.join(ctes)}
     SELECT symbol, date, close, volume,
