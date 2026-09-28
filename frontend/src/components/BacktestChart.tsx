@@ -8,6 +8,7 @@ import {
 import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import { detectStructureEvents } from "../lib/smcStructure";
+import { detectOrderBlocks, detectFvgZones } from "../lib/smcZones";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -92,8 +93,10 @@ export default function BacktestChart({
   const pendingTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mountedRef    = useRef(true);
   const [zoneRects, setZoneRects] = useState<ZoneRect[]>([]);
-  // SMC structure overlay (issue #79) — off by default so existing chart usages are unaffected.
+  // SMC overlays (issue #79) — off by default so existing chart usages are unaffected.
   const [smcOn, setSmcOn] = useState(false);
+  const [obOn, setObOn] = useState(false);
+  const [fvgOn, setFvgOn] = useState(false);
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
@@ -169,11 +172,27 @@ export default function BacktestChart({
     };
   }, []);
 
-  // Keep the ref in sync so the stable subscribed callback always sees current zones.
+  // Keep the ref in sync so the stable subscribed callback always sees current zones —
+  // merging in SMC order-block/FVG zones (computed client-side) when their toggles are on.
   useEffect(() => {
-    boxZonesRef.current = boxZones;
+    const smcZones: BoxZone[] = [];
+    if (obOn) {
+      detectOrderBlocks(ohlcv).forEach((z) => smcZones.push({
+        entry_date: z.startDate, exit_date: z.endDate, top: z.top, bottom: z.bottom,
+        fill: z.direction === "bullish" ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)",
+        border: z.direction === "bullish" ? "#10b981" : "#ef4444",
+      }));
+    }
+    if (fvgOn) {
+      detectFvgZones(ohlcv).forEach((z) => smcZones.push({
+        entry_date: z.startDate, exit_date: z.endDate, top: z.top, bottom: z.bottom,
+        fill: z.direction === "bullish" ? "rgba(59,130,246,0.12)" : "rgba(168,85,247,0.12)",
+        border: z.direction === "bullish" ? "#3b82f6" : "#a855f7",
+      }));
+    }
+    boxZonesRef.current = [...boxZones, ...smcZones];
     scheduleRecompute();
-  }, [boxZones]);
+  }, [boxZones, ohlcv, obOn, fvgOn]);
 
   // Update candle data — only fitContent() when the underlying symbol/data changes,
   // not when the caller swaps ohlcv references for the same stock data.
@@ -373,6 +392,26 @@ export default function BacktestChart({
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-600" />Bullish BOS</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-600" />Bearish BOS</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />ChoCH</span>
+          </>
+        )}
+        <label className="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" checked={obOn} onChange={(e) => setObOn(e.target.checked)} className="w-3 h-3" />
+          Order blocks
+        </label>
+        {obOn && (
+          <>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-600 opacity-50" />Bullish OB</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-600 opacity-50" />Bearish OB</span>
+          </>
+        )}
+        <label className="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" checked={fvgOn} onChange={(e) => setFvgOn(e.target.checked)} className="w-3 h-3" />
+          FVG
+        </label>
+        {fvgOn && (
+          <>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-blue-500 opacity-50" />Bullish FVG</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500 opacity-50" />Bearish FVG</span>
           </>
         )}
       </div>
