@@ -563,10 +563,6 @@ def get_futures(symbol: str, days: int = 90):
     oi_history = []
     if expiries:
         near_expiry = expiries[0]["expiry"]
-        cutoff = db.execute(
-            "SELECT MIN(date) FROM fno_futures_ohlcv WHERE symbol=? AND instrument=? AND expiry=?",
-            [sym, instr, near_expiry]
-        ).fetchone()[0]
         oi_rows = db.execute("""
             SELECT date, close, open_interest, oi_change
             FROM fno_futures_ohlcv
