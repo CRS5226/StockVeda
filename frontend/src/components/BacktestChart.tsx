@@ -9,6 +9,7 @@ import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import { detectStructureEvents } from "../lib/smcStructure";
 import { detectOrderBlocks, detectFvgZones } from "../lib/smcZones";
+import { detectLiquidityPools, detectLiquiditySweeps, detectInducementPoints } from "../lib/smcLiquidity";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -97,6 +98,8 @@ export default function BacktestChart({
   const [smcOn, setSmcOn] = useState(false);
   const [obOn, setObOn] = useState(false);
   const [fvgOn, setFvgOn] = useState(false);
+  const [liqOn, setLiqOn] = useState(false);
+  const [idmOn, setIdmOn] = useState(false);
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
@@ -335,9 +338,53 @@ export default function BacktestChart({
       });
     }
 
+    // Liquidity: equal-highs/equal-lows pools drawn as a dashed level, plus a sweep
+    // marker on the bar that first wicks through and rejects back (a liquidity grab).
+    if (liqOn) {
+      const pools = detectLiquidityPools(ohlcv);
+      const sweeps = detectLiquiditySweeps(ohlcv, pools);
+      const LIQ_COLOR = "#06b6d4";
+      pools.forEach((pool) => {
+        const fromIdx = allDates.indexOf(pool.startDate);
+        const toIdx   = allDates.indexOf(pool.endDate);
+        if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) return;
+        const slice = allDates.slice(fromIdx, toIdx + 1);
+        const s = chartRef.current!.addLineSeries({
+          color: LIQ_COLOR, lineWidth: 1, lineStyle: LineStyle.Dotted,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        s.setData(slice.map((d) => ({ time: d as Time, value: pool.level } as LineData)));
+        tradeLines.current.push(s);
+        markers.push({
+          time: pool.endDate as Time,
+          position: pool.type === "EQH" ? "aboveBar" : "belowBar",
+          shape: "circle", color: LIQ_COLOR, text: pool.type, size: 0,
+        });
+      });
+      sweeps.forEach((sw) => {
+        markers.push({
+          time: sw.date as Time,
+          position: sw.direction === "buy-side" ? "aboveBar" : "belowBar",
+          shape: sw.direction === "buy-side" ? "arrowDown" : "arrowUp",
+          color: "#0891b2", text: "SWEEP", size: 1,
+        });
+      });
+    }
+
+    // Inducement: minor swing points used to trigger stops before the real structure break.
+    if (idmOn) {
+      detectInducementPoints(ohlcv).forEach((pt) => {
+        markers.push({
+          time: pt.date as Time,
+          position: pt.direction === "bullish" ? "belowBar" : "aboveBar",
+          shape: "circle", color: "#d946ef", text: "IDM", size: 1,
+        });
+      });
+    }
+
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, smcOn]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, smcOn, liqOn, idmOn]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
@@ -413,6 +460,20 @@ export default function BacktestChart({
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-blue-500 opacity-50" />Bullish FVG</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500 opacity-50" />Bearish FVG</span>
           </>
+        )}
+        <label className="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" checked={liqOn} onChange={(e) => setLiqOn(e.target.checked)} className="w-3 h-3" />
+          Liquidity
+        </label>
+        {liqOn && (
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-cyan-500" />EQH/EQL · SWEEP = grab</span>
+        )}
+        <label className="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" checked={idmOn} onChange={(e) => setIdmOn(e.target.checked)} className="w-3 h-3" />
+          Inducement
+        </label>
+        {idmOn && (
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-fuchsia-500" />IDM</span>
         )}
       </div>
     </div>
