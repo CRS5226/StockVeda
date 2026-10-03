@@ -24,7 +24,6 @@ DEFAULT_START = date(2020, 1, 1)
 
 def _parse_nav(text: str) -> pd.DataFrame:
     """Parse AMFI semicolon-delimited NAV text into a DataFrame."""
-    header_cols = ["scheme_code", "scheme_name", "isin_growth", "isin_div", "nav", "repurchase", "sale", "date"]
     rows = []
     for line in text.splitlines():
         if ";" not in line or not line[0].isdigit():
