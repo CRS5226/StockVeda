@@ -7,7 +7,6 @@ Note: RBI website returns 418 from cloud IPs (bot protection).
       Run on local Indian IP. sync_currency.py (yfinance) is the always-on fallback.
 """
 
-import re
 from datetime import date, timedelta
 import pandas as pd
 from bs4 import BeautifulSoup
