@@ -64,7 +64,6 @@ def get_candles(
     Also falls back when DB has data but it doesn't reach the requested from_date
     (e.g. only 2 recent bhavcopy rows while user asks for 1Y).
     """
-    from datetime import timedelta
     df = _fetch_ohlcv(symbol, from_date, to_date)
 
     needs_yfinance = df.empty
