@@ -12,7 +12,7 @@ from typing import Optional
 import pandas as pd
 import yfinance as yf
 from backend.db.connection import get_db
-from backend.data_sync.base import log_sync, upsert_df, last_synced_date
+from backend.data_sync.base import log_sync, upsert_df
 
 SOURCE_ID     = "yf_fundamentals"
 SLEEP_BETWEEN = 1.0   # seconds between ticker fetches to avoid rate limiting
