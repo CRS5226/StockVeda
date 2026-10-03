@@ -7,7 +7,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
-import pandas as pd
 
 router = APIRouter(prefix="/macro", tags=["macro"])
 logger = logging.getLogger(__name__)
