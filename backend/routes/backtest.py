@@ -4,7 +4,6 @@ Backtest route — run strategy simulations on historical OHLCV data.
 
 import json
 import logging
-from datetime import date
 from typing import Optional, Literal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import APIRouter, HTTPException
