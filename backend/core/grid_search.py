@@ -22,7 +22,6 @@ import pandas as pd
 from backend.core.backtest_engine import (
     BacktestParamsV2,
     ConditionRow,
-    prepare_frame,
     simulate,
 )
 
