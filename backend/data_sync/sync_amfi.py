@@ -6,7 +6,6 @@ Table: mf_nav (added to schema)
 Note: ~8500 schemes per day — fetching a date range downloads significant data.
 """
 
-import io
 from datetime import date, timedelta
 import pandas as pd
 from backend.data_sync.base import log_sync, upsert_df, last_synced_date, get_client, last_business_day
