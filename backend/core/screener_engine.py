@@ -6,7 +6,6 @@ Conditions are AND-ed together.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
-import pandas as pd
 from backend.db.connection import get_db
 
 ALLOWED_METRICS = {
