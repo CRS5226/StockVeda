@@ -10,7 +10,6 @@ Usage:
 """
 
 import json
-import sys
 import argparse
 from pathlib import Path
 from datetime import date, timedelta
