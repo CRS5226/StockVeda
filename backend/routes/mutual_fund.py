@@ -4,7 +4,6 @@ with NAV history + risk analytics, SIP/XIRR calculator, and GBM NAV projection.
 """
 
 from typing import Optional
-from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 import pandas as pd
