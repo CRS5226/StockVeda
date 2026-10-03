@@ -986,7 +986,7 @@ def sync_bulk_deals(days: int = 30):
                 continue
 
     if all_records:
-        df = pd.DataFrame(all_records)
+        df = pd.DataFrame(all_records) # noqa: F841
         db.execute("DELETE FROM bulk_deals WHERE date >= ? AND date <= ?", [from_d, to_d])
         db.execute("INSERT INTO bulk_deals SELECT * FROM df")
     return {"synced": len(all_records), "from": str(from_d), "to": str(to_d)}
