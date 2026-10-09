@@ -64,7 +64,6 @@ def get_candles(
     Also falls back when DB has data but it doesn't reach the requested from_date
     (e.g. only 2 recent bhavcopy rows while user asks for 1Y).
     """
-    from datetime import timedelta
     df = _fetch_ohlcv(symbol, from_date, to_date)
 
     needs_yfinance = df.empty
@@ -986,7 +985,7 @@ def sync_bulk_deals(days: int = 30):
                 continue
 
     if all_records:
-        df = pd.DataFrame(all_records)
+        df = pd.DataFrame(all_records) # noqa: F841
         db.execute("DELETE FROM bulk_deals WHERE date >= ? AND date <= ?", [from_d, to_d])
         db.execute("INSERT INTO bulk_deals SELECT * FROM df")
     return {"synced": len(all_records), "from": str(from_d), "to": str(to_d)}

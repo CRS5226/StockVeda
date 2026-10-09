@@ -7,7 +7,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
-import pandas as pd
 
 router = APIRouter(prefix="/macro", tags=["macro"])
 logger = logging.getLogger(__name__)
@@ -48,7 +47,6 @@ def get_dashboard():
     today = date.today()
     from1yr = (today - timedelta(days=380)).isoformat()  # ~252 trading days
     from30  = from1yr  # kept for backwards compat
-    from5   = (today - timedelta(days=7)).isoformat()
 
     all_idx = list(dict.fromkeys(HEADLINE_INDICES + SECTOR_INDICES))
     ph = ", ".join("?" * len(all_idx))

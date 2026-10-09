@@ -57,7 +57,6 @@ def _parse_banking_xbrl(xml_text: str, symbol: str) -> list[dict]:
 
     # Detect NS prefix from root
     ns = next((p for p in NS_PREFIXES if p in xml_text), "")
-    tag_prefix = f"{{{ns}}}" if ns else ""
 
     # Build context → period_type map
     ctx_period = {}

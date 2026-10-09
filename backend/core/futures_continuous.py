@@ -64,7 +64,6 @@ def build_continuous_futures(symbol: str, from_date: str, to_date: str) -> pd.Da
     roll_indices = front.index[front["is_roll_day"]].tolist()
 
     for i in roll_indices:
-        old_expiry = front.loc[i - 1, "expiry"]
         new_expiry = front.loc[i, "expiry"]
         transition_date = front.loc[i - 1, "date"]
         old_close = front.loc[i - 1, "close"]

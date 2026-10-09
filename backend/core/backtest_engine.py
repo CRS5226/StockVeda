@@ -5,10 +5,9 @@ Returns equity curve, trades list, and summary stats.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Optional
 import pandas as pd
-import numpy as np
 from backend.core.indicators import add_indicators, add_parametric_indicators
 
 

@@ -5,7 +5,6 @@ Note: API only returns the latest trading day — run daily via cron.
 Table: fii_dii_flows
 """
 
-from datetime import date
 import pandas as pd
 from backend.data_sync.base import log_sync, upsert_df, last_synced_date
 from backend.data_sync.nse_session import nse_get

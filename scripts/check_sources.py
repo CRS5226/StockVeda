@@ -10,7 +10,6 @@ Usage:
 """
 
 import json
-import sys
 import argparse
 from pathlib import Path
 from datetime import date, timedelta
@@ -123,7 +122,7 @@ def main():
     print("-" * 90)
 
     results = []
-    ok = blocked = skipped = error = 0
+    ok  skipped = error = 0
 
     for source in sources:
         result = check_url(source)

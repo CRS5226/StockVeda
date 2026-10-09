@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from backend.core.screener_engine import Condition, run_screen
 from backend.core.screener_universe import (
-    PRESETS, resolve_preset, top_n_by_volume,
-    get_watchlist_symbols, smart_sync, get_job, new_job_id,
+    PRESETS, resolve_preset, smart_sync, get_job, new_job_id,
 )
 from backend.db.connection import get_db
 

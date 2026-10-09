@@ -6,7 +6,6 @@ Conditions are AND-ed together.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
-import pandas as pd
 from backend.db.connection import get_db
 
 ALLOWED_METRICS = {
@@ -179,7 +178,6 @@ def run_screen(
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-    tech_result_cols = ", ".join(_TECH_COLS)
     sql = f"""
     WITH {', '.join(ctes)}
     SELECT symbol, date, close, volume,
