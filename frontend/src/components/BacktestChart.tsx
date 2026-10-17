@@ -7,6 +7,10 @@ import {
 } from "lightweight-charts";
 import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
+import { mapStructure } from "../lib/smcStructure";
+import { detectOrderBlocks, detectFvgZones } from "../lib/smcZones";
+import { detectLiquidityPools, detectLiquiditySweeps } from "../lib/smcLiquidity";
+import { detectSmcBlocks } from "../lib/smcBlocks";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -34,6 +38,26 @@ export interface BoxZone {
   border: string;  // hex/rgb border
 }
 
+/** Which SMC overlays to draw on the chart (issue #79). */
+export interface SmcToggles {
+  bos: boolean;
+  choch: boolean;
+  idm: boolean;          // inducement
+  points: boolean;       // confirmed HH / HL / LH / LL
+  orderBlocks: boolean;
+  fvg: boolean;
+  liquidity: boolean;    // EQH/EQL pools + sweeps
+  breaker: boolean;
+  reclaimed: boolean;
+  mitigation: boolean;
+}
+
+export const NO_SMC: SmcToggles = {
+  bos: false, choch: false, idm: false, points: false,
+  orderBlocks: false, fvg: false, liquidity: false,
+  breaker: false, reclaimed: false, mitigation: false,
+};
+
 interface Props {
   ohlcv: OhlcvRow[];
   symbol: string;
@@ -54,6 +78,8 @@ interface Props {
   strikeLines?: StrikeLine[];
   /** Shaded trade-zone rectangles (e.g. entry→target, entry→SL, or a straddle's strike band). */
   boxZones?: BoxZone[];
+  /** SMC (Smart Money Concepts) overlays to draw; omit for none. */
+  smc?: SmcToggles;
 }
 
 const BG   = "#ffffff";
@@ -67,6 +93,8 @@ function hexWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+interface LineLabel { fromDate: string; toDate: string; level: number; text: string; color: string }
+interface LabelPos { left: number; top: number; text: string; color: string }
 interface ZoneRect { left: number; top: number; width: number; height: number; fill: string; border: string }
 
 // Stable empty-array references — an inline `= []` default parameter creates a NEW
@@ -80,7 +108,7 @@ const EMPTY_BOX_ZONES: BoxZone[] = [];
 
 export default function BacktestChart({
   ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS, hLines = true,
-  strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES,
+  strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES, smc = NO_SMC,
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
@@ -91,11 +119,19 @@ export default function BacktestChart({
   const pendingTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mountedRef    = useRef(true);
   const [zoneRects, setZoneRects] = useState<ZoneRect[]>([]);
+  // Text labels pinned to the middle of a horizontal level (BOS / ChoCH), drawn as HTML
+  // because chart markers can only attach to a candle, not to the centre of a line.
+  const lineLabelsRef = useRef<LineLabel[]>([]);
+  const [labelPos, setLabelPos] = useState<LabelPos[]>([]);
+  // SMC overlays (issue #79) are driven by the SMC tab; every other chart usage leaves them off.
+  const { bos: bosOn, choch: chochOn, idm: idmOn, points: pointsOn,
+          orderBlocks: obOn, fvg: fvgOn, liquidity: liqOn,
+          breaker: brkOn, reclaimed: rclOn, mitigation: mitOn } = smc;
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
     const chart = chartRef.current, series = candleRef.current;
-    if (!chart || !series) { setZoneRects([]); return; }
+    if (!chart || !series) { setZoneRects([]); setLabelPos([]); return; }
     const rects: ZoneRect[] = [];
     boxZonesRef.current.forEach((z) => {
       const x1 = chart.timeScale().timeToCoordinate(z.entry_date.slice(0, 10) as Time);
@@ -110,6 +146,16 @@ export default function BacktestChart({
       });
     });
     setZoneRects(rects);
+
+    const labels: LabelPos[] = [];
+    lineLabelsRef.current.forEach((l) => {
+      const x1 = chart.timeScale().timeToCoordinate(l.fromDate as Time);
+      const x2 = chart.timeScale().timeToCoordinate(l.toDate as Time);
+      const y = series.priceToCoordinate(l.level);
+      if (x1 == null || x2 == null || y == null || !Number.isFinite(y)) return;
+      labels.push({ left: (x1 + x2) / 2, top: y, text: l.text, color: l.color });
+    });
+    setLabelPos(labels);
   };
 
   // priceToCoordinate/timeToCoordinate can return null until the chart has actually
@@ -125,6 +171,9 @@ export default function BacktestChart({
   // Init chart once
   useEffect(() => {
     if (!containerRef.current) return;
+    // StrictMode (dev) runs mount -> cleanup -> mount; the cleanup flips this to false,
+    // so it must be re-armed here or overlay positioning (zones, SMC labels) never runs.
+    mountedRef.current = true;
     const chart = createChart(containerRef.current, {
       layout: { background: { type: ColorType.Solid, color: BG }, textColor: TEXT },
       grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
@@ -166,11 +215,27 @@ export default function BacktestChart({
     };
   }, []);
 
-  // Keep the ref in sync so the stable subscribed callback always sees current zones.
+  // Keep the ref in sync so the stable subscribed callback always sees current zones —
+  // merging in SMC order-block/FVG zones (computed client-side) when their toggles are on.
   useEffect(() => {
-    boxZonesRef.current = boxZones;
+    const smcZones: BoxZone[] = [];
+    if (obOn) {
+      detectOrderBlocks(ohlcv).forEach((z) => smcZones.push({
+        entry_date: z.startDate, exit_date: z.endDate, top: z.top, bottom: z.bottom,
+        fill: z.direction === "bullish" ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)",
+        border: z.direction === "bullish" ? "#10b981" : "#ef4444",
+      }));
+    }
+    if (fvgOn) {
+      detectFvgZones(ohlcv).forEach((z) => smcZones.push({
+        entry_date: z.startDate, exit_date: z.endDate, top: z.top, bottom: z.bottom,
+        fill: z.direction === "bullish" ? "rgba(59,130,246,0.12)" : "rgba(168,85,247,0.12)",
+        border: z.direction === "bullish" ? "#3b82f6" : "#a855f7",
+      }));
+    }
+    boxZonesRef.current = [...boxZones, ...smcZones];
     scheduleRecompute();
-  }, [boxZones]);
+  }, [boxZones, ohlcv, obOn, fvgOn]);
 
   // Update candle data — only fitContent() when the underlying symbol/data changes,
   // not when the caller swaps ohlcv references for the same stock data.
@@ -286,9 +351,81 @@ export default function BacktestChart({
       });
     });
 
+    // SMC overlays are drawn as a level between two dates with its label centred on the
+    // line (like TradingView), rather than as a marker stuck to a candle.
+    const levelLabels: LineLabel[] = [];
+    const addLevel = (
+      fromDate: string, toDate: string, level: number, color: string, lineStyle: LineStyle, text: string,
+    ) => {
+      const fromIdx = allDates.indexOf(fromDate);
+      const toIdx   = allDates.indexOf(toDate);
+      if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx || !chartRef.current) return;
+      const s = chartRef.current.addLineSeries({
+        color, lineWidth: 1, lineStyle,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      s.setData(allDates.slice(fromIdx, toIdx + 1).map((d) => ({ time: d as Time, value: level } as LineData)));
+      tradeLines.current.push(s);
+      levelLabels.push({ fromDate, toDate, level, text, color });
+    };
+
+    // Structure map (lecture rules): BOS (continuation) / ChoCH (trend change) are solid levels
+    // from the broken swing to the breaking bar; IDM is a dotted level from the inducement swing
+    // to the bar that took it. BOS keeps the semantic green/red of its direction, ChoCH is always
+    // amber, IDM magenta. HH/HL/LH/LL are tagged on the candle that formed the point.
+    if (bosOn || chochOn || idmOn || pointsOn) {
+      const map = mapStructure(ohlcv);
+      map.events.forEach((ev) => {
+        if (ev.type === "BOS" && bosOn) {
+          addLevel(ev.fromDate, ev.date, ev.level, ev.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Solid, "BOS");
+        } else if (ev.type === "ChoCH" && chochOn) {
+          addLevel(ev.fromDate, ev.date, ev.level, "#f59e0b", LineStyle.Solid, "ChoCH");
+        } else if (ev.type === "IDM" && idmOn) {
+          addLevel(ev.fromDate, ev.date, ev.level, "#d946ef", LineStyle.Dotted, "IDM");
+        }
+      });
+      if (pointsOn) {
+        map.points.forEach((p) => {
+          const top = p.type === "HH" || p.type === "LH";
+          const bullish = p.type === "HH" || p.type === "HL";
+          markers.push({
+            time: p.date as Time,
+            position: top ? "aboveBar" : "belowBar",
+            shape: "circle", color: bullish ? "#15803d" : "#b91c1c", text: p.type, size: 0,
+          });
+        });
+      }
+    }
+
+    // Liquidity: equal-highs/equal-lows pools as a dotted level, plus a sweep line from the
+    // pool to the bar that first wicks through and rejects back (a liquidity grab).
+    if (liqOn) {
+      const pools = detectLiquidityPools(ohlcv);
+      const LIQ_COLOR = "#06b6d4";
+      pools.forEach((pool) => addLevel(pool.startDate, pool.endDate, pool.level, LIQ_COLOR, LineStyle.Dotted, pool.type));
+      detectLiquiditySweeps(ohlcv, pools).forEach((sw) =>
+        addLevel(sw.pool.endDate, sw.date, sw.pool.level, "#0891b2", LineStyle.Solid, "SWEEP"));
+    }
+
+    // Order-block lifecycle: what happened when price came back to a block — absorbed as
+    // intended (mitigation), invalidated then held anyway (reclaimed), or invalidated and
+    // now flips polarity (breaker). Drawn on the block's near edge from its origin candle.
+    if (brkOn || rclOn || mitOn) {
+      const BLOCK_ON = { breaker: brkOn, reclaimed: rclOn, mitigation: mitOn } as const;
+      const BLOCK_COLOR = { breaker: "#f97316", reclaimed: "#65a30d", mitigation: "#64748b" } as const;
+      const BLOCK_LABEL = { breaker: "BRK", reclaimed: "RCL", mitigation: "MIT" } as const;
+      detectSmcBlocks(ohlcv).filter((ev) => BLOCK_ON[ev.type]).forEach((ev) => {
+        addLevel(ev.originDate, ev.date, ev.direction === "bullish" ? ev.top : ev.bottom,
+          BLOCK_COLOR[ev.type], LineStyle.Dashed, BLOCK_LABEL[ev.type]);
+      });
+    }
+
+    lineLabelsRef.current = levelLabels;
+    scheduleRecompute();
+
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
@@ -297,6 +434,12 @@ export default function BacktestChart({
       <div className="relative">
         <div ref={containerRef} className="w-full" />
         <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 5 }}>
+          {labelPos.map((l, i) => (
+            <span key={`l${i}`} className="absolute -translate-x-1/2 -translate-y-1/2 px-1 rounded text-[9px] font-bold leading-none bg-white/90"
+              style={{ left: l.left, top: l.top, color: l.color }}>
+              {l.text}
+            </span>
+          ))}
           {zoneRects.map((r, i) => (
             <div key={i} className="absolute rounded-sm"
               style={{
