@@ -47,12 +47,15 @@ export interface SmcToggles {
   orderBlocks: boolean;
   fvg: boolean;
   liquidity: boolean;    // EQH/EQL pools + sweeps
-  blocks: boolean;       // breaker / reclaimed / mitigation
+  breaker: boolean;
+  reclaimed: boolean;
+  mitigation: boolean;
 }
 
 export const NO_SMC: SmcToggles = {
   bos: false, choch: false, idm: false, points: false,
-  orderBlocks: false, fvg: false, liquidity: false, blocks: false,
+  orderBlocks: false, fvg: false, liquidity: false,
+  breaker: false, reclaimed: false, mitigation: false,
 };
 
 interface Props {
@@ -122,7 +125,8 @@ export default function BacktestChart({
   const [labelPos, setLabelPos] = useState<LabelPos[]>([]);
   // SMC overlays (issue #79) are driven by the SMC tab; every other chart usage leaves them off.
   const { bos: bosOn, choch: chochOn, idm: idmOn, points: pointsOn,
-          orderBlocks: obOn, fvg: fvgOn, liquidity: liqOn, blocks: blocksOn } = smc;
+          orderBlocks: obOn, fvg: fvgOn, liquidity: liqOn,
+          breaker: brkOn, reclaimed: rclOn, mitigation: mitOn } = smc;
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
@@ -406,10 +410,11 @@ export default function BacktestChart({
     // Order-block lifecycle: what happened when price came back to a block — absorbed as
     // intended (mitigation), invalidated then held anyway (reclaimed), or invalidated and
     // now flips polarity (breaker). Drawn on the block's near edge from its origin candle.
-    if (blocksOn) {
+    if (brkOn || rclOn || mitOn) {
+      const BLOCK_ON = { breaker: brkOn, reclaimed: rclOn, mitigation: mitOn } as const;
       const BLOCK_COLOR = { breaker: "#f97316", reclaimed: "#65a30d", mitigation: "#64748b" } as const;
       const BLOCK_LABEL = { breaker: "BRK", reclaimed: "RCL", mitigation: "MIT" } as const;
-      detectSmcBlocks(ohlcv).forEach((ev) => {
+      detectSmcBlocks(ohlcv).filter((ev) => BLOCK_ON[ev.type]).forEach((ev) => {
         addLevel(ev.originDate, ev.date, ev.direction === "bullish" ? ev.top : ev.bottom,
           BLOCK_COLOR[ev.type], LineStyle.Dashed, BLOCK_LABEL[ev.type]);
       });
@@ -420,7 +425,7 @@ export default function BacktestChart({
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, blocksOn]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 

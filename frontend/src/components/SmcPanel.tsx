@@ -60,12 +60,16 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
         ],
       },
       {
-        key: "blocks", label: "Breaker / Reclaimed / Mitigation", hint: "what price did when it revisited an order block",
-        legend: [
-          { color: "bg-orange-500", text: "BRK — breaker (block failed, now flips)" },
-          { color: "bg-lime-600", text: "RCL — reclaimed (block held after a break)" },
-          { color: "bg-slate-500", text: "MIT — mitigation (block absorbed price)" },
-        ],
+        key: "breaker", label: "Breaker block", hint: "order block that failed, then flips polarity on a retest",
+        legend: [{ color: "bg-orange-500", text: "BRK — breaker (block failed, now flips)" }],
+      },
+      {
+        key: "reclaimed", label: "Reclaimed block", hint: "order block broken, then price closed back on its original side",
+        legend: [{ color: "bg-lime-600", text: "RCL — reclaimed (block held after a break)" }],
+      },
+      {
+        key: "mitigation", label: "Mitigation block", hint: "order block that absorbed price on a revisit, as intended",
+        legend: [{ color: "bg-slate-500", text: "MIT — mitigation (block absorbed price)" }],
       },
     ],
   },
