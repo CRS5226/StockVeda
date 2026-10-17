@@ -38,6 +38,20 @@ export interface BoxZone {
   border: string;  // hex/rgb border
 }
 
+/** Which SMC overlays to draw on the chart (issue #79). */
+export interface SmcToggles {
+  structure: boolean;    // BOS / ChoCH
+  orderBlocks: boolean;
+  fvg: boolean;
+  liquidity: boolean;    // EQH/EQL pools + sweeps
+  inducement: boolean;
+  blocks: boolean;       // breaker / reclaimed / mitigation
+}
+
+export const NO_SMC: SmcToggles = {
+  structure: false, orderBlocks: false, fvg: false, liquidity: false, inducement: false, blocks: false,
+};
+
 interface Props {
   ohlcv: OhlcvRow[];
   symbol: string;
@@ -58,6 +72,8 @@ interface Props {
   strikeLines?: StrikeLine[];
   /** Shaded trade-zone rectangles (e.g. entry→target, entry→SL, or a straddle's strike band). */
   boxZones?: BoxZone[];
+  /** SMC (Smart Money Concepts) overlays to draw; omit for none. */
+  smc?: SmcToggles;
 }
 
 const BG   = "#ffffff";
@@ -71,6 +87,8 @@ function hexWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+interface LineLabel { fromDate: string; toDate: string; level: number; text: string; color: string }
+interface LabelPos { left: number; top: number; text: string; color: string }
 interface ZoneRect { left: number; top: number; width: number; height: number; fill: string; border: string }
 
 // Stable empty-array references — an inline `= []` default parameter creates a NEW
@@ -84,7 +102,7 @@ const EMPTY_BOX_ZONES: BoxZone[] = [];
 
 export default function BacktestChart({
   ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS, hLines = true,
-  strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES,
+  strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES, smc = NO_SMC,
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const chartRef      = useRef<IChartApi | null>(null);
@@ -95,18 +113,17 @@ export default function BacktestChart({
   const pendingTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mountedRef    = useRef(true);
   const [zoneRects, setZoneRects] = useState<ZoneRect[]>([]);
-  // SMC overlays (issue #79) — off by default so existing chart usages are unaffected.
-  const [smcOn, setSmcOn] = useState(false);
-  const [obOn, setObOn] = useState(false);
-  const [fvgOn, setFvgOn] = useState(false);
-  const [liqOn, setLiqOn] = useState(false);
-  const [idmOn, setIdmOn] = useState(false);
-  const [blocksOn, setBlocksOn] = useState(false);
+  // Text labels pinned to the middle of a horizontal level (BOS / ChoCH), drawn as HTML
+  // because chart markers can only attach to a candle, not to the centre of a line.
+  const lineLabelsRef = useRef<LineLabel[]>([]);
+  const [labelPos, setLabelPos] = useState<LabelPos[]>([]);
+  // SMC overlays (issue #79) are driven by the SMC tab; every other chart usage leaves them off.
+  const { structure: smcOn, orderBlocks: obOn, fvg: fvgOn, liquidity: liqOn, inducement: idmOn, blocks: blocksOn } = smc;
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
     const chart = chartRef.current, series = candleRef.current;
-    if (!chart || !series) { setZoneRects([]); return; }
+    if (!chart || !series) { setZoneRects([]); setLabelPos([]); return; }
     const rects: ZoneRect[] = [];
     boxZonesRef.current.forEach((z) => {
       const x1 = chart.timeScale().timeToCoordinate(z.entry_date.slice(0, 10) as Time);
@@ -121,6 +138,16 @@ export default function BacktestChart({
       });
     });
     setZoneRects(rects);
+
+    const labels: LabelPos[] = [];
+    lineLabelsRef.current.forEach((l) => {
+      const x1 = chart.timeScale().timeToCoordinate(l.fromDate as Time);
+      const x2 = chart.timeScale().timeToCoordinate(l.toDate as Time);
+      const y = series.priceToCoordinate(l.level);
+      if (x1 == null || x2 == null || y == null || !Number.isFinite(y)) return;
+      labels.push({ left: (x1 + x2) / 2, top: y, text: l.text, color: l.color });
+    });
+    setLabelPos(labels);
   };
 
   // priceToCoordinate/timeToCoordinate can return null until the chart has actually
@@ -136,6 +163,9 @@ export default function BacktestChart({
   // Init chart once
   useEffect(() => {
     if (!containerRef.current) return;
+    // StrictMode (dev) runs mount -> cleanup -> mount; the cleanup flips this to false,
+    // so it must be re-armed here or overlay positioning (zones, SMC labels) never runs.
+    mountedRef.current = true;
     const chart = createChart(containerRef.current, {
       layout: { background: { type: ColorType.Solid, color: BG }, textColor: TEXT },
       grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
@@ -313,91 +343,69 @@ export default function BacktestChart({
       });
     });
 
-    // SMC structure overlay: BOS (trend continuation) / ChoCH (trend reversal).
-    // BOS keeps the semantic green/red of its direction; ChoCH is always amber
-    // so a structure change reads as visually distinct from a continuation.
-    if (smcOn) {
-      const events = detectStructureEvents(ohlcv);
-      events.forEach((ev) => {
-        const color = ev.type === "ChoCH" ? "#f59e0b" : ev.direction === "bullish" ? "#16a34a" : "#dc2626";
-        const fromIdx = allDates.indexOf(ev.fromDate);
-        const toIdx   = allDates.indexOf(ev.date);
-        if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) return;
-        const slice = allDates.slice(fromIdx, toIdx + 1);
-        const s = chartRef.current!.addLineSeries({
-          color, lineWidth: 1, lineStyle: LineStyle.Dashed,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        s.setData(slice.map((d) => ({ time: d as Time, value: ev.level } as LineData)));
-        tradeLines.current.push(s);
+    // SMC overlays are drawn as a level between two dates with its label centred on the
+    // line (like TradingView), rather than as a marker stuck to a candle.
+    const levelLabels: LineLabel[] = [];
+    const addLevel = (
+      fromDate: string, toDate: string, level: number, color: string, lineStyle: LineStyle, text: string,
+    ) => {
+      const fromIdx = allDates.indexOf(fromDate);
+      const toIdx   = allDates.indexOf(toDate);
+      if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx || !chartRef.current) return;
+      const s = chartRef.current.addLineSeries({
+        color, lineWidth: 1, lineStyle,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      s.setData(allDates.slice(fromIdx, toIdx + 1).map((d) => ({ time: d as Time, value: level } as LineData)));
+      tradeLines.current.push(s);
+      levelLabels.push({ fromDate, toDate, level, text, color });
+    };
 
-        markers.push({
-          time: ev.date as Time,
-          position: ev.direction === "bullish" ? "belowBar" : "aboveBar",
-          shape: ev.direction === "bullish" ? "arrowUp" : "arrowDown",
-          color, text: ev.type, size: 1,
-        });
+    // Structure: BOS (trend continuation) / ChoCH (trend reversal), from the swing point to
+    // the breaking bar. BOS keeps the semantic green/red of its direction; ChoCH is always
+    // amber so a structure change reads as distinct from a continuation.
+    if (smcOn) {
+      detectStructureEvents(ohlcv).forEach((ev) => {
+        const color = ev.type === "ChoCH" ? "#f59e0b" : ev.direction === "bullish" ? "#16a34a" : "#dc2626";
+        addLevel(ev.fromDate, ev.date, ev.level, color, LineStyle.Solid, ev.type);
       });
     }
 
-    // Liquidity: equal-highs/equal-lows pools drawn as a dashed level, plus a sweep
-    // marker on the bar that first wicks through and rejects back (a liquidity grab).
+    // Liquidity: equal-highs/equal-lows pools as a dotted level, plus a sweep line from the
+    // pool to the bar that first wicks through and rejects back (a liquidity grab).
     if (liqOn) {
       const pools = detectLiquidityPools(ohlcv);
-      const sweeps = detectLiquiditySweeps(ohlcv, pools);
       const LIQ_COLOR = "#06b6d4";
-      pools.forEach((pool) => {
-        const fromIdx = allDates.indexOf(pool.startDate);
-        const toIdx   = allDates.indexOf(pool.endDate);
-        if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) return;
-        const slice = allDates.slice(fromIdx, toIdx + 1);
-        const s = chartRef.current!.addLineSeries({
-          color: LIQ_COLOR, lineWidth: 1, lineStyle: LineStyle.Dotted,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        s.setData(slice.map((d) => ({ time: d as Time, value: pool.level } as LineData)));
-        tradeLines.current.push(s);
-        markers.push({
-          time: pool.endDate as Time,
-          position: pool.type === "EQH" ? "aboveBar" : "belowBar",
-          shape: "circle", color: LIQ_COLOR, text: pool.type, size: 0,
-        });
-      });
-      sweeps.forEach((sw) => {
-        markers.push({
-          time: sw.date as Time,
-          position: sw.direction === "buy-side" ? "aboveBar" : "belowBar",
-          shape: sw.direction === "buy-side" ? "arrowDown" : "arrowUp",
-          color: "#0891b2", text: "SWEEP", size: 1,
-        });
-      });
+      pools.forEach((pool) => addLevel(pool.startDate, pool.endDate, pool.level, LIQ_COLOR, LineStyle.Dotted, pool.type));
+      detectLiquiditySweeps(ohlcv, pools).forEach((sw) =>
+        addLevel(sw.pool.endDate, sw.date, sw.pool.level, "#0891b2", LineStyle.Solid, "SWEEP"));
     }
 
     // Inducement: minor swing points used to trigger stops before the real structure break.
+    // A swing has no end date of its own, so the level runs a few bars forward to carry the label.
     if (idmOn) {
       detectInducementPoints(ohlcv).forEach((pt) => {
-        markers.push({
-          time: pt.date as Time,
-          position: pt.direction === "bullish" ? "belowBar" : "aboveBar",
-          shape: "circle", color: "#d946ef", text: "IDM", size: 1,
-        });
+        const idx = allDates.indexOf(pt.date);
+        if (idx < 0) return;
+        const end = allDates[Math.min(idx + 6, allDates.length - 1)];
+        addLevel(pt.date, end, pt.price, "#d946ef", LineStyle.Dotted, "IDM");
       });
     }
 
-    // Order-block lifecycle: what happened when price came back to a block —
-    // absorbed as intended (mitigation), invalidated then held anyway (reclaimed),
-    // or invalidated and now flips polarity (breaker).
+    // Order-block lifecycle: what happened when price came back to a block — absorbed as
+    // intended (mitigation), invalidated then held anyway (reclaimed), or invalidated and
+    // now flips polarity (breaker). Drawn on the block's near edge from its origin candle.
     if (blocksOn) {
       const BLOCK_COLOR = { breaker: "#f97316", reclaimed: "#65a30d", mitigation: "#64748b" } as const;
       const BLOCK_LABEL = { breaker: "BRK", reclaimed: "RCL", mitigation: "MIT" } as const;
       detectSmcBlocks(ohlcv).forEach((ev) => {
-        markers.push({
-          time: ev.date as Time,
-          position: ev.direction === "bullish" ? "belowBar" : "aboveBar",
-          shape: "circle", color: BLOCK_COLOR[ev.type], text: BLOCK_LABEL[ev.type], size: 1,
-        });
+        addLevel(ev.originDate, ev.date, ev.direction === "bullish" ? ev.top : ev.bottom,
+          BLOCK_COLOR[ev.type], LineStyle.Dashed, BLOCK_LABEL[ev.type]);
       });
     }
+
+    lineLabelsRef.current = levelLabels;
+    scheduleRecompute();
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
@@ -410,6 +418,12 @@ export default function BacktestChart({
       <div className="relative">
         <div ref={containerRef} className="w-full" />
         <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 5 }}>
+          {labelPos.map((l, i) => (
+            <span key={`l${i}`} className="absolute -translate-x-1/2 -translate-y-1/2 px-1 rounded text-[9px] font-bold leading-none bg-white/90"
+              style={{ left: l.left, top: l.top, color: l.color }}>
+              {l.text}
+            </span>
+          ))}
           {zoneRects.map((r, i) => (
             <div key={i} className="absolute rounded-sm"
               style={{
@@ -444,63 +458,6 @@ export default function BacktestChart({
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500" />Bullish pattern</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-600" />Bearish pattern</span>
             <span className="text-slate-300">MS 3W E H P = bullish · ES 3B BE SS DC = bearish</span>
-          </>
-        )}
-        <span className="text-slate-200">|</span>
-        <label className="flex items-center gap-1 cursor-pointer select-none">
-          <input type="checkbox" checked={smcOn} onChange={(e) => setSmcOn(e.target.checked)} className="w-3 h-3" />
-          SMC structure
-        </label>
-        {smcOn && (
-          <>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-600" />Bullish BOS</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-600" />Bearish BOS</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />ChoCH</span>
-          </>
-        )}
-        <label className="flex items-center gap-1 cursor-pointer select-none">
-          <input type="checkbox" checked={obOn} onChange={(e) => setObOn(e.target.checked)} className="w-3 h-3" />
-          Order blocks
-        </label>
-        {obOn && (
-          <>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-600 opacity-50" />Bullish OB</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-600 opacity-50" />Bearish OB</span>
-          </>
-        )}
-        <label className="flex items-center gap-1 cursor-pointer select-none">
-          <input type="checkbox" checked={fvgOn} onChange={(e) => setFvgOn(e.target.checked)} className="w-3 h-3" />
-          FVG
-        </label>
-        {fvgOn && (
-          <>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-blue-500 opacity-50" />Bullish FVG</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-500 opacity-50" />Bearish FVG</span>
-          </>
-        )}
-        <label className="flex items-center gap-1 cursor-pointer select-none">
-          <input type="checkbox" checked={liqOn} onChange={(e) => setLiqOn(e.target.checked)} className="w-3 h-3" />
-          Liquidity
-        </label>
-        {liqOn && (
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-cyan-500" />EQH/EQL · SWEEP = grab</span>
-        )}
-        <label className="flex items-center gap-1 cursor-pointer select-none">
-          <input type="checkbox" checked={idmOn} onChange={(e) => setIdmOn(e.target.checked)} className="w-3 h-3" />
-          Inducement
-        </label>
-        {idmOn && (
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-fuchsia-500" />IDM</span>
-        )}
-        <label className="flex items-center gap-1 cursor-pointer select-none">
-          <input type="checkbox" checked={blocksOn} onChange={(e) => setBlocksOn(e.target.checked)} className="w-3 h-3" />
-          Blocks
-        </label>
-        {blocksOn && (
-          <>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-500" />BRK breaker</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-lime-600" />RCL reclaimed</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-slate-500" />MIT mitigation</span>
           </>
         )}
       </div>
