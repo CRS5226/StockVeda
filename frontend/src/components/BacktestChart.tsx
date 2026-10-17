@@ -7,9 +7,9 @@ import {
 } from "lightweight-charts";
 import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
-import { detectStructureEvents } from "../lib/smcStructure";
+import { mapStructure } from "../lib/smcStructure";
 import { detectOrderBlocks, detectFvgZones } from "../lib/smcZones";
-import { detectLiquidityPools, detectLiquiditySweeps, detectInducementPoints } from "../lib/smcLiquidity";
+import { detectLiquidityPools, detectLiquiditySweeps } from "../lib/smcLiquidity";
 import { detectSmcBlocks } from "../lib/smcBlocks";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
@@ -40,16 +40,19 @@ export interface BoxZone {
 
 /** Which SMC overlays to draw on the chart (issue #79). */
 export interface SmcToggles {
-  structure: boolean;    // BOS / ChoCH
+  bos: boolean;
+  choch: boolean;
+  idm: boolean;          // inducement
+  points: boolean;       // confirmed HH / HL / LH / LL
   orderBlocks: boolean;
   fvg: boolean;
   liquidity: boolean;    // EQH/EQL pools + sweeps
-  inducement: boolean;
   blocks: boolean;       // breaker / reclaimed / mitigation
 }
 
 export const NO_SMC: SmcToggles = {
-  structure: false, orderBlocks: false, fvg: false, liquidity: false, inducement: false, blocks: false,
+  bos: false, choch: false, idm: false, points: false,
+  orderBlocks: false, fvg: false, liquidity: false, blocks: false,
 };
 
 interface Props {
@@ -118,7 +121,8 @@ export default function BacktestChart({
   const lineLabelsRef = useRef<LineLabel[]>([]);
   const [labelPos, setLabelPos] = useState<LabelPos[]>([]);
   // SMC overlays (issue #79) are driven by the SMC tab; every other chart usage leaves them off.
-  const { structure: smcOn, orderBlocks: obOn, fvg: fvgOn, liquidity: liqOn, inducement: idmOn, blocks: blocksOn } = smc;
+  const { bos: bosOn, choch: chochOn, idm: idmOn, points: pointsOn,
+          orderBlocks: obOn, fvg: fvgOn, liquidity: liqOn, blocks: blocksOn } = smc;
 
   const recomputeZones = () => {
     if (!mountedRef.current) return;
@@ -361,14 +365,32 @@ export default function BacktestChart({
       levelLabels.push({ fromDate, toDate, level, text, color });
     };
 
-    // Structure: BOS (trend continuation) / ChoCH (trend reversal), from the swing point to
-    // the breaking bar. BOS keeps the semantic green/red of its direction; ChoCH is always
-    // amber so a structure change reads as distinct from a continuation.
-    if (smcOn) {
-      detectStructureEvents(ohlcv).forEach((ev) => {
-        const color = ev.type === "ChoCH" ? "#f59e0b" : ev.direction === "bullish" ? "#16a34a" : "#dc2626";
-        addLevel(ev.fromDate, ev.date, ev.level, color, LineStyle.Solid, ev.type);
+    // Structure map (lecture rules): BOS (continuation) / ChoCH (trend change) are solid levels
+    // from the broken swing to the breaking bar; IDM is a dotted level from the inducement swing
+    // to the bar that took it. BOS keeps the semantic green/red of its direction, ChoCH is always
+    // amber, IDM magenta. HH/HL/LH/LL are tagged on the candle that formed the point.
+    if (bosOn || chochOn || idmOn || pointsOn) {
+      const map = mapStructure(ohlcv);
+      map.events.forEach((ev) => {
+        if (ev.type === "BOS" && bosOn) {
+          addLevel(ev.fromDate, ev.date, ev.level, ev.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Solid, "BOS");
+        } else if (ev.type === "ChoCH" && chochOn) {
+          addLevel(ev.fromDate, ev.date, ev.level, "#f59e0b", LineStyle.Solid, "ChoCH");
+        } else if (ev.type === "IDM" && idmOn) {
+          addLevel(ev.fromDate, ev.date, ev.level, "#d946ef", LineStyle.Dotted, "IDM");
+        }
       });
+      if (pointsOn) {
+        map.points.forEach((p) => {
+          const top = p.type === "HH" || p.type === "LH";
+          const bullish = p.type === "HH" || p.type === "HL";
+          markers.push({
+            time: p.date as Time,
+            position: top ? "aboveBar" : "belowBar",
+            shape: "circle", color: bullish ? "#15803d" : "#b91c1c", text: p.type, size: 0,
+          });
+        });
+      }
     }
 
     // Liquidity: equal-highs/equal-lows pools as a dotted level, plus a sweep line from the
@@ -379,17 +401,6 @@ export default function BacktestChart({
       pools.forEach((pool) => addLevel(pool.startDate, pool.endDate, pool.level, LIQ_COLOR, LineStyle.Dotted, pool.type));
       detectLiquiditySweeps(ohlcv, pools).forEach((sw) =>
         addLevel(sw.pool.endDate, sw.date, sw.pool.level, "#0891b2", LineStyle.Solid, "SWEEP"));
-    }
-
-    // Inducement: minor swing points used to trigger stops before the real structure break.
-    // A swing has no end date of its own, so the level runs a few bars forward to carry the label.
-    if (idmOn) {
-      detectInducementPoints(ohlcv).forEach((pt) => {
-        const idx = allDates.indexOf(pt.date);
-        if (idx < 0) return;
-        const end = allDates[Math.min(idx + 6, allDates.length - 1)];
-        addLevel(pt.date, end, pt.price, "#d946ef", LineStyle.Dotted, "IDM");
-      });
     }
 
     // Order-block lifecycle: what happened when price came back to a block — absorbed as
@@ -409,7 +420,7 @@ export default function BacktestChart({
 
     markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, smcOn, liqOn, idmOn, blocksOn]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, blocksOn]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 

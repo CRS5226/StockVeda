@@ -26,11 +26,25 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
     title: "Structure",
     concepts: [
       {
-        key: "structure", label: "BOS / ChoCH", hint: "break of structure · change of character",
+        key: "bos", label: "BOS", hint: "break of structure — body close beyond the confirmed HH / LL",
         legend: [
-          { color: "bg-emerald-600", text: "BOS · bullish — price breaks a high, trend continues up" },
-          { color: "bg-red-600", text: "BOS · bearish — price breaks a low, trend continues down" },
-          { color: "bg-amber-500", text: "ChoCH — first break against the trend (possible reversal)" },
+          { color: "bg-emerald-600", text: "BOS · bullish — closes above the HH, up-trend continues" },
+          { color: "bg-red-600", text: "BOS · bearish — closes below the LL, down-trend continues" },
+        ],
+      },
+      {
+        key: "choch", label: "ChoCH", hint: "change of character — body close beyond the protected HL / LH",
+        legend: [{ color: "bg-amber-500", text: "ChoCH — closes through the protected HL / LH, the trend flips" }],
+      },
+      {
+        key: "idm", label: "IDM", hint: "inducement — nearest swing left of a high/low; taking it confirms the HH / LL",
+        legend: [{ color: "bg-fuchsia-500", text: "IDM — inducement swing, drawn to the bar that took it" }],
+      },
+      {
+        key: "points", label: "HH / HL / LH / LL", hint: "structure points, shown only once confirmed (HH/LL by IDM, HL/LH by BOS)",
+        legend: [
+          { color: "bg-green-700", text: "HH · HL — up-trend points" },
+          { color: "bg-red-700", text: "LH · LL — down-trend points" },
         ],
       },
     ],
@@ -63,10 +77,6 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
         legend: [{ color: "bg-cyan-500", text: "EQH / EQL — equal highs / lows · SWEEP — liquidity grab" }],
       },
       {
-        key: "inducement", label: "Inducement (IDM)", hint: "minor swing that baits stops before the real break",
-        legend: [{ color: "bg-fuchsia-500", text: "IDM — inducement (stop-bait swing)" }],
-      },
-      {
         key: "fvg", label: "FVG", hint: "fair value gap",
         legend: [
           { color: "bg-blue-500", text: "Bullish FVG" },
@@ -86,7 +96,7 @@ export default function SmcPanel() {
   const [ohlcv, setOhlcv] = useState<OhlcvRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [smc, setSmc] = useState<SmcToggles>({ ...NO_SMC, structure: true });
+  const [smc, setSmc] = useState<SmcToggles>({ ...NO_SMC, bos: true, choch: true, idm: true });
 
   const load = async (sym: string, days: number) => {
     const s = sym.trim().toUpperCase();
