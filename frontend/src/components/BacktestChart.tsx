@@ -11,6 +11,7 @@ import { mapStructure } from "../lib/smcStructure";
 import { detectOrderBlocks, detectFvgZones } from "../lib/smcZones";
 import { detectLiquidityPools, detectLiquiditySweeps } from "../lib/smcLiquidity";
 import { detectSmcBlocks } from "../lib/smcBlocks";
+import { barKey, toChartTime } from "../lib/barTime";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -134,8 +135,8 @@ export default function BacktestChart({
     if (!chart || !series) { setZoneRects([]); setLabelPos([]); return; }
     const rects: ZoneRect[] = [];
     boxZonesRef.current.forEach((z) => {
-      const x1 = chart.timeScale().timeToCoordinate(z.entry_date.slice(0, 10) as Time);
-      const x2 = chart.timeScale().timeToCoordinate(z.exit_date.slice(0, 10) as Time);
+      const x1 = chart.timeScale().timeToCoordinate(toChartTime(barKey(z.entry_date)));
+      const x2 = chart.timeScale().timeToCoordinate(toChartTime(barKey(z.exit_date)));
       const y1 = series.priceToCoordinate(z.top);
       const y2 = series.priceToCoordinate(z.bottom);
       if (x1 == null || x2 == null || y1 == null || y2 == null || !Number.isFinite(y1) || !Number.isFinite(y2)) return;
@@ -149,8 +150,8 @@ export default function BacktestChart({
 
     const labels: LabelPos[] = [];
     lineLabelsRef.current.forEach((l) => {
-      const x1 = chart.timeScale().timeToCoordinate(l.fromDate as Time);
-      const x2 = chart.timeScale().timeToCoordinate(l.toDate as Time);
+      const x1 = chart.timeScale().timeToCoordinate(toChartTime(l.fromDate));
+      const x2 = chart.timeScale().timeToCoordinate(toChartTime(l.toDate));
       const y = series.priceToCoordinate(l.level);
       if (x1 == null || x2 == null || y == null || !Number.isFinite(y)) return;
       labels.push({ left: (x1 + x2) / 2, top: y, text: l.text, color: l.color });
@@ -245,7 +246,7 @@ export default function BacktestChart({
     const isNewData = loadedSymRef.current !== identity;
     candleRef.current.setData(
       ohlcv.map((r) => ({
-        time: r.date.slice(0, 10) as Time,
+        time: toChartTime(barKey(r.date)),
         open: r.open, high: r.high, low: r.low, close: r.close,
       } as CandlestickData))
     );
@@ -264,7 +265,7 @@ export default function BacktestChart({
     tradeLines.current.forEach((s) => chartRef.current?.removeSeries(s));
     tradeLines.current = [];
 
-    const allDates = ohlcv.map((r) => r.date.slice(0, 10));
+    const allDates = ohlcv.map((r) => barKey(r.date));
     const dateSet  = new Set(allDates);
 
     const addHLine = (from: string, to: string, price: number, color: string) => {
@@ -278,7 +279,7 @@ export default function BacktestChart({
         color, lineWidth: 1, lineStyle: LineStyle.Dashed,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       });
-      s.setData(slice.map((d) => ({ time: d as Time, value: price } as LineData)));
+      s.setData(slice.map((d) => ({ time: toChartTime(d), value: price } as LineData)));
       tradeLines.current.push(s);
     };
 
@@ -291,8 +292,8 @@ export default function BacktestChart({
       // Exit colors are per-algo so inactive markers are still identifiable by color.
       const markerSize = active ? 2 : 1;
       tradeset.forEach((t) => {
-        const entryDate = t.entry_date.slice(0, 10);
-        const exitDate  = t.exit_date.slice(0, 10);
+        const entryDate = barKey(t.entry_date);
+        const exitDate  = barKey(t.exit_date);
         if (!dateSet.has(entryDate)) return;
 
         // H-lines only for the active algo to avoid clutter — and only when the
@@ -304,7 +305,7 @@ export default function BacktestChart({
         }
 
         markers.push({
-          time: entryDate as Time,
+          time: toChartTime(entryDate),
           position: "belowBar", shape: "arrowUp",
           color, text: "B", size: markerSize,
         });
@@ -316,7 +317,7 @@ export default function BacktestChart({
           : t.exit_reason === "target" ? "#22c55e"
             : t.exit_reason === "sl" ? "#ef4444" : "#94a3b8";
         markers.push({
-          time: exitDate as Time,
+          time: toChartTime(exitDate),
           position: "aboveBar",
           shape: t.exit_reason === "target" ? "circle" : "arrowDown",
           color: exitColor,
@@ -334,8 +335,8 @@ export default function BacktestChart({
 
     // Straddle/strangle strike reference lines — these ARE on the candle's price scale.
     strikeLines.forEach((s) => {
-      const entryDate = s.entry_date.slice(0, 10);
-      const exitDate  = s.exit_date.slice(0, 10);
+      const entryDate = barKey(s.entry_date);
+      const exitDate  = barKey(s.exit_date);
       if (!dateSet.has(entryDate)) return;
       addHLine(entryDate, exitDate, s.call_strike, "#f59e0b");
       if (s.put_strike !== s.call_strike) addHLine(entryDate, exitDate, s.put_strike, "#0ea5e9");
@@ -344,7 +345,7 @@ export default function BacktestChart({
     // TA-Lib candle pattern markers from backend
     patternHits.forEach((p) => {
       markers.push({
-        time: p.date as Time,
+        time: toChartTime(barKey(p.date)),
         position: "belowBar", shape: "square",
         color: p.bias === "bullish" ? "#9333ea" : p.bias === "bearish" ? "#c026d3" : "#94a3b8",
         text: p.label, size: 1,
@@ -364,7 +365,7 @@ export default function BacktestChart({
         color, lineWidth: 1, lineStyle,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       });
-      s.setData(allDates.slice(fromIdx, toIdx + 1).map((d) => ({ time: d as Time, value: level } as LineData)));
+      s.setData(allDates.slice(fromIdx, toIdx + 1).map((d) => ({ time: toChartTime(d), value: level } as LineData)));
       tradeLines.current.push(s);
       levelLabels.push({ fromDate, toDate, level, text, color });
     };
@@ -389,7 +390,7 @@ export default function BacktestChart({
           const top = p.type === "HH" || p.type === "LH";
           const bullish = p.type === "HH" || p.type === "HL";
           markers.push({
-            time: p.date as Time,
+            time: toChartTime(barKey(p.date)),
             position: top ? "aboveBar" : "belowBar",
             shape: "circle", color: bullish ? "#15803d" : "#b91c1c", text: p.type, size: 0,
           });
@@ -423,7 +424,7 @@ export default function BacktestChart({
     lineLabelsRef.current = levelLabels;
     scheduleRecompute();
 
-    markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
+    markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
     candleRef.current?.setMarkers(markers);
   }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn]);
 

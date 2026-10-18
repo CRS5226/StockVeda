@@ -2,6 +2,7 @@
 // Breaker / Reclaimed / Mitigation blocks. See GitHub issue #79 for the full concept list.
 
 import { detectOrderBlocks } from "./smcZones";
+import { barKey } from "./barTime";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -51,7 +52,7 @@ export function detectSmcBlocks(ohlcv: OhlcvRow[]): SmcBlockEvent[] {
         if (touchesZone) {
           events.push({
             type: "mitigation", direction: ob.direction,
-            date: bar.date.slice(0, 10), index: i,
+            date: barKey(bar.date), index: i,
             top: ob.top, bottom: ob.bottom, originDate: ob.startDate,
           });
           break;
@@ -61,7 +62,7 @@ export function detectSmcBlocks(ohlcv: OhlcvRow[]): SmcBlockEvent[] {
         if (reclaimed) {
           events.push({
             type: "reclaimed", direction: ob.direction,
-            date: bar.date.slice(0, 10), index: i,
+            date: barKey(bar.date), index: i,
             top: ob.top, bottom: ob.bottom, originDate: ob.startDate,
           });
           break;
@@ -69,7 +70,7 @@ export function detectSmcBlocks(ohlcv: OhlcvRow[]): SmcBlockEvent[] {
         if (touchesZone) {
           events.push({
             type: "breaker", direction: ob.direction === "bullish" ? "bearish" : "bullish",
-            date: bar.date.slice(0, 10), index: i,
+            date: barKey(bar.date), index: i,
             top: ob.top, bottom: ob.bottom, originDate: ob.startDate,
           });
           break;

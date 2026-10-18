@@ -379,6 +379,24 @@ export interface MfProjection {
 
 // ── API functions ──────────────────────────────────────────────────────────
 
+export interface TimeframeInfo {
+  key: string;
+  kind: "intraday" | "daily";
+  base_interval: string;
+  bars_per_day: number;
+  max_lookback_days: number | null;
+}
+
+export interface TimeframeCandles {
+  interval: string;
+  bars: (Candle)[];
+  status: { earliest: string | null; latest: string | null; total_bars: number };
+  missing: { before: number; after: number; total: number };
+  clamped_from: string | null;
+  max_lookback_days: number | null;
+  fetch: { kind: "intraday" | "daily"; interval: string; days: number };
+}
+
 export const api = {
   getMfCategories: () => apiFetch<MfCategory[]>(`/mutual-fund/categories`),
 
@@ -648,6 +666,14 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  getTimeframes: () => apiFetch<TimeframeInfo[]>("/intraday/timeframes"),
+  getTimeframeCandles: (symbol: string, interval: string, range: { from?: string; to?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams({ interval });
+    if (range.from) p.set("from_date", range.from);
+    if (range.to) p.set("to_date", range.to);
+    if (range.limit) p.set("limit", String(range.limit));
+    return apiFetch<TimeframeCandles>(`/intraday/candles/${encodeURIComponent(symbol)}?${p}`);
+  },
   fetchIntraday: (symbol: string, interval: string, days: number) =>
     apiFetch<{ job_id: string; symbol: string; interval: string; days: number; max_lookback_days: number }>(
       `/intraday/fetch?symbol=${symbol}&interval=${interval}&days=${days}`, { method: "POST" }

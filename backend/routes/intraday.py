@@ -4,8 +4,12 @@ synced like EOD bhavcopy), and query endpoints for ORB backtesting.
 """
 
 import uuid
+from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+
+from backend.core.timeframes import TIMEFRAMES, load_candles
 
 from backend.data_sync.sync_intraday import (
     MAX_LOOKBACK_DAYS, VALID_INTERVALS, _run_intraday_fetch_job, intraday_fetch_jobs,
@@ -14,6 +18,33 @@ from backend.data_sync.sync_intraday import (
 from backend.db.connection import get_db
 
 router = APIRouter(prefix="/intraday", tags=["intraday"])
+
+
+@router.get("/timeframes")
+def list_timeframes():
+    """Timeframes the SMC chart can show, with the per-day bar density and lookback cap the
+    UI needs to link a date range to a candle count before any data is requested."""
+    return [
+        {"key": k, "kind": tf.source, "base_interval": tf.base_interval,
+         "bars_per_day": tf.bars_per_day, "max_lookback_days": tf.max_lookback_days}
+        for k, tf in TIMEFRAMES.items()
+    ]
+
+
+@router.get("/candles/{symbol}")
+def get_timeframe_candles(
+    symbol: str,
+    interval: str = Query("1D"),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    limit: Optional[int] = Query(None, ge=1, le=50_000),
+):
+    """Stored bars for charting at any timeframe (1m–1M; 4h/1W/1M are resampled), plus data
+    status and how many bars are missing for the requested range. Stored data only — an empty
+    result is a normal 200 so the UI can offer to fetch it."""
+    if interval not in TIMEFRAMES:
+        raise HTTPException(400, f"interval must be one of {list(TIMEFRAMES)}")
+    return load_candles(get_db(), symbol.strip().upper(), interval, from_date, to_date, limit)
 
 
 @router.post("/fetch")
