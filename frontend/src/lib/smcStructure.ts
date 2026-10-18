@@ -3,6 +3,8 @@
 // HH/HL/LH/LL points they confirm, following lectures/YTlecture "BOS_ChiCH and inducement".
 // See GitHub issue #79 for the full SMC/ICT concept list this will grow into.
 
+import { barKey } from "./barTime";
+
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
 export interface SwingPoint {
@@ -24,8 +26,8 @@ export function detectSwingPoints(ohlcv: OhlcvRow[], lookback = 2): SwingPoint[]
     const window = ohlcv.slice(i - lookback, i + lookback + 1);
     const isHigh = window.every((r) => r.high <= ohlcv[i].high);
     const isLow  = window.every((r) => r.low  >= ohlcv[i].low);
-    if (isHigh) swings.push({ date: ohlcv[i].date.slice(0, 10), index: i, price: ohlcv[i].high, type: "high" });
-    if (isLow)  swings.push({ date: ohlcv[i].date.slice(0, 10), index: i, price: ohlcv[i].low,  type: "low" });
+    if (isHigh) swings.push({ date: barKey(ohlcv[i].date), index: i, price: ohlcv[i].high, type: "high" });
+    if (isLow)  swings.push({ date: barKey(ohlcv[i].date), index: i, price: ohlcv[i].low,  type: "low" });
   }
   return swings;
 }
@@ -63,7 +65,7 @@ function buildCandles(ohlcv: OhlcvRow[]): Candle[] {
     const prev = out[out.length - 1];
     const inside = !!prev && r.high <= prev.high && r.low >= prev.low;
     if (inside && prev.inside) { prev.close = r.close; return; }
-    out.push({ date: r.date.slice(0, 10), high: r.high, low: r.low, close: r.close, inside });
+    out.push({ date: barKey(r.date), high: r.high, low: r.low, close: r.close, inside });
   });
   return out;
 }

@@ -1,6 +1,8 @@
 // SMC (Smart Money Concepts) price-zone detection — client-side, chart-overlay only.
 // Order Blocks and FVG (Fair Value Gap). See GitHub issue #79 for the full concept list.
 
+import { barKey } from "./barTime";
+
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
 export interface SmcZone {
@@ -17,9 +19,9 @@ export interface SmcZone {
 /** First bar from `fromIndex` onward whose range trades back into [bottom, top] — i.e. mitigation. */
 function firstMitigationDate(ohlcv: OhlcvRow[], fromIndex: number, top: number, bottom: number): string {
   for (let i = fromIndex; i < ohlcv.length; i++) {
-    if (ohlcv[i].low <= top && ohlcv[i].high >= bottom) return ohlcv[i].date.slice(0, 10);
+    if (ohlcv[i].low <= top && ohlcv[i].high >= bottom) return barKey(ohlcv[i].date);
   }
-  return ohlcv[ohlcv.length - 1].date.slice(0, 10); // unmitigated — draw to the last bar
+  return barKey(ohlcv[ohlcv.length - 1].date); // unmitigated — draw to the last bar
 }
 
 /**
@@ -45,7 +47,7 @@ export function detectOrderBlocks(ohlcv: OhlcvRow[]): SmcZone[] {
     if (prevDown && currUp && curr.close > prev.high) {
       zones.push({
         type: "orderBlock", direction: "bullish",
-        startDate: prev.date.slice(0, 10),
+        startDate: barKey(prev.date),
         endDate: firstMitigationDate(ohlcv, i + 1, top, bottom),
         top, bottom, originIndex: i - 1,
       });
@@ -53,7 +55,7 @@ export function detectOrderBlocks(ohlcv: OhlcvRow[]): SmcZone[] {
     if (prevUp && currDown && curr.close < prev.low) {
       zones.push({
         type: "orderBlock", direction: "bearish",
-        startDate: prev.date.slice(0, 10),
+        startDate: barKey(prev.date),
         endDate: firstMitigationDate(ohlcv, i + 1, top, bottom),
         top, bottom, originIndex: i - 1,
       });
@@ -77,7 +79,7 @@ export function detectFvgZones(ohlcv: OhlcvRow[]): SmcZone[] {
       const top = right.low, bottom = left.high;
       zones.push({
         type: "fvg", direction: "bullish",
-        startDate: left.date.slice(0, 10),
+        startDate: barKey(left.date),
         endDate: firstMitigationDate(ohlcv, i + 2, top, bottom),
         top, bottom, originIndex: i - 1,
       });
@@ -86,7 +88,7 @@ export function detectFvgZones(ohlcv: OhlcvRow[]): SmcZone[] {
       const top = left.low, bottom = right.high;
       zones.push({
         type: "fvg", direction: "bearish",
-        startDate: left.date.slice(0, 10),
+        startDate: barKey(left.date),
         endDate: firstMitigationDate(ohlcv, i + 2, top, bottom),
         top, bottom, originIndex: i - 1,
       });

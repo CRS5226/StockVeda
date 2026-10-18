@@ -2,6 +2,7 @@
 // only. See GitHub issue #79 for the full concept list this will grow into.
 
 import { detectSwingPoints, type SwingPoint } from "./smcStructure";
+import { barKey } from "./barTime";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
@@ -61,11 +62,11 @@ export function detectLiquiditySweeps(ohlcv: OhlcvRow[], pools: LiquidityPool[])
     for (let i = startIdx; i < ohlcv.length; i++) {
       const bar = ohlcv[i];
       if (pool.type === "EQH" && bar.high > pool.level && bar.close < pool.level) {
-        sweeps.push({ date: bar.date.slice(0, 10), index: i, pool, direction: "buy-side" });
+        sweeps.push({ date: barKey(bar.date), index: i, pool, direction: "buy-side" });
         break;
       }
       if (pool.type === "EQL" && bar.low < pool.level && bar.close > pool.level) {
-        sweeps.push({ date: bar.date.slice(0, 10), index: i, pool, direction: "sell-side" });
+        sweeps.push({ date: barKey(bar.date), index: i, pool, direction: "sell-side" });
         break;
       }
     }
