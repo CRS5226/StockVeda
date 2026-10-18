@@ -51,26 +51,40 @@ export interface StructurePoint {
 
 export interface StructureMap { events: StructureEvent[]; points: StructurePoint[] }
 
-/** A candle after inside-bar merging: bars nested inside an inside bar fold into it. */
-interface Candle { date: string; high: number; low: number; close: number; inside: boolean }
+/**
+ * A candle after inside-bar merging: bars nested inside an inside bar fold into it.
+ * `refHigh` / `refLow` are the range later bars are compared against when they take liquidity:
+ * the candle's own range, widened over any gap leading into it (a gap counts as one candle).
+ */
+export interface Candle {
+  date: string; high: number; low: number; close: number; inside: boolean; refHigh: number; refLow: number;
+}
 
 /**
  * Lecture rule: an inside bar stays a candle of its own (a later candle can take its
  * low/high), but bars inside *that* inside bar are just noise and fold into it — taking
  * the liquidity of such a nested bar does not count.
  */
-function buildCandles(ohlcv: OhlcvRow[]): Candle[] {
+export function buildCandles(ohlcv: OhlcvRow[]): Candle[] {
   const out: Candle[] = [];
   ohlcv.forEach((r) => {
     const prev = out[out.length - 1];
     const inside = !!prev && r.high <= prev.high && r.low >= prev.low;
     if (inside && prev.inside) { prev.close = r.close; return; }
-    out.push({ date: barKey(r.date), high: r.high, low: r.low, close: r.close, inside });
+    // Lecture rule: a gap up/down is one candle. The gap bar keeps its own body (it can still break
+    // a level), but later bars measure liquidity against the whole gap, so a small bounce beneath a
+    // gap-down is not mistaken for a swing high.
+    const gap = !!prev && (r.low > prev.high || r.high < prev.low);
+    out.push({
+      date: barKey(r.date), high: r.high, low: r.low, close: r.close, inside,
+      refHigh: gap ? Math.max(r.high, prev.refHigh) : r.high,
+      refLow: gap ? Math.min(r.low, prev.refLow) : r.low,
+    });
   });
   return out;
 }
 
-interface Swing { k: number; price: number }
+export interface Swing { k: number; price: number }
 
 /**
  * Valid swings per the lecture. A swing LOW exists when a candle takes the liquidity (low)
@@ -78,9 +92,9 @@ interface Swing { k: number; price: number }
  * the dip. A wick above the dip high only moves that high up — the next candle must close
  * beyond the wick. The mirrored rule gives swing HIGHS. Unconfirmed dips are not swings.
  */
-function findSwings(c: Candle[], from: number, to: number, kind: "low" | "high"): Swing[] {
+export function findSwings(c: Candle[], from: number, to: number, kind: "low" | "high"): Swing[] {
   const low = kind === "low";
-  const taker = (k: number) => (low ? c[k].low < c[k - 1].low : c[k].high > c[k - 1].high);
+  const taker = (k: number) => (low ? c[k].low < c[k - 1].refLow : c[k].high > c[k - 1].refHigh);
   const dip = (k: number) => (low ? c[k].low : c[k].high);
   const farther = (a: number, b: number) => (low ? a < b : a > b); // a is a deeper dip than b
   const swings: Swing[] = [];
@@ -88,7 +102,7 @@ function findSwings(c: Candle[], from: number, to: number, kind: "low" | "high")
   while (k <= to) {
     if (!taker(k)) { k++; continue; }
     let ext = k;
-    let bound = low ? Math.max(c[k - 1].high, c[k].high) : Math.min(c[k - 1].low, c[k].low);
+    let bound = low ? Math.max(c[k - 1].refHigh, c[k].high) : Math.min(c[k - 1].refLow, c[k].low);
     let confirmed = false;
     let m = k + 1;
     for (; m <= to; m++) {
@@ -176,8 +190,8 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
     if (beats(ext(k, dir), cand.price, dir)) {
       cand = { k, price: ext(k, dir) };
       idm = nearestIdm();
-    } else if (idm && beats(idm.price, cnt(k, dir), dir)) {
-      // price took the IDM (a wick/tap is enough) → the candidate HH/LL is confirmed
+    } else if (idm && (beats(idm.price, cnt(k, dir), dir) || idm.price === cnt(k, dir))) {
+      // price took the IDM (a wick or a tap is enough) → the candidate HH/LL is confirmed
       hh = cand;
       events.push({ date: c[k].date, type: "IDM", direction: dirName(), level: idm.price, fromDate: c[idm.k].date });
       points.push({ type: ptType(dir, true), date: c[cand.k].date, price: cand.price, confirmedDate: c[k].date });
@@ -185,8 +199,11 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
   };
 
   for (let k = anchor + 1; k < n; k++) {
-    // ChoCH: body close beyond the protected point, against the trend.
-    if (closedBeyond(k, choch.price, -dir)) {
+    // ChoCH: body close beyond the protected point, against the trend. Like BOS, a wick through
+    // it does not count: the protected point moves to the wick and the next close must beat that.
+    if (!closedBeyond(k, choch.price, -dir) && beats(cnt(k, dir), choch.price, -dir)) {
+      choch = { k, price: cnt(k, dir) };
+    } else if (closedBeyond(k, choch.price, -dir)) {
       events.push({
         date: c[k].date, type: "ChoCH", direction: dir > 0 ? "bearish" : "bullish",
         level: choch.price, fromDate: c[choch.k].date,
