@@ -49,7 +49,24 @@ export interface StructurePoint {
   confirmedDate: string;
 }
 
-export interface StructureMap { events: StructureEvent[]; points: StructurePoint[] }
+/**
+ * One leg of the structure, the range order blocks / FVG / order flow are searched in: the pullback
+ * from the bar that took the IDM down to the protected HL (up-trend) or up to the protected LH
+ * (down-trend). Nothing between the HH/LL and the IDM counts. `from` / `to` index into
+ * `buildCandles(ohlcv)`, not the raw rows. An `open` leg has no BOS yet, so `to` is the deepest
+ * pullback point so far and may still move.
+ */
+export interface StructureLeg {
+  direction: "bullish" | "bearish";
+  idm: { k: number; price: number };       // the swing the IDM sits on
+  extreme: { k: number; price: number };   // the confirmed HH (up) / LL (down)
+  protected: { k: number; price: number }; // the HL (up) / LH (down) that ends the pullback
+  from: number;                            // candle that took the IDM
+  to: number;                              // candle of the protected point
+  open: boolean;
+}
+
+export interface StructureMap { events: StructureEvent[]; points: StructurePoint[]; legs: StructureLeg[] }
 
 /**
  * A candle after inside-bar merging: bars nested inside an inside bar fold into it.
@@ -137,15 +154,16 @@ export function findSwings(c: Candle[], from: number, to: number, kind: "low" | 
 export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
   const events: StructureEvent[] = [];
   const points: StructurePoint[] = [];
+  const legs: StructureLeg[] = [];
   const c = buildCandles(ohlcv);
   const n = c.length;
-  if (n < 5) return { events, points };
+  if (n < 5) return { events, points, legs };
 
   let lo = 0, hi = 0;
   c.forEach((x, k) => { if (x.low < c[lo].low) lo = k; if (x.high > c[hi].high) hi = k; });
   const startAtLow = c[n - 1].close >= (c[lo].low + c[hi].high) / 2;
   const anchor = startAtLow ? lo : hi;
-  if (anchor >= n - 2) return { events, points };
+  if (anchor >= n - 2) return { events, points, legs };
 
   // dir +1 = up-trend, -1 = down-trend. "ext" = high when up, low when down; "cnt" is the
   // opposite side (the pullbacks that form the IDM and the protected point).
@@ -167,6 +185,8 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
   let legStart = 0;
   let idm: Swing | null = null;
   let hh: Swing | null = null;
+  let taken = -1; // candle that took the IDM, i.e. where the current leg's pullback starts
+  let takenIdm: Swing | null = null;
 
   const nearestIdm = (): Swing | null => {
     const sw = findSwings(c, legStart, cand.k, dir > 0 ? "low" : "high").filter((s) => s.k < cand.k);
@@ -193,6 +213,8 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
     } else if (idm && (beats(idm.price, cnt(k, dir), dir) || idm.price === cnt(k, dir))) {
       // price took the IDM (a wick or a tap is enough) → the candidate HH/LL is confirmed
       hh = cand;
+      taken = k;
+      takenIdm = idm;
       events.push({ date: c[k].date, type: "IDM", direction: dirName(), level: idm.price, fromDate: c[idm.k].date });
       points.push({ type: ptType(dir, true), date: c[cand.k].date, price: cand.price, confirmedDate: c[k].date });
     }
@@ -226,6 +248,12 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
         // BOS: continuation. The deepest point of the pullback becomes the new protected point.
         events.push({ date: c[k].date, type: "BOS", direction: dirName(), level: hh.price, fromDate: c[hh.k].date });
         const p = counterExtreme(hh.k, k, dir);
+        if (takenIdm) {
+          legs.push({
+            direction: dirName(), idm: { k: takenIdm.k, price: takenIdm.price }, extreme: { k: hh.k, price: hh.price },
+            protected: { k: p, price: cnt(p, dir) }, from: taken, to: p, open: false,
+          });
+        }
         points.push({ type: ptType(dir, false), date: c[p].date, price: cnt(p, dir), confirmedDate: c[k].date });
         choch = { k: p, price: cnt(p, dir) };
         cand = { k, price: ext(k, dir) };
@@ -239,5 +267,13 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
       step(k);
     }
   }
-  return { events, points };
+  if (hh && takenIdm) {
+    const h: Swing = hh;
+    const p = counterExtreme(taken, n - 1, dir);
+    legs.push({
+      direction: dirName(), idm: { k: takenIdm.k, price: takenIdm.price }, extreme: { k: h.k, price: h.price },
+      protected: { k: p, price: cnt(p, dir) }, from: taken, to: p, open: true,
+    });
+  }
+  return { events, points, legs };
 }
