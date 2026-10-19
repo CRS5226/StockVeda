@@ -186,3 +186,40 @@ describe("mapStructure", () => {
     });
   });
 });
+
+describe("legs", () => {
+  const dateOf = (rows: Bar[], k: number) => buildCandles(bars(rows))[k].date;
+
+  it("a leg runs from the bar that took the IDM to the HL that the BOS confirms", () => {
+    const rows: Bar[] = [...UP_LEG, [101, 114, 100.8, 113]];
+    const { legs } = mapStructure(bars(rows));
+    expect(legs).toHaveLength(1);
+    const leg = legs[0];
+    expect(leg).toMatchObject({ direction: "bullish", open: false });
+    expect(leg.idm.price).toBe(101);
+    expect(leg.extreme.price).toBe(112);
+    expect(leg.protected.price).toBe(100.5);
+    expect(dateOf(rows, leg.from)).toBe(day(O + 7)); // the bar that took the IDM
+    expect(dateOf(rows, leg.to)).toBe(day(O + 7));   // the pull-back low
+  });
+
+  it("before the BOS the leg is open and ends at the deepest pull-back so far", () => {
+    const { legs } = mapStructure(bars(UP_LEG));
+    expect(legs).toHaveLength(1);
+    expect(legs[0]).toMatchObject({ open: true, direction: "bullish" });
+    expect(legs[0].protected.price).toBe(100.5);
+  });
+
+  it("no leg exists before the IDM is taken", () => {
+    expect(mapStructure(bars(UP_LEG.slice(0, O + 7))).legs).toEqual([]);
+  });
+
+  it("mirrors in a down-trend", () => {
+    const rows: Bar[] = [...UP_LEG, [101, 114, 100.8, 113]];
+    const up = mapStructure(bars(rows)).legs[0];
+    const down = mapStructure(bars(mirror(rows))).legs[0];
+    expect(down.direction).toBe("bearish");
+    expect([down.from, down.to, down.idm.k, down.extreme.k]).toEqual([up.from, up.to, up.idm.k, up.extreme.k]);
+    expect(200 - down.protected.price).toBe(up.protected.price);
+  });
+});
