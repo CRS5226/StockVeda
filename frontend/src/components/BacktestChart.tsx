@@ -8,7 +8,7 @@ import {
 import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import { mapStructure } from "../lib/smcStructure";
-import { detectFvgZones } from "../lib/smcZones";
+import { detectStructureFvgs } from "../lib/smcFvg";
 import { detectAdvancedOrderBlocks, detectStructureOrderBlocks } from "../lib/smcOrderBlocks";
 import { detectLiquidityPools, detectLiquiditySweeps } from "../lib/smcLiquidity";
 import { detectSmcBlocks } from "../lib/smcBlocks";
@@ -50,7 +50,11 @@ export interface SmcToggles {
   advancedBlocks: boolean;    // run of same-colour candles, no FVG needed
   fourCandle: boolean;        // only keep blocks the 4th candle after them confirms
   showMitigated: boolean;     // keep fully mitigated / invalidated blocks on the chart
-  fvg: boolean;
+  fvg: boolean;               // every structure FVG, whatever its type
+  pfg: boolean;               // perfect FVGs only (also when "fvg" is off)
+  bfg: boolean;
+  rfg: boolean;
+  ifvg: boolean;              // inverse FVGs: a gap price closed through
   liquidity: boolean;    // EQH/EQL pools + sweeps
   breaker: boolean;
   reclaimed: boolean;
@@ -59,7 +63,7 @@ export interface SmcToggles {
 
 export const NO_SMC: SmcToggles = {
   bos: false, choch: false, idm: false, points: false,
-  orderBlocks: false, advancedBlocks: false, fourCandle: false, showMitigated: false, fvg: false, liquidity: false,
+  orderBlocks: false, advancedBlocks: false, fourCandle: false, showMitigated: false, fvg: false, pfg: false, bfg: false, rfg: false, ifvg: false, liquidity: false,
   breaker: false, reclaimed: false, mitigation: false,
 };
 
@@ -131,7 +135,7 @@ export default function BacktestChart({
   // SMC overlays (issue #79) are driven by the SMC tab; every other chart usage leaves them off.
   const { bos: bosOn, choch: chochOn, idm: idmOn, points: pointsOn,
           orderBlocks: obOn, advancedBlocks: advOn, fourCandle: fourOn, showMitigated: showMitOn,
-          fvg: fvgOn, liquidity: liqOn,
+          fvg: fvgOn, pfg: pfgOn, bfg: bfgOn, rfg: rfgOn, ifvg: ifvgOn, liquidity: liqOn,
           breaker: brkOn, reclaimed: rclOn, mitigation: mitOn } = smc;
 
   // Order blocks follow the structure map, so they are computed once per data/toggle change and
@@ -142,6 +146,11 @@ export default function BacktestChart({
       .filter((b) => showMitOn || b.status !== "full")
       .filter((b) => !fourOn || b.followThrough !== false);
   }, [ohlcv, obOn, fourOn, showMitOn]);
+  const fvgs = useMemo(() => {
+    const typeOn = { FVG: fvgOn, PFG: fvgOn || pfgOn, BFG: fvgOn || bfgOn, RFG: fvgOn || rfgOn, IFVG: ifvgOn };
+    if (!Object.values(typeOn).some(Boolean)) return [];
+    return detectStructureFvgs(ohlcv).filter((f) => typeOn[f.type] && (showMitOn || f.status !== "full"));
+  }, [ohlcv, fvgOn, pfgOn, bfgOn, rfgOn, ifvgOn, showMitOn]);
   const advancedBlocks = useMemo(() => {
     if (!advOn) return [];
     return detectAdvancedOrderBlocks(ohlcv).filter((b) => showMitOn || b.invalidatedK === null);
@@ -248,16 +257,20 @@ export default function BacktestChart({
       fill: b.direction === "bullish" ? "rgba(20,184,166,0.15)" : "rgba(249,115,22,0.15)",
       border: b.direction === "bullish" ? "#14b8a6" : "#f97316",
     }));
-    if (fvgOn) {
-      detectFvgZones(ohlcv).forEach((z) => smcZones.push({
-        entry_date: z.startDate, exit_date: z.endDate, top: z.top, bottom: z.bottom,
-        fill: z.direction === "bullish" ? "rgba(59,130,246,0.12)" : "rgba(168,85,247,0.12)",
-        border: z.direction === "bullish" ? "#3b82f6" : "#a855f7",
-      }));
-    }
+    // gaps an order block stands on are drawn at full strength, the rest (and any whose CE has been
+    // closed through) dimmer
+    fvgs.forEach((f) => {
+      const bull = f.direction === "bullish";
+      const alpha = f.attached && !f.ceBroken ? 0.14 : 0.06;
+      smcZones.push({
+        entry_date: f.date, exit_date: f.endDate, top: f.top, bottom: f.bottom,
+        fill: f.type === "IFVG" ? `rgba(${bull ? "234,179,8" : "236,72,153"},${alpha})` : `rgba(${bull ? "59,130,246" : "168,85,247"},${alpha})`,
+        border: f.type === "IFVG" ? (bull ? "#eab308" : "#ec4899") : (bull ? "#3b82f6" : "#a855f7"),
+      });
+    });
     boxZonesRef.current = [...boxZones, ...smcZones];
     scheduleRecompute();
-  }, [boxZones, ohlcv, orderBlocks, advancedBlocks, fvgOn]);
+  }, [boxZones, ohlcv, orderBlocks, advancedBlocks, fvgs]);
 
   // Update candle data — only fitContent() when the underlying symbol/data changes,
   // not when the caller swaps ohlcv references for the same stock data.
@@ -423,6 +436,9 @@ export default function BacktestChart({
     orderBlocks.forEach((b) => addLevel(b.date, b.endDate, b.ce, b.direction === "bullish" ? "#10b981" : "#ef4444", LineStyle.Dotted, "CE"));
     advancedBlocks.forEach((b) => addLevel(b.date, b.endDate, b.mean, b.direction === "bullish" ? "#14b8a6" : "#f97316", LineStyle.Dotted, "50%"));
 
+    fvgs.forEach((f) => addLevel(f.date, f.endDate, f.ce, f.type === "IFVG" ? "#ca8a04" : f.direction === "bullish" ? "#3b82f6" : "#a855f7",
+      LineStyle.Dotted, f.type === "FVG" ? "CE" : f.type));
+
     // Liquidity: equal-highs/equal-lows pools as a dotted level, plus a sweep line from the
     // pool to the bar that first wicks through and rejects back (a liquidity grab).
     if (liqOn) {
@@ -451,7 +467,7 @@ export default function BacktestChart({
 
     markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, orderBlocks, advancedBlocks]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, orderBlocks, advancedBlocks, fvgs]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
