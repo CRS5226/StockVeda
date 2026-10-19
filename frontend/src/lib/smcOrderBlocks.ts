@@ -30,6 +30,7 @@ export interface OrderBlock {
   status: "unmitigated" | "partial" | "full";
   /** Candle index where the block was fully mitigated; the last candle while it is still standing. */
   endK: number;
+  endDate: string;
   /**
    * Alchemy 4-candle filter, close version: the 4th candle after the block candle closes beyond the
    * block's far edge (above its high for bullish, below its low for bearish). null while that candle
@@ -38,7 +39,7 @@ export interface OrderBlock {
   followThrough: boolean | null;
 }
 
-type RawBlock = Omit<OrderBlock, "ce" | "status" | "endK" | "followThrough">;
+type RawBlock = Omit<OrderBlock, "ce" | "status" | "endK" | "endDate" | "followThrough">;
 
 /** Adds the CE, the mitigation status and the 4-candle check. */
 function describeBlock(c: Candle[], b: RawBlock): OrderBlock {
@@ -51,7 +52,7 @@ function describeBlock(c: Candle[], b: RawBlock): OrderBlock {
   }
   const f = b.k + 4;
   const followThrough = f < c.length ? (bull ? c[f].close > b.top : c[f].close < b.bottom) : null;
-  return { ...b, ce: (b.top + b.bottom) / 2, status, endK, followThrough };
+  return { ...b, ce: (b.top + b.bottom) / 2, status, endK, endDate: c[endK].date, followThrough };
 }
 
 /**
@@ -122,6 +123,8 @@ export interface AdvancedBlock {
   fvgOverlap: boolean;
   /** Candle index of the invalidating body close, or null while the block stands. */
   invalidatedK: number | null;
+  /** Date the zone is drawn to: the invalidating close, else the last candle. */
+  endDate: string;
   leg: number;
 }
 
@@ -172,7 +175,7 @@ export function detectAdvancedBlock(c: Candle[], leg: StructureLeg, legIndex = 0
   }
   return {
     direction: leg.direction, runFrom: start, runTo: end, date: c[start].date, top: zone.top, bottom: zone.bottom,
-    mean, fvgOverlap: !!overlap, invalidatedK, leg: legIndex,
+    mean, fvgOverlap: !!overlap, invalidatedK, endDate: c[invalidatedK ?? n - 1].date, leg: legIndex,
   };
 }
 

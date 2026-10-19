@@ -17,6 +17,8 @@ interface Concept {
   label: string;
   hint: string;
   legend: { color: string; text: string }[];
+  /** A setting of the concept above it: no legend, and left alone by Select all / Clear. */
+  option?: boolean;
 }
 
 // Grouped as in issue #79; each concept toggles independently.
@@ -52,11 +54,28 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
     title: "Blocks",
     concepts: [
       {
-        key: "orderBlocks", label: "Order blocks", hint: "last opposing candle before an impulse",
+        key: "orderBlocks", label: "Order blocks (with FVG)",
+        hint: "last selling / buying candle in the IDM → HL / LH pullback that has an FVG on its far side",
         legend: [
-          { color: "bg-emerald-600", text: "Bullish OB (green zone)" },
-          { color: "bg-red-600", text: "Bearish OB (red zone)" },
+          { color: "bg-emerald-600", text: "Bullish OB (green zone), CE dotted at its 50%" },
+          { color: "bg-red-600", text: "Bearish OB (red zone), CE dotted at its 50%" },
         ],
+      },
+      {
+        key: "advancedBlocks", label: "Advanced order blocks (no FVG)",
+        hint: "run of same-colour candles before the move; a body close past its 50% invalidates it",
+        legend: [
+          { color: "bg-teal-500", text: "Bullish advanced OB (teal zone), 50% dotted" },
+          { color: "bg-orange-500", text: "Bearish advanced OB (orange zone), 50% dotted" },
+        ],
+      },
+      {
+        key: "fourCandle", label: "4-candle filter", option: true, legend: [],
+        hint: "only blocks whose 4th following candle closes beyond the block (blocks too recent to judge stay)",
+      },
+      {
+        key: "showMitigated", label: "Show mitigated", option: true, legend: [],
+        hint: "keep fully mitigated and invalidated blocks, drawn up to the bar that ended them",
       },
       {
         key: "breaker", label: "Breaker block", hint: "order block that failed, then flips polarity on a retest",
@@ -90,7 +109,7 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
   },
 ];
 
-const ALL_KEYS = GROUPS.flatMap((g) => g.concepts.map((c) => c.key));
+const ALL_KEYS = GROUPS.flatMap((g) => g.concepts.filter((c) => !c.option).map((c) => c.key));
 
 export default function SmcPanel() {
   const [symbol, setSymbol] = useState("");
@@ -222,8 +241,9 @@ export default function SmcPanel() {
   };
 
   const toggle = (key: keyof SmcToggles) => setSmc((prev) => ({ ...prev, [key]: !prev[key] }));
-  const setAll = (on: boolean) => setSmc(Object.fromEntries(ALL_KEYS.map((k) => [k, on])) as unknown as SmcToggles);
-  const activeLegends = GROUPS.flatMap((g) => g.concepts).filter((c) => smc[c.key]);
+  const setAll = (on: boolean) =>
+    setSmc((prev) => ({ ...prev, ...(Object.fromEntries(ALL_KEYS.map((k) => [k, on])) as Partial<SmcToggles>) }));
+  const activeLegends = GROUPS.flatMap((g) => g.concepts).filter((c) => !c.option && smc[c.key]);
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
