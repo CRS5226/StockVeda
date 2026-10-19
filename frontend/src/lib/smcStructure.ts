@@ -186,7 +186,7 @@ export function mapStructure(ohlcv: OhlcvRow[]): StructureMap {
   let idm: Swing | null = null;
   let hh: Swing | null = null;
   let taken = -1; // candle that took the IDM, i.e. where the current leg's pullback starts
-  let takenIdm: Swing | null = null;
+  let takenIdm = null as Swing | null; // assigned inside step(), which TS flow analysis cannot see
 
   const nearestIdm = (): Swing | null => {
     const sw = findSwings(c, legStart, cand.k, dir > 0 ? "low" : "high").filter((s) => s.k < cand.k);
