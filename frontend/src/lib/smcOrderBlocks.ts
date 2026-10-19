@@ -21,6 +21,37 @@ export interface OrderBlock {
   fvg: { top: number; bottom: number; endK: number };
   /** Index of the leg in `StructureMap.legs` the block was found in. */
   leg: number;
+  /** CE: the 50% midpoint of the block. */
+  ce: number;
+  /**
+   * unmitigated: price has not come back; partial: it wicked into the block but never traded through
+   * it; full: it traded through the far edge. Judged on the bars after the displacement candle.
+   */
+  status: "unmitigated" | "partial" | "full";
+  /** Candle index where the block was fully mitigated; the last candle while it is still standing. */
+  endK: number;
+  /**
+   * Alchemy 4-candle filter, close version: the 4th candle after the block candle closes beyond the
+   * block's far edge (above its high for bullish, below its low for bearish). null while that candle
+   * has not formed yet.
+   */
+  followThrough: boolean | null;
+}
+
+type RawBlock = Omit<OrderBlock, "ce" | "status" | "endK" | "followThrough">;
+
+/** Adds the CE, the mitigation status and the 4-candle check. */
+function describeBlock(c: Candle[], b: RawBlock): OrderBlock {
+  const bull = b.direction === "bullish";
+  let status: OrderBlock["status"] = "unmitigated";
+  let endK = c.length - 1;
+  for (let j = b.fvg.endK + 1; j < c.length; j++) {
+    if (bull ? c[j].low <= b.bottom : c[j].high >= b.top) { status = "full"; endK = j; break; }
+    if (bull ? c[j].low <= b.top : c[j].high >= b.bottom) status = "partial";
+  }
+  const f = b.k + 4;
+  const followThrough = f < c.length ? (bull ? c[f].close > b.top : c[f].close < b.bottom) : null;
+  return { ...b, ce: (b.top + b.bottom) / 2, status, endK, followThrough };
 }
 
 /**
@@ -50,9 +81,9 @@ export function detectLegBlocks(c: Candle[], leg: StructureLeg, legIndex = 0): O
     for (let j = k; j <= bound; j++) {
       const fvg = fvgAt(j, bound + 2);
       if (fvg) {
-        return {
+        return describeBlock(c, {
           direction: leg.direction, role, k: j, date: c[j].date, top: c[j].high, bottom: c[j].low, fvg, leg: legIndex,
-        };
+        });
       }
     }
     return null;

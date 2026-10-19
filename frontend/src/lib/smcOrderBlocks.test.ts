@@ -92,3 +92,45 @@ describe("order blocks in a leg", () => {
     expect([200 - down[0].fvg.bottom, 200 - down[0].fvg.top]).toEqual([up[0].fvg.top, up[0].fvg.bottom]);
   });
 });
+
+describe("block status, CE and the 4-candle filter", () => {
+  const withTail = (...tail: Bar[]) => detectLegBlocks(candles([...PULLBACK, ...tail]), leg({}))[0];
+
+  it("CE is the midpoint of the block", () => {
+    expect(withTail().ce).toBe(102.25);
+  });
+
+  it("a block price has not come back to is unmitigated and runs to the last candle", () => {
+    const b = withTail();
+    expect(b.status).toBe("unmitigated");
+    expect(b.endK).toBe(6);
+  });
+
+  it("wicking into the block is partial, trading through the far edge is full", () => {
+    const partial = withTail([114, 114.5, 104, 105]); // low 104 is inside 100..104.5
+    expect(partial.status).toBe("partial");
+    expect(partial.endK).toBe(7);                      // still standing
+    const full = withTail([114, 114.5, 104, 105], [105, 106, 99, 100]);
+    expect(full.status).toBe("full");
+    expect(full.endK).toBe(8);
+  });
+
+  it("the bars of the displacement itself do not mitigate the block", () => {
+    // candle 4 opens inside the block range and candle 5 is the FVG's right edge
+    expect(withTail().status).toBe("unmitigated");
+  });
+
+  it("the 4th candle after the block must close above its high", () => {
+    // block candle is 3, so the 4th candle after it is 7
+    expect(withTail().followThrough).toBeNull();                          // not formed yet
+    expect(withTail([114, 116, 113, 115]).followThrough).toBe(true);     // 115 > 104.5
+    expect(withTail([114, 116, 100.2, 104]).followThrough).toBe(false);  // 104 <= 104.5
+  });
+
+  it("mirrors into bearish blocks", () => {
+    const tail: Bar[] = [[114, 114.5, 104, 105]];
+    const up = detectLegBlocks(candles([...PULLBACK, ...tail]), leg({}))[0];
+    const down = detectLegBlocks(candles(mirror([...PULLBACK, ...tail])), mirrorLeg(leg({})))[0];
+    expect([down.status, down.endK, down.followThrough, 200 - down.ce]).toEqual([up.status, up.endK, up.followThrough, up.ce]);
+  });
+});
