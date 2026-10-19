@@ -74,7 +74,7 @@ export interface StructureMap { events: StructureEvent[]; points: StructurePoint
  * the candle's own range, widened over any gap leading into it (a gap counts as one candle).
  */
 export interface Candle {
-  date: string; high: number; low: number; close: number; inside: boolean; refHigh: number; refLow: number;
+  date: string; open: number; high: number; low: number; close: number; inside: boolean; refHigh: number; refLow: number;
 }
 
 /**
@@ -93,7 +93,7 @@ export function buildCandles(ohlcv: OhlcvRow[]): Candle[] {
     // gap-down is not mistaken for a swing high.
     const gap = !!prev && (r.low > prev.high || r.high < prev.low);
     out.push({
-      date: barKey(r.date), high: r.high, low: r.low, close: r.close, inside,
+      date: barKey(r.date), open: r.open, high: r.high, low: r.low, close: r.close, inside,
       refHigh: gap ? Math.max(r.high, prev.refHigh) : r.high,
       refLow: gap ? Math.min(r.low, prev.refLow) : r.low,
     });

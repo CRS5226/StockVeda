@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectLegBlocks } from "./smcOrderBlocks";
+import { detectAdvancedBlock, detectLegBlocks } from "./smcOrderBlocks";
 import { buildCandles, type StructureLeg } from "./smcStructure";
 
 // A bar is [open, high, low, close]. Fixtures follow lectures/YTlecture "order block / FVG / order flow".
@@ -132,5 +132,58 @@ describe("block status, CE and the 4-candle filter", () => {
     const up = detectLegBlocks(candles([...PULLBACK, ...tail]), leg({}))[0];
     const down = detectLegBlocks(candles(mirror([...PULLBACK, ...tail])), mirrorLeg(leg({})))[0];
     expect([down.status, down.endK, down.followThrough, 200 - down.ce]).toEqual([up.status, up.endK, up.followThrough, up.ce]);
+  });
+});
+
+describe("advanced order blocks (no FVG)", () => {
+  // A run of three selling candles ends the pullback, then the move up.
+  const RUN: Bar[] = [
+    [112, 113, 110, 111],
+    [111, 111.5, 107, 108],    // took the IDM, selling
+    [108, 109, 104, 105],      // selling
+    [105, 106, 102, 103],      // selling
+    [103, 104, 100, 101],      // selling, the HL
+    [101, 107, 100.5, 106],    // buying: the move starts
+    [106, 108, 103.5, 107.5],  // dips back under the HL candle's high: no gap above the run
+    [107.5, 115, 106.5, 114],
+  ];
+  const run = (rows: Bar[], l = leg({ from: 1, to: 4, protected: { k: 4, price: 100 } })) =>
+    detectAdvancedBlock(candles(rows), l);
+
+  it("takes the whole run of selling candles, not a single one", () => {
+    expect(run(RUN)).toMatchObject({ runFrom: 1, runTo: 4, top: 111.5, bottom: 100, mean: 105.75, fvgOverlap: false, invalidatedK: null });
+  });
+
+  it("an opposite candle ends the run, an inside bar does not", () => {
+    const rows = RUN.map((r) => [...r] as Bar);
+    rows[2] = [104, 109, 104.5, 108.5]; // buying: the run starts after it
+    expect(run(rows)).toMatchObject({ runFrom: 3, runTo: 4 });
+    rows[2] = [108, 109, 104, 105];
+    rows[3] = [106, 106.5, 105.5, 105.8]; // inside bar: ignored, run carries on through it
+    rows[4] = [105.8, 106, 100, 101];
+    expect(run(rows)).toMatchObject({ runFrom: 1, runTo: 4 });
+  });
+
+  it("a body close beyond the mean threshold invalidates it, a wick does not", () => {
+    expect(run([...RUN, [114, 114.5, 104, 106]])?.invalidatedK).toBeNull();         // wicked under the mean, closed over
+    expect(run([...RUN, [114, 114.5, 104, 105.5]])?.invalidatedK).toBe(8);          // closed under 105.75
+  });
+
+  it("uses only the overlap with an unfilled FVG when there is one", () => {
+    // the HL candle (high 104) and candle 6 (low 108) leave an FVG 104..108 inside the run's
+    // 100..111.5 range: only that overlap is used
+    const rows: Bar[] = [
+      [112, 113, 110, 111], [111, 111.5, 107, 108], [108, 109, 104, 105], [105, 106, 102, 103],
+      [103, 104, 100, 101], [101, 110, 100.5, 109], [109, 112, 108, 111], [111, 115, 110.5, 114],
+    ];
+    const b = run(rows, leg({ from: 1, to: 4, protected: { k: 4, price: 100 }, extreme: { k: 0, price: 113 } }));
+    expect(b).toMatchObject({ fvgOverlap: true, top: 108, bottom: 104, mean: 106 });
+  });
+
+  it("mirrors into a bearish block", () => {
+    const up = run([...RUN, [114, 114.5, 104, 105.5]])!;
+    const down = detectAdvancedBlock(candles(mirror([...RUN, [114, 114.5, 104, 105.5]])), mirrorLeg(leg({ from: 1, to: 4, protected: { k: 4, price: 100 } })))!;
+    expect([down.runFrom, down.runTo, down.invalidatedK]).toEqual([up.runFrom, up.runTo, up.invalidatedK]);
+    expect([200 - down.mean, 200 - down.bottom, 200 - down.top]).toEqual([up.mean, up.top, up.bottom]);
   });
 });

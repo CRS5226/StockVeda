@@ -107,3 +107,79 @@ export function detectStructureOrderBlocks(ohlcv: OhlcvRow[]): OrderBlock[] {
   const c = buildCandles(ohlcv);
   return map.legs.flatMap((leg, i) => detectLegBlocks(c, leg, i));
 }
+
+export interface AdvancedBlock {
+  direction: "bullish" | "bearish";
+  /** Candle range (into `buildCandles(ohlcv)`) of the run of same-colour candles the block is built from. */
+  runFrom: number;
+  runTo: number;
+  date: string;
+  top: number;
+  bottom: number;
+  /** The 50% mean threshold of the drawn zone: a body close beyond it invalidates the block. */
+  mean: number;
+  /** True when the zone was cut down to where the block overlaps an unfilled FVG. */
+  fvgOverlap: boolean;
+  /** Candle index of the invalidating body close, or null while the block stands. */
+  invalidatedK: number | null;
+  leg: number;
+}
+
+/**
+ * Advanced order block (no FVG needed), from the block-types lecture. At the end of a leg's pullback
+ * it takes the whole run of consecutive selling candles (buying, when bearish) ending at the last one
+ * before the move, not a single candle; inside bars do not end the run, an opposite candle does.
+ * If that run overlaps an unfilled FVG, only the overlap is used, else the whole run and its 50%.
+ */
+export function detectAdvancedBlock(c: Candle[], leg: StructureLeg, legIndex = 0): AdvancedBlock | null {
+  const d = leg.direction === "bullish" ? 1 : -1;
+  const n = c.length;
+  const same = (k: number) => (d > 0 ? c[k].close < c[k].open : c[k].close > c[k].open);
+
+  let end = leg.to;
+  while (end >= leg.from && (c[end].inside || !same(end))) end--;
+  if (end < leg.from) return null;
+  let start = end;
+  for (let k = end - 1; k >= leg.from; k--) {
+    if (c[k].inside) continue;
+    if (!same(k)) break;
+    start = k;
+  }
+  let top = -Infinity, bottom = Infinity;
+  for (let k = start; k <= end; k++) { top = Math.max(top, c[k].high); bottom = Math.min(bottom, c[k].low); }
+
+  // unfilled FVG of the move that follows, which the run's range overlaps
+  let bound = n - 1;
+  for (let j = end + 1; j < n; j++) {
+    if (d > 0 ? c[j].high > leg.extreme.price : c[j].low < leg.extreme.price) { bound = j; break; }
+  }
+  let overlap: { top: number; bottom: number } | null = null;
+  for (let k = start; k + 2 <= Math.min(bound + 2, n - 1); k++) {
+    const a = c[k], b = c[k + 2];
+    const gap = d > 0 ? (a.high < b.low ? { top: b.low, bottom: a.high } : null) : (a.low > b.high ? { top: a.low, bottom: b.high } : null);
+    if (!gap) continue;
+    let filled = false;
+    for (let j = k + 3; j < n && !filled; j++) filled = d > 0 ? c[j].low <= gap.bottom : c[j].high >= gap.top;
+    if (filled || gap.top < bottom || gap.bottom > top) continue;
+    overlap = { top: Math.min(top, gap.top), bottom: Math.max(bottom, gap.bottom) };
+    break;
+  }
+  const zone = overlap ?? { top, bottom };
+  const mean = (zone.top + zone.bottom) / 2;
+  let invalidatedK: number | null = null;
+  for (let j = end + 1; j < n; j++) {
+    if (d > 0 ? c[j].close < mean : c[j].close > mean) { invalidatedK = j; break; }
+  }
+  return {
+    direction: leg.direction, runFrom: start, runTo: end, date: c[start].date, top: zone.top, bottom: zone.bottom,
+    mean, fvgOverlap: !!overlap, invalidatedK, leg: legIndex,
+  };
+}
+
+/** Advanced order blocks for the whole chart, one per leg. */
+export function detectAdvancedOrderBlocks(ohlcv: OhlcvRow[]): AdvancedBlock[] {
+  const map = mapStructure(ohlcv);
+  if (!map.legs.length) return [];
+  const c = buildCandles(ohlcv);
+  return map.legs.flatMap((leg, i) => detectAdvancedBlock(c, leg, i) ?? []);
+}
