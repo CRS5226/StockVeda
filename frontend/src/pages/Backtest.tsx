@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch, Layers } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch } from "lucide-react";
 import Analysis from "./Analysis";
-import SmcPanel from "../components/SmcPanel";
 import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore, AltCoverage } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
@@ -2924,7 +2923,7 @@ export default function Backtest() {
       {/* ── Mode Toggle ── */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3">
         <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.08em] mb-2.5 px-1">Backtest Mode</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
           {([
             { key: "multi_stock" as const, Icon: Shuffle,          label: "Multi-Stock", desc: "1 algo · N stocks" },
             { key: "multi_algo"  as const, Icon: Zap,              label: "Multi-Algo",  desc: "N algos · 1 stock" },
@@ -2932,7 +2931,6 @@ export default function Backtest() {
             { key: "orb"         as const, Icon: Sunrise,          label: "ORB",         desc: "opening-range breakout" },
             { key: "grid"        as const, Icon: SlidersHorizontal, label: "Grid Search", desc: "tune thresholds & periods" },
             { key: "ml"          as const, Icon: BrainCircuit,     label: "ML Models",   desc: "learned entry filter" },
-            { key: "smc"         as const, Icon: Layers,          label: "SMC",         desc: "smart money concepts · chart overlays" },
             { key: "analysis"    as const, Icon: GitBranch,        label: "Analysis",    desc: "markov / monte carlo / index fund" },
           ]).map((m) => {
             const active = mode === m.key;
@@ -2958,7 +2956,6 @@ export default function Backtest() {
         </div>
       </div>
 
-      {mode === "smc" && <SmcPanel />}
 
       {mode === "analysis" && <Analysis />}
 

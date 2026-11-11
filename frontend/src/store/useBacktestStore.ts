@@ -236,11 +236,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "smc" | "analysis";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "analysis";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "smc" | "analysis") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "analysis") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
