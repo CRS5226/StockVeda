@@ -82,7 +82,6 @@ export default function Navbar() {
   };
 
   const navLinks = [
-    { to: "/", label: "Home", icon: TrendingUp },
     { to: "/screener", label: "Screener", icon: SlidersHorizontal },
     { to: "/charts", label: "Charts", icon: ChartCandlestick },
     { to: "/backtest", label: "Backtest", icon: FlaskConical },
