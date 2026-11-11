@@ -8,7 +8,7 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub stars](https://img.shields.io/github/stars/CRS5226/StockVeda?style=social)](https://github.com/CRS5226/StockVeda/stargazers)
 
-Self-hosted Indian stock market research platform — screening, charting, fundamentals, backtesting (rule-based, options, and ML), F&O analytics, and macro data in one tool.
+Self-hosted Indian stock market research platform — screening, charting (SMC overlays, bar replay and paper trading), fundamentals, backtesting (rule-based, ORB, and ML), and macro data in one tool.
 
 Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the frontend. All data is fetched from free public sources (NSE bhavcopy, yfinance, FRED, RBI) and stored locally in a single DuckDB file — no subscriptions, no external databases.
 
@@ -23,9 +23,9 @@ Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the
 |---|---|
 | ![Market Dashboard](docs/screenshots/market-dashboard.png) | ![Stock Detail](docs/screenshots/stock-detail.png) |
 
-| Backtest | F&O Analytics |
+| Backtest | Charts |
 |---|---|
-| ![Backtest](docs/screenshots/backtest.png) | ![F&O](docs/screenshots/fno.png) |
+| ![Backtest](docs/screenshots/backtest.png) | ![Charts](docs/screenshots/charts.png) |
 -->
 
 ## Quick start
@@ -63,20 +63,19 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 - Historical data fetch: 30 / 90 / 180 days, 1 / 2 / 3 years
 - Auto-runs on data sync
 
-**Backtest — 7 modes**
+**Backtest — 6 modes**
 
 | Mode | What it does |
 |------|--------------|
 | **Multi-Stock** | 1 strategy tested across N stocks |
 | **Multi-Algo** | N strategies overlaid on 1 stock with colored trade markers |
 | **Matrix** | M algos × N stocks, heatmap + ranked table (SSE streamed) |
-| **Options** | Straddle / strangle and spreads (bull call, bear put, iron condor) |
 | **ORB** | Opening-range breakout on intraday bars, per-trade candle charts |
 | **Grid Search** | Sweep indicator thresholds *and* periods; train/test split with overfit-gap column and a 2-D heatmap |
 | **ML Models** | Triple-barrier meta-labeling — logistic regression, decision tree, random forest, SVM, XGBoost |
 
 - 11 preset strategies (Trend Momentum, Golden Zone Buy, Mean Reversion, EMA Ribbon, ADX Trend, Pin Bar, Engulfing Reversal, MACD Cross, Golden Cross, …) + custom condition builder
-- Target % / stop-loss % / max-hold exits, cash or continuous-futures price series, daily or weekly timeframe
+- Target % / stop-loss % / max-hold exits, stocks or an index such as NIFTY (cash data), daily or weekly timeframe
 - Per-algo comparison — P&L, win rate, profit factor, expectancy, outcome probability bars
 - Trade log with entry / exit / reason breakdown, plus recent candle patterns + trend outlook per result
 
@@ -93,11 +92,11 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 - Reports train **and** test accuracy / precision / recall / F1 / AUC with a gap column, confusion matrices for both splits, feature importance, and the train/test date windows
 - Trades simulated on the test period where P(win) ≥ threshold, compared against a **Baseline (no ML)** row so you can see whether the filter actually adds value
 
-**F&O**
-- Option chain with ATM strike, PCR (OI), max pain, OI concentration
-- ATM implied volatility (Black-Scholes / Newton-Raphson) + IV rank, ATM delta snapshot
-- Futures basis, cost of carry, rollover %
-- Continuous roll-adjusted near-month futures series usable as a backtest price source
+**Charts** (`/charts`)
+- Full-screen candlestick + volume chart (5-minute by default; 1m to 1M timeframes), symbol search, chart-only dark mode
+- **SMC box** — structure (BOS / ChoCH, HH / HL / LH / LL, zigzag, STH / ITH / LTH), order blocks, FVG types (PFG / BFG / RFG / IFVG), breaker / mitigation / rejection blocks, OB + FVG zones, liquidity
+- **Bar replay** — click a candle to start, play / pause / step back and forward at 0.5x to 2x; SMC is off in replay
+- **Paper trading** on the replay — CE / PE Buy and Sell with netting and partial booking, stop-loss, target and trailing stop-loss; place orders from a "+" on the price axis, drag the stop-loss and target lines on the chart, Close all
 
 **Analysis**
 - **Markov Chain** — walk-forward state transition matrix + forward projection (computed causally, safe as a backtest signal)
@@ -258,19 +257,16 @@ Base URL: `http://localhost:8007/api`
 | `GET /backtest/indicators` · `/entry-conditions` · `/strategies` | Builder metadata |
 | `POST /backtest/run-v2` | Multi-stock condition backtest |
 | `POST /backtest/run-matrix` · `/run-matrix-stream` | M algos × N stocks (SSE) |
-| `POST /backtest/run-straddle` · `/run-spread` | Options strategies |
 | `POST /backtest/run-orb` | Opening-range breakout |
 | `GET /backtest/grid-sweepables` | Sweepable period columns + caps |
 | `POST /backtest/run-grid-search` | Hyperparameter sweep, train/test split (SSE) |
 | `GET /backtest/ml-models` | Available ML models + install status |
 | `POST /backtest/run-ml-stream` | Train/evaluate ML entry filter (SSE) |
 
-**F&O / Analysis / Macro**
+**Analysis / Macro**
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /fno/option-chain/{symbol}` | Chain + PCR, max pain, ATM IV, delta |
-| `GET /fno/futures/{symbol}` | Futures OHLCV / basis / rollover |
 | `POST /intraday/fetch` | Fetch intraday bars (job) |
 | `GET /v1/markov/{symbol}` · `/monte-carlo/{symbol}` | Markov + Monte Carlo analysis |
 | `POST /index-fund/replicate` | Index replication + tracking error |
