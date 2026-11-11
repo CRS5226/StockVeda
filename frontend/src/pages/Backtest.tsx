@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sigma, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch, Layers } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch, Layers } from "lucide-react";
 import Analysis from "./Analysis";
 import SmcPanel from "../components/SmcPanel";
 import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore, AltCoverage } from "../lib/api";
-import { useBacktestStore, SavedRun, ALGO_COLORS, StraddleConfig, StraddleResult, SpreadConfig, SpreadResult, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
+import { useBacktestStore, SavedRun, ALGO_COLORS, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
-import FnoFetchPanel, { INDEX_SYMBOLS } from "../components/FnoFetchPanel";
 import IntradayFetchPanel from "../components/IntradayFetchPanel";
 import OrbTradeChart from "../components/OrbTradeChart";
 import SymbolCombobox from "../components/SymbolCombobox";
@@ -161,10 +160,6 @@ const INDICATOR_LABELS: Record<string, string> = {
   cdl_doji: "Doji", cdl_shooting_star: "Shooting Star",
   cdl_morning_star: "Morning Star", cdl_evening_star: "Evening Star",
   cdl_bear_engulf: "Bearish Engulfing",
-  pcr_oi: "PCR (OI)", max_pain: "Max Pain Strike", max_pain_dist_pct: "Max Pain Distance %",
-  atm_oi: "ATM Combined OI", oi_concentration: "OI Concentration %",
-  basis: "Futures Basis", cost_of_carry: "Cost of Carry %", rollover_pct: "Rollover %",
-  atm_iv: "ATM Implied Vol %", iv_rank: "IV Rank (60d) %",
 };
 
 const OPERATOR_LABELS: Record<string, string> = {
@@ -243,7 +238,7 @@ function SymbolSearch({ onAdd }: { onAdd: (sym: string) => void }) {
 }
 
 // ── Single-value symbol combobox (search-as-you-type + keyboard nav) ───────
-// For fields like straddle/spread/ORB's "Symbol" input, where typing should both
+// For fields like ORB's "Symbol" input, where typing should both
 // filter suggestions AND directly update the bound value (unlike SymbolSearch
 // above, which clears itself after adding to a list).
 
@@ -509,44 +504,7 @@ function DataPanel() {
   );
 }
 
-// ── ATM Delta snapshot (Options mode, Step 1 only — ORB has no option chain) ─
-
-function AtmDeltaSnapshot({ symbol, hasData }: { symbol: string; hasData: boolean }) {
-  const [snap, setSnap] = useState<import("../lib/api").OptionChainData | null>(null);
-
-  useEffect(() => {
-    if (!symbol || !hasData) { setSnap(null); return; }
-    api.getOptionChain(symbol).then(setSnap).catch(() => setSnap(null));
-  }, [symbol, hasData]);
-
-  if (!snap?.atm_greeks) return null; // silent — the coverage pill above already communicates "no data"
-  const atmRow = snap.chain.find((r) => r.is_atm);
-  const fmtDelta = (d: number | null) => (d === null ? "—" : d.toFixed(3));
-  const fmtIv = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`);
-
-  return (
-    <div className="mb-3 flex flex-wrap items-stretch gap-2">
-      <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-1.5">
-        <span className="font-semibold text-slate-600">ATM Snapshot</span>
-        <span className="text-slate-400">— {snap.expiry} ({snap.atm_greeks.dte_days}d) · strike {atmRow?.strike} · spot {snap.spot.toFixed(2)}</span>
-      </div>
-      <div className="flex items-center gap-3 text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-        <span className="font-semibold text-emerald-700">CE</span>
-        <span className="text-slate-500">premium <span className="font-medium text-slate-700">{atmRow?.ce_ltp ?? "—"}</span></span>
-        <span className="text-slate-500">IV <span className="font-medium text-slate-700">{fmtIv(snap.atm_greeks.ce.iv)}</span></span>
-        <span className="text-slate-500">Δ <span className="font-semibold text-emerald-700">{fmtDelta(snap.atm_greeks.ce.delta)}</span></span>
-      </div>
-      <div className="flex items-center gap-3 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-        <span className="font-semibold text-red-700">PE</span>
-        <span className="text-slate-500">premium <span className="font-medium text-slate-700">{atmRow?.pe_ltp ?? "—"}</span></span>
-        <span className="text-slate-500">IV <span className="font-medium text-slate-700">{fmtIv(snap.atm_greeks.pe.iv)}</span></span>
-        <span className="text-slate-500">Δ <span className="font-semibold text-red-700">{fmtDelta(snap.atm_greeks.pe.delta)}</span></span>
-      </div>
-    </div>
-  );
-}
-
-// ── Timeline preset buttons (shared across Options/ORB Step 1) ─────────────
+// ── Timeline preset buttons (ORB Step 1) ─────────────
 
 function TimelinePresetButtons({ onPick }: { onPick: (fromDate: string, toDate: string) => void }) {
   const pick = (days: number) => {
@@ -1020,658 +978,6 @@ function MultiAlgoResults({
         </div>
       </div>
     </section>
-  );
-}
-
-const STRADDLE_STRATEGIES = [
-  { key: "short_straddle" as const, label: "Short Straddle", tip: "Sell ATM CE + ATM PE — profits from premium decay, loses on a big move either way" },
-  { key: "long_straddle" as const, label: "Long Straddle", tip: "Buy ATM CE + ATM PE — profits from a big move either way, loses to premium decay" },
-  { key: "short_strangle" as const, label: "Short Strangle", tip: "Sell OTM CE + OTM PE — cheaper premium than a straddle, wider profit zone, smaller max profit" },
-  { key: "long_strangle" as const, label: "Long Strangle", tip: "Buy OTM CE + OTM PE — cheaper than a long straddle, needs a bigger move to profit" },
-];
-
-const EXIT_REASON_LABELS: Record<string, string> = {
-  target: "Target Hit",
-  sl: "Stoploss Hit",
-  end_of_data: "End of Data",
-  expiry: "Expiry Hit",
-  data_end: "NA",
-};
-
-function OptionsStraddlePanel({
-  straddle, results, loading, error, onChange, onRun,
-}: {
-  straddle: StraddleConfig;
-  results: StraddleResult | null;
-  loading: boolean;
-  error: string | null;
-  onChange: (p: Partial<StraddleConfig>) => void;
-  onRun: () => void;
-}) {
-  const isStrangle = straddle.strategy.includes("strangle");
-  const isShort = straddle.strategy.startsWith("short");
-
-  const [dataStatus, setDataStatus] = useState<{ earliest_date: string | null; latest_date: string | null; total_days: number } | null>(null);
-  const [showFetchPanel, setShowFetchPanel] = useState(false);
-  const [selectedTradeIdx, setSelectedTradeIdx] = useState(0);
-
-  const loadDataStatus = useCallback(() => {
-    if (!straddle.symbol) return;
-    api.fnoDataStatus(straddle.symbol).then(setDataStatus).catch(() => setDataStatus(null));
-  }, [straddle.symbol]);
-
-  useEffect(() => { loadDataStatus(); }, [loadDataStatus]);
-  useEffect(() => { setSelectedTradeIdx(0); }, [results]);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
-          <span className="text-sm font-semibold text-slate-700">Pick Symbol & Data</span>
-          <span className="text-xs text-slate-400 ml-1">— choose a symbol, confirm option-chain coverage, and set your backtest window</span>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
-            <SymbolCombobox value={straddle.symbol} onChange={(sym) => onChange({ symbol: sym })} />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">From Date</label>
-            <input type="date" value={straddle.from_date} onChange={(e) => onChange({ from_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">To Date</label>
-            <input type="date" value={straddle.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block"
-              title="Cash = true spot/index price. Futures = continuous roll-adjusted near-month futures close. This only changes the reference price used for ATM/offset strike selection and P&L mark-to-market — the option chain and available strikes are always the exchange's real (spot-relative) strikes and are unchanged either way.">
-              Data Source
-            </label>
-            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
-              {(["cash", "futures"] as const).map((ds) => (
-                <button key={ds} onClick={() => onChange({ data_source: ds })}
-                  className={`flex-1 font-medium transition-colors ${
-                    straddle.data_source === ds ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
-                  }`}>
-                  {ds === "cash" ? "Cash" : "Futures"}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-3">
-          <TimelinePresetButtons onPick={(f, t) => onChange({ from_date: f, to_date: t })} />
-        </div>
-
-        {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
-        {straddle.symbol && (
-          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
-            {dataStatus?.earliest_date ? (
-              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
-                Option data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_date} → {dataStatus.latest_date}</span> ({dataStatus.total_days} days)
-              </span>
-            ) : (
-              <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
-                No option data synced yet for {straddle.symbol}
-              </span>
-            )}
-            <button onClick={() => setShowFetchPanel((v) => !v)}
-              className="text-blue-600 hover:underline font-medium">
-              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
-            </button>
-          </div>
-        )}
-
-        {showFetchPanel && straddle.symbol && (
-          <div className="mb-4">
-            <FnoFetchPanel
-              symbol={straddle.symbol}
-              isIndex={INDEX_SYMBOLS.includes(straddle.symbol)}
-              onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
-            />
-          </div>
-        )}
-
-        <AtmDeltaSnapshot symbol={straddle.symbol} hasData={!!dataStatus?.earliest_date} />
-      </section>
-
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
-          <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
-          <span className="text-xs text-slate-400 ml-1">— one trade per expiry cycle, tracking combined CE+PE premium</span>
-        </div>
-
-        <div className="mb-3">
-          <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
-          <div className="flex flex-wrap gap-1.5">
-            {STRADDLE_STRATEGIES.map((s) => (
-              <button key={s.key} title={s.tip} onClick={() => onChange({ strategy: s.key })}
-                className={`px-2.5 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
-                  straddle.strategy === s.key
-                    ? "bg-blue-500 text-white border-blue-500"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
-                }`}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={`grid gap-3 mb-4 ${isStrangle ? "grid-cols-2 md:grid-cols-5" : "grid-cols-2 md:grid-cols-4"}`}>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
-            <input type="number" value={straddle.capital_per_trade}
-              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          {isStrangle && (
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">Strangle Width %</label>
-              <input type="number" step="0.5" value={straddle.strangle_width_pct}
-                onChange={(e) => onChange({ strangle_width_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-          )}
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Enter once days-to-expiry drops to this many">Entry DTE</label>
-            <input type="number" value={straddle.entry_dte}
-              onChange={(e) => onChange({ entry_dte: parseInt(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Target %</label>
-            <input type="number" step="1" value={straddle.target_pct}
-              onChange={(e) => onChange({ target_pct: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Stop-Loss %</label>
-            <input type="number" step="1" value={straddle.sl_pct}
-              onChange={(e) => onChange({ sl_pct: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Force-close once days-to-expiry drops to this many, regardless of P&L">Force Exit DTE</label>
-            <input type="number" value={straddle.force_exit_dte}
-              onChange={(e) => onChange({ force_exit_dte: parseInt(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-        </div>
-
-        <button onClick={onRun} disabled={!straddle.symbol || loading}
-          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-          {loading
-            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running…</>
-            : <><Play size={13} /> Run Backtest</>}
-        </button>
-      </section>
-
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-          <AlertCircle size={16} className="shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {results && (
-        <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            {[
-              { label: "Total Trades", value: results.stats.total_trades },
-              { label: "Win Rate", value: `${results.stats.win_rate_pct}%` },
-              { label: "Total P&L", value: `₹${results.stats.total_pnl.toLocaleString("en-IN")}`, color: results.stats.total_pnl >= 0 ? "text-emerald-600" : "text-red-600" },
-              { label: "Avg P&L %", value: `${results.stats.avg_pnl_pct}%`, color: results.stats.avg_pnl_pct >= 0 ? "text-emerald-600" : "text-red-600" },
-            ].map((m) => (
-              <div key={m.label} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">{m.label}</div>
-                <div className={`text-lg font-bold ${m.color ?? "text-slate-800"}`}>{m.value}</div>
-              </div>
-            ))}
-          </div>
-
-          {results.ohlcv.length > 0 && (
-            <div className="mb-4 border border-slate-200 rounded-lg overflow-hidden">
-              <BacktestChart
-                symbol={straddle.symbol}
-                ohlcv={results.ohlcv}
-                hLines={false}
-                trades={results.trades.map((t) => ({
-                  entry_date: t.entry_date, exit_date: t.exit_date,
-                  entry_price: 0, target_price: 0, sl_price: 0, exit_price: 0,
-                  exit_reason: t.exit_reason === "target" ? "target" : t.exit_reason === "sl" ? "sl" : "timeout",
-                  pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
-                }))}
-              />
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[10px] text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
-                  <th className="text-left px-3 py-2 font-semibold">Expiry</th>
-                  <th className="text-left px-3 py-2 font-semibold">Entry</th>
-                  <th className="text-left px-3 py-2 font-semibold">Exit</th>
-                  <th className="text-right px-3 py-2 font-semibold">{isStrangle ? "Call / Put Strike" : "Strike"}</th>
-                  <th className="text-right px-3 py-2 font-semibold" title="CE leg premium, entry → exit">CE Premium</th>
-                  <th className="text-right px-3 py-2 font-semibold" title="PE leg premium, entry → exit">PE Premium</th>
-                  <th className="text-right px-3 py-2 font-semibold">Entry Premium</th>
-                  <th className="text-right px-3 py-2 font-semibold" title="Premium level that closes the trade in profit">Target Premium</th>
-                  <th className="text-right px-3 py-2 font-semibold" title="Premium level that closes the trade at a loss">Stop-Loss Premium</th>
-                  <th className="text-right px-3 py-2 font-semibold">Exit Premium</th>
-                  <th className="text-right px-3 py-2 font-semibold">P&L %</th>
-                  <th className="text-right px-3 py-2 font-semibold">P&L ₹</th>
-                  <th className="text-left px-3 py-2 font-semibold">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.trades.map((t, i) => {
-                  const targetPremium = isShort
-                    ? t.entry_premium * (1 - straddle.target_pct / 100)
-                    : t.entry_premium * (1 + straddle.target_pct / 100);
-                  const slPremium = isShort
-                    ? t.entry_premium * (1 + straddle.sl_pct / 100)
-                    : t.entry_premium * (1 - straddle.sl_pct / 100);
-                  return (
-                  <tr key={i}
-                    onClick={() => setSelectedTradeIdx(i)}
-                    className={`border-b border-slate-50 cursor-pointer transition-colors ${
-                      i === selectedTradeIdx ? "bg-blue-50" : "hover:bg-slate-50/50"
-                    }`}>
-                    <td className="px-3 py-1.5 font-medium text-slate-700">{t.expiry}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{t.entry_date}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{t.exit_date}</td>
-                    <td className="text-right px-3 py-1.5 font-semibold">
-                      {isStrangle ? `${t.call_strike} / ${t.put_strike}` : t.call_strike}
-                    </td>
-                    <td className="text-right px-3 py-1.5">{t.entry_ce} → {t.exit_ce}</td>
-                    <td className="text-right px-3 py-1.5">{t.entry_pe} → {t.exit_pe}</td>
-                    <td className="text-right px-3 py-1.5">{t.entry_premium}</td>
-                    <td className="text-right px-3 py-1.5 text-emerald-600">{Math.max(0, targetPremium).toFixed(2)}</td>
-                    <td className="text-right px-3 py-1.5 text-red-600">{slPremium.toFixed(2)}</td>
-                    <td className="text-right px-3 py-1.5">{t.exit_premium}</td>
-                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct}%
-                    </td>
-                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {t.pnl_amount >= 0 ? "+" : ""}₹{t.pnl_amount.toLocaleString("en-IN")}
-                    </td>
-                    <td className="px-3 py-1.5 text-slate-500">{EXIT_REASON_LABELS[t.exit_reason] ?? t.exit_reason}</td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
-            {isShort ? "Short strategy: profit = premium decay (entry − exit)." : "Long strategy: profit = premium gain (exit − entry)."}
-            {" "}IV/premium data is EOD-only (no intraday fills) — real slippage and bid/ask spread aren't modeled.
-            {straddle.data_source === "futures" && " Reference price for this run: continuous roll-adjusted futures close, not spot."}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
-const SPREAD_STRATEGIES = [
-  { key: "bull_call_spread" as const, label: "Bull Call Spread", tip: "Buy a call, sell a further OTM call — defined-risk bullish bet, cheaper than a naked call" },
-  { key: "bear_put_spread" as const, label: "Bear Put Spread", tip: "Buy a put, sell a further OTM put — defined-risk bearish bet, cheaper than a naked put" },
-  { key: "iron_condor" as const, label: "Iron Condor", tip: "Sell an OTM call + OTM put, buy further OTM wings for protection — defined-risk bet that price stays range-bound" },
-];
-
-function OptionsSpreadPanel({
-  spread, results, loading, error, onChange, onRun,
-}: {
-  spread: SpreadConfig;
-  results: SpreadResult | null;
-  loading: boolean;
-  error: string | null;
-  onChange: (p: Partial<SpreadConfig>) => void;
-  onRun: () => void;
-}) {
-  const isCondor = spread.strategy === "iron_condor";
-
-  const [dataStatus, setDataStatus] = useState<{ earliest_date: string | null; latest_date: string | null; total_days: number } | null>(null);
-  const [showFetchPanel, setShowFetchPanel] = useState(false);
-  const [selectedTradeIdx, setSelectedTradeIdx] = useState(0);
-
-  const loadDataStatus = useCallback(() => {
-    if (!spread.symbol) return;
-    api.fnoDataStatus(spread.symbol).then(setDataStatus).catch(() => setDataStatus(null));
-  }, [spread.symbol]);
-
-  useEffect(() => { loadDataStatus(); }, [loadDataStatus]);
-  useEffect(() => { setSelectedTradeIdx(0); }, [results]);
-
-  const selectedTrade = results?.trades[selectedTradeIdx] ?? results?.trades[0];
-
-  return (
-    <div className="flex flex-col gap-4">
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
-          <span className="text-sm font-semibold text-slate-700">Pick Symbol & Data</span>
-          <span className="text-xs text-slate-400 ml-1">— choose a symbol, confirm option-chain coverage, and set your backtest window</span>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
-            <SymbolCombobox value={spread.symbol} onChange={(sym) => onChange({ symbol: sym })} />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">From Date</label>
-            <input type="date" value={spread.from_date} onChange={(e) => onChange({ from_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">To Date</label>
-            <input type="date" value={spread.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block"
-              title="Cash = true spot/index price. Futures = continuous roll-adjusted near-month futures close. This only changes the reference price used for ATM/offset strike selection and P&L mark-to-market — the option chain and available strikes are always the exchange's real (spot-relative) strikes and are unchanged either way.">
-              Data Source
-            </label>
-            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
-              {(["cash", "futures"] as const).map((ds) => (
-                <button key={ds} onClick={() => onChange({ data_source: ds })}
-                  className={`flex-1 font-medium transition-colors ${
-                    spread.data_source === ds ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
-                  }`}>
-                  {ds === "cash" ? "Cash" : "Futures"}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-3">
-          <TimelinePresetButtons onPick={(f, t) => onChange({ from_date: f, to_date: t })} />
-        </div>
-
-        {/* Option data coverage for this symbol — the backtest can only trade expiry cycles inside this range */}
-        {spread.symbol && (
-          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
-            {dataStatus?.earliest_date ? (
-              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
-                Option data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_date} → {dataStatus.latest_date}</span> ({dataStatus.total_days} days)
-              </span>
-            ) : (
-              <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
-                No option data synced yet for {spread.symbol}
-              </span>
-            )}
-            <button onClick={() => setShowFetchPanel((v) => !v)}
-              className="text-blue-600 hover:underline font-medium">
-              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
-            </button>
-          </div>
-        )}
-
-        {showFetchPanel && spread.symbol && (
-          <div className="mb-4">
-            <FnoFetchPanel
-              symbol={spread.symbol}
-              isIndex={INDEX_SYMBOLS.includes(spread.symbol)}
-              onDone={() => { loadDataStatus(); setShowFetchPanel(false); }}
-            />
-          </div>
-        )}
-
-        <AtmDeltaSnapshot symbol={spread.symbol} hasData={!!dataStatus?.earliest_date} />
-      </section>
-
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
-          <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
-          <span className="text-xs text-slate-400 ml-1">— defined-risk multi-leg strategies, one trade per expiry cycle</span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
-            <input type="number" value={spread.capital_per_trade}
-              onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-        </div>
-
-        <div className="mb-3">
-          <label className="text-xs text-slate-500 mb-1.5 block">Strategy</label>
-          <div className="flex flex-wrap gap-1.5">
-            {SPREAD_STRATEGIES.map((s) => (
-              <button key={s.key} title={s.tip} onClick={() => onChange({ strategy: s.key })}
-                className={`px-2.5 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
-                  spread.strategy === s.key
-                    ? "bg-blue-500 text-white border-blue-500"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
-                }`}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {isCondor ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the short call (closer to spot)">Short Call OTM %</label>
-              <input type="number" step="0.5" value={spread.condor_call_short_pct}
-                onChange={(e) => onChange({ condor_call_short_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the protective long call (further out)">Long Call OTM %</label>
-              <input type="number" step="0.5" value={spread.condor_call_long_pct}
-                onChange={(e) => onChange({ condor_call_long_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the short put (closer to spot)">Short Put OTM %</label>
-              <input type="number" step="0.5" value={spread.condor_put_short_pct}
-                onChange={(e) => onChange({ condor_put_short_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the protective long put (further out)">Long Put OTM %</label>
-              <input type="number" step="0.5" value={spread.condor_put_long_pct}
-                onChange={(e) => onChange({ condor_put_long_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="ATM/OTM distance for the long (directional) leg">Long Leg Offset %</label>
-              <input type="number" step="0.5" value={spread.long_offset_pct}
-                onChange={(e) => onChange({ long_offset_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="OTM distance for the short leg">Short Leg Offset %</label>
-              <input type="number" step="0.5" value={spread.short_offset_pct}
-                onChange={(e) => onChange({ short_offset_pct: parseFloat(e.target.value) })}
-                className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Enter once days-to-expiry drops to this many">Entry DTE</label>
-            <input type="number" value={spread.entry_dte}
-              onChange={(e) => onChange({ entry_dte: parseInt(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="% of max profit captured before closing">Target % (of max profit)</label>
-            <input type="number" step="1" value={spread.target_pct}
-              onChange={(e) => onChange({ target_pct: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="% of max loss incurred before closing">Stop-Loss % (of max loss)</label>
-            <input type="number" step="1" value={spread.sl_pct}
-              onChange={(e) => onChange({ sl_pct: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Force-close once days-to-expiry drops to this many, regardless of P&L">Force Exit DTE</label>
-            <input type="number" value={spread.force_exit_dte}
-              onChange={(e) => onChange({ force_exit_dte: parseInt(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-        </div>
-
-        <button onClick={onRun} disabled={!spread.symbol || loading}
-          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-          {loading
-            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running…</>
-            : <><Play size={13} /> Run Backtest</>}
-        </button>
-      </section>
-
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-          <AlertCircle size={16} className="shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {results && (
-        <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            {[
-              { label: "Total Trades", value: results.stats.total_trades },
-              { label: "Win Rate", value: `${results.stats.win_rate_pct}%` },
-              { label: "Total P&L", value: `₹${results.stats.total_pnl.toLocaleString("en-IN")}`, color: results.stats.total_pnl >= 0 ? "text-emerald-600" : "text-red-600" },
-              { label: "Avg P&L %", value: `${results.stats.avg_pnl_pct}%`, color: results.stats.avg_pnl_pct >= 0 ? "text-emerald-600" : "text-red-600" },
-            ].map((m) => (
-              <div key={m.label} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">{m.label}</div>
-                <div className={`text-lg font-bold ${m.color ?? "text-slate-800"}`}>{m.value}</div>
-              </div>
-            ))}
-          </div>
-
-          {results.ohlcv.length > 0 && selectedTrade && (
-            <div className="mb-4 border border-slate-200 rounded-lg overflow-hidden">
-              <BacktestChart
-                symbol={spread.symbol}
-                ohlcv={results.ohlcv}
-                hLines={false}
-                trades={results.trades.map((t) => ({
-                  entry_date: t.entry_date, exit_date: t.exit_date,
-                  entry_price: 0, target_price: 0, sl_price: 0, exit_price: 0,
-                  exit_reason: t.exit_reason === "target" ? "target" : t.exit_reason === "sl" ? "sl" : "timeout",
-                  pnl: t.pnl_amount, pnl_pct: t.pnl_pct, shares: 1,
-                }))}
-                strikeLines={[{
-                  entry_date: selectedTrade.entry_date, exit_date: selectedTrade.exit_date,
-                  call_strike: Math.max(...selectedTrade.legs.map((l) => l.strike)),
-                  put_strike: Math.min(...selectedTrade.legs.map((l) => l.strike)),
-                }]}
-              />
-            </div>
-          )}
-
-          <div className="overflow-x-auto mb-4">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[10px] text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
-                  <th className="text-left px-3 py-2 font-semibold">Expiry</th>
-                  <th className="text-left px-3 py-2 font-semibold">Entry</th>
-                  <th className="text-left px-3 py-2 font-semibold">Exit</th>
-                  <th className="text-right px-3 py-2 font-semibold" title="Net debit paid (positive) or credit received (negative)">Entry Value</th>
-                  <th className="text-right px-3 py-2 font-semibold">Exit Value</th>
-                  <th className="text-right px-3 py-2 font-semibold">Max Profit</th>
-                  <th className="text-right px-3 py-2 font-semibold">Max Loss</th>
-                  <th className="text-right px-3 py-2 font-semibold">P&L %</th>
-                  <th className="text-right px-3 py-2 font-semibold">P&L ₹</th>
-                  <th className="text-left px-3 py-2 font-semibold">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.trades.map((t, i) => (
-                  <tr key={i}
-                    onClick={() => setSelectedTradeIdx(i)}
-                    className={`border-b border-slate-50 cursor-pointer transition-colors ${
-                      i === selectedTradeIdx ? "bg-blue-50" : "hover:bg-slate-50/50"
-                    }`}>
-                    <td className="px-3 py-1.5 font-medium text-slate-700">{t.expiry}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{t.entry_date}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{t.exit_date}</td>
-                    <td className="text-right px-3 py-1.5">{t.entry_value}</td>
-                    <td className="text-right px-3 py-1.5">{t.exit_value}</td>
-                    <td className="text-right px-3 py-1.5 text-emerald-600">{t.max_profit}</td>
-                    <td className="text-right px-3 py-1.5 text-red-600">{t.max_loss}</td>
-                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct}%
-                    </td>
-                    <td className={`text-right px-3 py-1.5 font-medium ${t.pnl_amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {t.pnl_amount >= 0 ? "+" : ""}₹{t.pnl_amount.toLocaleString("en-IN")}
-                    </td>
-                    <td className="px-3 py-1.5 text-slate-500">{EXIT_REASON_LABELS[t.exit_reason] ?? t.exit_reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {selectedTrade && (
-            <div className="border border-slate-200 rounded-lg overflow-hidden">
-              <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-600">
-                Legs — {selectedTrade.entry_date} → {selectedTrade.exit_date}
-              </div>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-[10px] text-slate-400 uppercase border-b border-slate-100">
-                    <th className="text-left px-3 py-1.5 font-semibold">Leg</th>
-                    <th className="text-left px-3 py-1.5 font-semibold">Type</th>
-                    <th className="text-left px-3 py-1.5 font-semibold">Direction</th>
-                    <th className="text-right px-3 py-1.5 font-semibold">Strike</th>
-                    <th className="text-right px-3 py-1.5 font-semibold">Entry Premium</th>
-                    <th className="text-right px-3 py-1.5 font-semibold">Exit Premium</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedTrade.legs.map((l, i) => (
-                    <tr key={i} className="border-b border-slate-50 last:border-0">
-                      <td className="px-3 py-1.5 text-slate-600 capitalize">{l.leg.replace("_", " ")}</td>
-                      <td className="px-3 py-1.5 text-slate-600">{l.option_type}</td>
-                      <td className={`px-3 py-1.5 font-medium ${l.direction > 0 ? "text-emerald-600" : "text-red-600"}`}>
-                        {l.direction > 0 ? "Buy" : "Sell"}
-                      </td>
-                      <td className="text-right px-3 py-1.5 font-semibold">{l.strike}</td>
-                      <td className="text-right px-3 py-1.5">{l.entry_price}</td>
-                      <td className="text-right px-3 py-1.5">{l.exit_price}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
-            P&L % is relative to max profit for the strategy (a defined-risk trade), not to premium paid/received.
-            {" "}IV/premium data is EOD-only (no intraday fills) — real slippage and bid/ask spread aren't modeled.
-            {spread.data_source === "futures" && " Reference price for this run: continuous roll-adjusted futures close, not spot."}
-          </div>
-        </section>
-      )}
-    </div>
   );
 }
 
@@ -2821,7 +2127,7 @@ function MlEdaPanel() {
                   <div className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
                     {intraday
                       ? "Daily-only data — switch to a 1D/1W timeframe to use these."
-                      : "Previous session's value (FII/DII and F&O data are published after the close). Options features exist only for F&O stocks with synced F&O history; bars without data are excluded, not zero-filled."}
+                      : "Previous session's value (FII/DII data is published after the close). Bars without data are excluded, not zero-filled."}
                   </div>
                 </div>
               )}
@@ -2852,7 +2158,7 @@ function MlEdaPanel() {
 }
 
 // Which picked stocks actually had the selected alt-data features — a stock at 0% was
-// effectively excluded (not F&O-eligible, or its history isn't synced).
+// effectively excluded (no data for the picked dates).
 function AltCoverageNote({ coverage }: { coverage: AltCoverage | undefined }) {
   if (!coverage) return null;
   const rows = Object.entries(coverage).sort(([, a], [, b]) => b - a);
@@ -2863,7 +2169,7 @@ function AltCoverageNote({ coverage }: { coverage: AltCoverage | undefined }) {
       <span className="font-medium">Alternative-data coverage (bars with all selected alt features): </span>
       {rows.map(([s, pct]) => `${s} ${pct}%`).join(" · ")}
       {missing.length > 0 && (
-        <div className="mt-0.5">Excluded: {missing.join(", ")} — no options/flow data (not F&O-eligible or history not synced).</div>
+        <div className="mt-0.5">Excluded: {missing.join(", ")} — no flow data for these dates.</div>
       )}
     </div>
   );
@@ -3481,13 +2787,6 @@ export default function Backtest() {
     // matrix
     matrixAlgos, matrixResults, matrixLoading, matrixError, matrixProgress,
     addMatrixAlgo, removeMatrixAlgo, updateMatrixAlgo, runMatrix,
-    // options straddle/strangle
-    straddle, straddleResults, straddleLoading, straddleError,
-    setStraddle, runStraddle,
-    // options spreads
-    optionsFamily, setOptionsFamily,
-    spread, spreadResults, spreadLoading, spreadError,
-    setSpread, runSpread,
     // ORB
     orb, orbResults, orbLoading, orbError, setOrb, runOrb,
   } = store;
@@ -3625,12 +2924,11 @@ export default function Backtest() {
       {/* ── Mode Toggle ── */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3">
         <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.08em] mb-2.5 px-1">Backtest Mode</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-9 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-2">
           {([
             { key: "multi_stock" as const, Icon: Shuffle,          label: "Multi-Stock", desc: "1 algo · N stocks" },
             { key: "multi_algo"  as const, Icon: Zap,              label: "Multi-Algo",  desc: "N algos · 1 stock" },
             { key: "matrix"      as const, Icon: LayoutGrid,       label: "Matrix",      desc: "M algos · N stocks" },
-            { key: "options"     as const, Icon: Sigma,            label: "Options",     desc: "straddle / strangle" },
             { key: "orb"         as const, Icon: Sunrise,          label: "ORB",         desc: "opening-range breakout" },
             { key: "grid"        as const, Icon: SlidersHorizontal, label: "Grid Search", desc: "tune thresholds & periods" },
             { key: "ml"          as const, Icon: BrainCircuit,     label: "ML Models",   desc: "learned entry filter" },
@@ -3713,48 +3011,6 @@ export default function Backtest() {
           expandedAlgoId={expandedAlgoId}
           setExpandedAlgoId={setExpandedAlgoId}
         />
-      )}
-
-      {/* ── Options mode: straddle/strangle or spread backtest ── */}
-      {mode === "options" && (
-        <>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3">
-            <span className="text-xs font-semibold text-slate-500 mr-1">Options Strategy Family</span>
-            {([
-              { key: "straddle" as const, label: "Straddle / Strangle" },
-              { key: "spread" as const, label: "Spreads" },
-            ]).map((f) => (
-              <button key={f.key} onClick={() => setOptionsFamily(f.key)}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                  optionsFamily === f.key
-                    ? "bg-blue-500 text-white border-blue-500"
-                    : "border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50"
-                }`}>
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {optionsFamily === "straddle" ? (
-            <OptionsStraddlePanel
-              straddle={straddle}
-              results={straddleResults}
-              loading={straddleLoading}
-              error={straddleError}
-              onChange={setStraddle}
-              onRun={runStraddle}
-            />
-          ) : (
-            <OptionsSpreadPanel
-              spread={spread}
-              results={spreadResults}
-              loading={spreadLoading}
-              error={spreadError}
-              onChange={setSpread}
-              onRun={runSpread}
-            />
-          )}
-        </>
       )}
 
       {/* ── ORB mode ── */}
@@ -3942,24 +3198,6 @@ export default function Backtest() {
               ))}
             </div>
           </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Cash = stock price. Futures = continuous roll-adjusted near-month futures series (needs futures data fetched on the F&O page first).">
-              Data Source
-            </label>
-            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
-              {(["cash", "futures"] as const).map((ds) => (
-                <button key={ds}
-                  onClick={() => setStrategy({ data_source: ds })}
-                  className={`flex-1 font-medium transition-colors ${
-                    strategy.data_source === ds
-                      ? "bg-blue-500 text-white"
-                      : "text-slate-500 bg-slate-50 hover:bg-slate-100"
-                  }`}>
-                  {ds === "cash" ? "Cash" : "Futures"}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <button onClick={runBacktestV2} disabled={!canRun}
@@ -4106,21 +3344,6 @@ export default function Backtest() {
                       strategy.timeframe === tf ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
                     }`}>
                     {tf === "1D" ? "Daily" : "Weekly"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block" title="Cash = stock price. Futures = continuous roll-adjusted near-month futures series (needs futures data fetched on the F&O page first).">
-                Data Source
-              </label>
-              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-[34px]">
-                {(["cash", "futures"] as const).map((ds) => (
-                  <button key={ds} onClick={() => setStrategy({ data_source: ds })}
-                    className={`flex-1 font-medium transition-colors ${
-                      strategy.data_source === ds ? "bg-blue-500 text-white" : "text-slate-500 bg-slate-50 hover:bg-slate-100"
-                    }`}>
-                    {ds === "cash" ? "Cash" : "Futures"}
                   </button>
                 ))}
               </div>

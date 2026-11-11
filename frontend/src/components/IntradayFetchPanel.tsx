@@ -8,7 +8,7 @@ const MAX_LOOKBACK_DAYS: Record<string, number> = { "1m": 7, "5m": 60, "15m": 60
 
 /**
  * On-demand intraday OHLCV fetch panel for ORB — single-shot per symbol/interval
- * (unlike FnoFetchPanel's per-day bulk bhavcopy loop), since yfinance intraday is
+ * (unlike a per-day bulk loop), since yfinance intraday is
  * one API call with a hard lookback ceiling that can't be bulk-backfilled.
  */
 export default function IntradayFetchPanel({ symbol, interval, onDone }: { symbol: string; interval: string; onDone: () => void }) {

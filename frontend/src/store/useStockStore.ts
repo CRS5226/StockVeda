@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, Candle, Fundamental, Delivery, Shareholding, CorporateAction, InsiderTrade, FnoRow } from "../lib/api";
+import { api, Candle, Fundamental, Delivery, Shareholding, CorporateAction, InsiderTrade } from "../lib/api";
 
 interface StockState {
   symbol: string;
@@ -9,7 +9,6 @@ interface StockState {
   shareholding: Shareholding[];
   corporateActions: CorporateAction[];
   insiderTrades: InsiderTrade[];
-  fno: FnoRow[];
   loading: Record<string, boolean>;
   error: string | null;
 
@@ -19,7 +18,6 @@ interface StockState {
   fetchShareholding: (symbol: string) => Promise<void>;
   fetchCorporateActions: (symbol: string) => Promise<void>;
   fetchInsiderTrades: (symbol: string) => Promise<void>;
-  fetchFno: (symbol: string) => Promise<void>;
   setSymbol: (s: string) => void;
   clearError: () => void;
 }
@@ -32,7 +30,6 @@ export const useStockStore = create<StockState>((set, get) => ({
   shareholding: [],
   corporateActions: [],
   insiderTrades: [],
-  fno: [],
   loading: {},
   error: null,
 
@@ -99,16 +96,6 @@ export const useStockStore = create<StockState>((set, get) => ({
       set((s) => ({ insiderTrades, loading: { ...s.loading, insiderTrades: false } }));
     } catch {
       set((s) => ({ loading: { ...s.loading, insiderTrades: false } }));
-    }
-  },
-
-  fetchFno: async (symbol) => {
-    set((s) => ({ loading: { ...s.loading, fno: true } }));
-    try {
-      const fno = await api.getFno(symbol.toUpperCase());
-      set((s) => ({ fno, loading: { ...s.loading, fno: false } }));
-    } catch {
-      set((s) => ({ loading: { ...s.loading, fno: false }, fno: [] }));
     }
   },
 }));

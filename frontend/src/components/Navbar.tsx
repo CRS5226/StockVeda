@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -66,7 +66,7 @@ export default function Navbar() {
     if (syncing) return;
     setSyncing(true);
     setSyncMsg(null);
-    const sources = ["indices", "bhavcopy", "fii_dii", "currency", "fno_participant"];
+    const sources = ["indices", "bhavcopy", "fii_dii", "currency"];
     try {
       await Promise.all(sources.map((s) => api.triggerSync(s)));
       setSyncMsg("Syncing… dashboard will update shortly");
@@ -99,7 +99,6 @@ export default function Navbar() {
     { to: "/screener", label: "Screener", icon: SlidersHorizontal },
     { to: "/charts", label: "Charts", icon: ChartCandlestick },
     { to: "/backtest", label: "Backtest", icon: FlaskConical },
-    { to: "/fno", label: "F&O", icon: BarChart2 },
     { to: "/mutual-funds", label: "Mutual Funds", icon: PiggyBank },
   ];
 

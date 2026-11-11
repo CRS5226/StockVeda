@@ -30,13 +30,6 @@ export interface AlgoTradeSet {
   active: boolean; // active algo → larger markers + h-lines shown
 }
 
-export interface StrikeLine {
-  entry_date: string;
-  exit_date: string;
-  call_strike: number;
-  put_strike: number;
-}
-
 /** A shaded rectangle drawn directly on the candle chart, spanning a date range and a price band. */
 export interface BoxZone {
   entry_date: string;
@@ -87,16 +80,7 @@ interface Props {
   algoTrades?: AlgoTradeSet[];
   /** TA-Lib pattern hits from backend; pass [] to hide patterns */
   patternHits?: PatternHit[];
-  /**
-   * Entry/target/SL horizontal lines only make sense when trade prices share the
-   * candle's price scale (cash/futures). Straddle/strangle trades track option
-   * premium, not spot price, so pass false there to keep only the date-anchored
-   * entry/exit markers.
-   */
-  hLines?: boolean;
-  /** Call/put strike reference lines (straddle/strangle) — these ARE on the spot price scale. */
-  strikeLines?: StrikeLine[];
-  /** Shaded trade-zone rectangles (e.g. entry→target, entry→SL, or a straddle's strike band). */
+  /** Shaded trade-zone rectangles (for example entry→target and entry→SL). */
   boxZones?: BoxZone[];
   /** SMC (Smart Money Concepts) overlays to draw; omit for none. */
   smc?: SmcToggles;
@@ -190,14 +174,13 @@ interface ZoneRect { left: number; top: number; width: number; height: number; f
 // effect forever) — a genuine infinite render loop whenever a caller omits boxZones.
 const EMPTY_TRADES: BacktestTradeV2[] = [];
 const EMPTY_PATTERNS: PatternHit[] = [];
-const EMPTY_STRIKE_LINES: StrikeLine[] = [];
 const EMPTY_BOX_ZONES: BoxZone[] = [];
 const EMPTY_MARKERS: SeriesMarker<Time>[] = [];
 const EMPTY_PRICE_LINES: ChartPriceLine[] = [];
 
 export default function BacktestChart({
-  ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS, hLines = true,
-  strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES, smc = NO_SMC,
+  ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS,
+  boxZones = EMPTY_BOX_ZONES, smc = NO_SMC,
   fill = false, theme = "light", structureMode = "lecture", swingLength = DEFAULT_SWING_LENGTH,
   stableView = false, onChartClick, extraMarkers = EMPTY_MARKERS, priceLines = EMPTY_PRICE_LINES, onChartReady,
 }: Props) {
@@ -517,8 +500,8 @@ export default function BacktestChart({
         if (!dateSet.has(entryDate)) return;
 
         // H-lines only for the active algo to avoid clutter — and only when the
-        // trade's price fields share the candle's scale (see hLines prop doc).
-        if (active && hLines) {
+        // trade's price fields share the candle's scale.
+        if (active) {
           addHLine(entryDate, exitDate, t.entry_price,  color);
           addHLine(entryDate, exitDate, t.target_price, "#22c55e");
           addHLine(entryDate, exitDate, t.sl_price,     "#ef4444");
@@ -552,15 +535,6 @@ export default function BacktestChart({
     } else {
       drawTrades(trades, "#3b82f6", true, false);
     }
-
-    // Straddle/strangle strike reference lines — these ARE on the candle's price scale.
-    strikeLines.forEach((s) => {
-      const entryDate = barKey(s.entry_date);
-      const exitDate  = barKey(s.exit_date);
-      if (!dateSet.has(entryDate)) return;
-      addHLine(entryDate, exitDate, s.call_strike, "#f59e0b");
-      if (s.put_strike !== s.call_strike) addHLine(entryDate, exitDate, s.put_strike, "#0ea5e9");
-    });
 
     // TA-Lib candle pattern markers from backend
     patternHits.forEach((p) => {
@@ -690,7 +664,7 @@ export default function BacktestChart({
     markers.push(...extraMarkers);
     markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, combinedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
+  }, [ohlcv, trades, algoTrades, patternHits, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, combinedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 

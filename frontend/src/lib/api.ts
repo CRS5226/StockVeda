@@ -95,11 +95,6 @@ export interface Holder {
   pctHeld?: number; "% Out"?: number; Value: number; pctChange?: number;
 }
 
-export interface FnoRow {
-  date: string; symbol: string; instrument: string; expiry?: string;
-  strike?: number; option_type?: string; open?: number; high?: number;
-  low?: number; close?: number; open_interest?: number; oi_change?: number;
-}
 export interface ScreenerResult {
   symbol: string; date: string; close: number; volume: number;
   pe_ratio?: number; debt_to_equity?: number; promoter_pct?: number;
@@ -307,19 +302,6 @@ export interface MarketBreadthRow {
 
 export interface NewsItem { title: string; link: string; source: string; published_at: string }
 
-export interface OptionChainRow {
-  strike: number;
-  ce_oi: number | null; ce_oi_change: number | null; ce_ltp: number | null; ce_iv: number | null;
-  pe_oi: number | null; pe_oi_change: number | null; pe_ltp: number | null;
-  is_atm: boolean;
-}
-export interface OptionChainData {
-  symbol: string; spot: number; expiry: string; expiry_dates: string[];
-  data_date?: string;
-  pcr: number | null; max_pain: number; chain: OptionChainRow[];
-  atm_greeks?: { dte_days: number; ce: { iv: number | null; delta: number | null }; pe: { iv: number | null; delta: number | null } } | null;
-}
-
 export interface TopCorrelatedItem {
   symbol: string; company_name: string | null;
   correlation: number; days_overlap: number;
@@ -517,8 +499,6 @@ export const api = {
   getInsiderTrades: (symbol: string) =>
     apiFetch<InsiderTrade[]>(`/stock/insider-trades/${symbol}`),
 
-  getFno: (symbol: string) =>
-    apiFetch<FnoRow[]>(`/stock/fno/${symbol}?limit=200`),
 
   screenStocks: (conditions: ScreenerCondition[], limit = 200, symbols?: string[]) =>
     apiFetch<{ count: number; results: ScreenerResult[] }>("/screener/run", {
@@ -598,7 +578,7 @@ export const api = {
     symbols: string[]; from_date: string; to_date: string;
     entry_conditions: ConditionRow[]; exit_conditions: ConditionRow[];
     target_pct: number; sl_pct: number; max_bars: number; capital_per_trade: number;
-    timeframe?: string; data_source?: "cash" | "futures";
+    timeframe?: string;
   }) =>
     apiFetch<BacktestV2Response>("/backtest/run-v2", {
       method: "POST",
@@ -609,7 +589,6 @@ export const api = {
   runBacktestMatrix: (params: {
     symbols: string[]; algos: MatrixAlgoInput[];
     from_date: string; to_date: string; capital_per_trade: number; timeframe?: string;
-    data_source?: "cash" | "futures";
   }) =>
     apiFetch<MatrixResponse>("/backtest/run-matrix", {
       method: "POST",
@@ -617,54 +596,6 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
-  runStraddleBacktest: (params: {
-    symbol: string; from_date: string; to_date: string;
-    strategy: "short_straddle" | "long_straddle" | "short_strangle" | "long_strangle";
-    strangle_width_pct?: number; entry_dte?: number; target_pct?: number; sl_pct?: number;
-    force_exit_dte?: number; capital_per_trade?: number; data_source?: "cash" | "futures";
-  }) =>
-    apiFetch<{
-      trades: Array<{
-        expiry: string; entry_date: string; exit_date: string;
-        call_strike: number; put_strike: number;
-        entry_premium: number; exit_premium: number;
-        entry_ce: number; entry_pe: number; exit_ce: number; exit_pe: number;
-        pnl_pct: number; pnl_amount: number; exit_reason: string;
-        premium_path: Array<{ date: string; premium: number }>;
-      }>;
-      stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
-      ohlcv: Array<{ date: string; open: number; high: number; low: number; close: number }>;
-    }>("/backtest/run-straddle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    }),
-
-  runSpreadBacktest: (params: {
-    symbol: string; from_date: string; to_date: string;
-    strategy: "bull_call_spread" | "bear_put_spread" | "iron_condor";
-    long_offset_pct?: number; short_offset_pct?: number;
-    condor_call_short_pct?: number; condor_call_long_pct?: number;
-    condor_put_short_pct?: number; condor_put_long_pct?: number;
-    entry_dte?: number; target_pct?: number; sl_pct?: number;
-    force_exit_dte?: number; capital_per_trade?: number; data_source?: "cash" | "futures";
-  }) =>
-    apiFetch<{
-      trades: Array<{
-        expiry: string; entry_date: string; exit_date: string;
-        legs: Array<{ leg: string; option_type: string; direction: number; strike: number; entry_price: number; exit_price: number }>;
-        entry_value: number; exit_value: number;
-        max_profit: number; max_loss: number;
-        pnl_pct: number; pnl_amount: number; exit_reason: string;
-        value_path: Array<{ date: string; value: number }>;
-      }>;
-      stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
-      ohlcv: Array<{ date: string; open: number; high: number; low: number; close: number }>;
-    }>("/backtest/run-spread", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    }),
 
   getTimeframes: () => apiFetch<TimeframeInfo[]>("/intraday/timeframes"),
   getTimeframeCandles: (symbol: string, interval: string, range: { from?: string; to?: string; limit?: number } = {}) => {
@@ -724,7 +655,7 @@ export const api = {
   runMlEda: (params: {
     symbols: string[]; from_date: string; to_date: string;
     entry_conditions: ConditionRow[]; sample_mode: "entry_signals" | "all_bars";
-    timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
+    timeframe: string; features?: string[] | null;
   }) =>
     apiFetch<MlEdaResult>("/backtest/ml-eda", {
       method: "POST",
@@ -735,7 +666,7 @@ export const api = {
   runClustering: (params: {
     symbols: string[]; from_date: string; to_date: string;
     algo: "kmeans" | "hierarchical" | "dbscan"; k: number; eps: number; min_samples: number;
-    lookback_days: number; timeframe: string; data_source: "cash" | "futures"; features?: string[] | null;
+    lookback_days: number; timeframe: string; features?: string[] | null;
   }) =>
     apiFetch<ClusteringResult>("/backtest/run-clustering", {
       method: "POST",
@@ -790,10 +721,6 @@ export const api = {
     apiFetch<{ date: string; fii_buy: number; fii_sell: number; fii_net: number; dii_buy: number; dii_sell: number; dii_net: number }[]>(
       `/macro/fii-dii?limit=${limit}`
     ),
-  getFnoParticipantOI: (limit = 252) =>
-    apiFetch<{ date: string; participant_type: string; instrument: string; long_oi: number; short_oi: number; net_oi: number }[]>(
-      `/macro/fno-oi?instrument=FUTURE_INDEX&limit=${limit * 2}`
-    ),
 
   dashboardStatus: () =>
     apiFetch<{ populated: boolean; index_rows: number }>("/macro/dashboard/status"),
@@ -815,63 +742,6 @@ export const api = {
       data: { date: string; symbol: string; scrip_name: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number; deal_type: string }[];
       date_range: { from: string; to: string } | null;
     }>(`/stock/bulk-deals?symbols=${symbols.join(",")}&days=${days}`),
-
-  getOptionChain: (symbol: string, expiry?: string) =>
-    apiFetch<OptionChainData>(`/fno/option-chain/${encodeURIComponent(symbol)}${expiry ? `?expiry=${encodeURIComponent(expiry)}` : ""}`),
-
-  getFnoLotSizes: () =>
-    apiFetch<{ lot_sizes: Record<string, number> }>("/fno/lot-sizes"),
-
-  getFnoSymbols: () =>
-    apiFetch<{ symbols: string[] }>("/fno/symbols"),
-
-  fnoFetchHistory: (from_date: string, to_date: string, symbol?: string | null) =>
-    apiFetch<{ job_id: string; total_days: number; symbol: string | null }>(
-      `/fno/fetch-history?from_date=${from_date}&to_date=${to_date}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
-      { method: "POST" }
-    ),
-
-  fnoFetchJob: (job_id: string) =>
-    apiFetch<{ total: number; done: number; inserted: number; status: string; current_date: string }>(
-      `/fno/fetch-job/${job_id}`
-    ),
-
-  fnoSearch: (q: string) =>
-    apiFetch<{ results: { symbol: string; name: string; is_index: boolean }[] }>(
-      `/fno/search?q=${encodeURIComponent(q)}`
-    ),
-
-  fnoDataStatus: (symbol: string) =>
-    apiFetch<{
-      symbol: string; earliest_date: string | null; latest_date: string | null;
-      total_days: number; target_date: string; up_to_date: boolean;
-    }>(`/fno/data-status/${encodeURIComponent(symbol)}`),
-
-  fnoRefresh: (symbol: string) =>
-    apiFetch<{ status?: string; job_id?: string; total_days?: number; latest_date: string | null }>(
-      `/fno/refresh/${encodeURIComponent(symbol)}`,
-      { method: "POST" }
-    ),
-
-  getFutures: (symbol: string, days = 90) =>
-    apiFetch<{
-      symbol: string; instrument: string; data_date: string; spot: number;
-      expiries: Array<{ expiry: string; close: number | null; open_interest: number | null;
-        oi_change: number | null; basis: number | null; cost_of_carry: number | null; dte: number | null }>;
-      rollover_pct: number | null;
-      oi_history: Array<{ date: string; close: number | null; open_interest: number | null; oi_change: number | null }>;
-    }>(`/fno/futures/${encodeURIComponent(symbol)}?days=${days}`),
-
-  fnoFetchFutures: (symbol: string | null, from_date: string, to_date: string) =>
-    apiFetch<{ job_id: string; total_days: number; symbol: string }>(
-      `/fno/fetch-futures?${symbol ? `symbol=${encodeURIComponent(symbol)}&` : ""}from_date=${from_date}&to_date=${to_date}`,
-      { method: "POST" }
-    ),
-
-  fnoFetchFuturesJob: (job_id: string) =>
-    apiFetch<{ total: number; done: number; inserted: number; status: string; current_date: string; symbol: string }>(
-      `/fno/fetch-futures-job/${job_id}`
-    ),
 
   getOutlook: (symbol: string) =>
     apiFetch<{

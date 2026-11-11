@@ -30,52 +30,7 @@ interface StrategyV2 {
   to_date: string;
   capital_per_trade: number;
   timeframe: "1D" | "1W";
-  // "cash" = stock_ohlcv (default). "futures" = continuous roll-adjusted near-month
-  // futures series (Phase 2) — lets RSI/MACD/SMA-style conditions run on futures
-  // price action instead of the cash price.
-  data_source: "cash" | "futures";
 }
-
-// ── Options straddle/strangle mode ─────────────────────────────────────────
-
-export interface StraddleConfig {
-  symbol: string;
-  from_date: string;
-  to_date: string;
-  strategy: "short_straddle" | "long_straddle" | "short_strangle" | "long_strangle";
-  strangle_width_pct: number;
-  entry_dte: number;
-  target_pct: number;
-  sl_pct: number;
-  force_exit_dte: number;
-  capital_per_trade: number;
-  data_source: "cash" | "futures";
-}
-
-export type StraddleResult = Awaited<ReturnType<typeof api.runStraddleBacktest>>;
-
-// ── Options spreads mode (bull call / bear put / iron condor) ──────────────
-
-export interface SpreadConfig {
-  symbol: string;
-  from_date: string;
-  to_date: string;
-  strategy: "bull_call_spread" | "bear_put_spread" | "iron_condor";
-  long_offset_pct: number;
-  short_offset_pct: number;
-  condor_call_short_pct: number;
-  condor_call_long_pct: number;
-  condor_put_short_pct: number;
-  condor_put_long_pct: number;
-  entry_dte: number;
-  target_pct: number;
-  sl_pct: number;
-  force_exit_dte: number;
-  capital_per_trade: number;
-  data_source: "cash" | "futures";
-}
-
-export type SpreadResult = Awaited<ReturnType<typeof api.runSpreadBacktest>>;
 
 // ── Opening Range Breakout (ORB) mode ───────────────────────────────────────
 
@@ -177,39 +132,6 @@ export interface SavedRun {
 const TWO_YEARS_AGO = new Date(Date.now() - 2 * 365 * 86400_000).toISOString().slice(0, 10);
 const TODAY = new Date().toISOString().slice(0, 10);
 
-const DEFAULT_STRADDLE: StraddleConfig = {
-  symbol: "NIFTY",
-  from_date: TWO_YEARS_AGO,
-  to_date: TODAY,
-  strategy: "short_straddle",
-  strangle_width_pct: 2,
-  entry_dte: 7,
-  target_pct: 30,
-  sl_pct: 50,
-  force_exit_dte: 0,
-  capital_per_trade: 50000,
-  data_source: "cash",
-};
-
-const DEFAULT_SPREAD: SpreadConfig = {
-  symbol: "NIFTY",
-  from_date: TWO_YEARS_AGO,
-  to_date: TODAY,
-  strategy: "bull_call_spread",
-  long_offset_pct: 0,
-  short_offset_pct: 3,
-  condor_call_short_pct: 3,
-  condor_call_long_pct: 6,
-  condor_put_short_pct: 3,
-  condor_put_long_pct: 6,
-  entry_dte: 20,
-  target_pct: 50,
-  sl_pct: 100,
-  force_exit_dte: 1,
-  capital_per_trade: 50000,
-  data_source: "cash",
-};
-
 const DEFAULT_ORB: ORBConfig = {
   symbol: "RELIANCE",
   interval: "5m",
@@ -233,7 +155,6 @@ const DEFAULT_STRATEGY: StrategyV2 = {
   to_date: TODAY,
   capital_per_trade: 10000,
   timeframe: "1D",
-  data_source: "cash",
 };
 
 const DEFAULT_GRID: GridConfig = {
@@ -315,11 +236,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml" | "smc" | "analysis";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "smc" | "analysis";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "options" | "orb" | "grid" | "ml" | "smc" | "analysis") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "smc" | "analysis") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -338,24 +259,6 @@ interface BacktestState {
   removeMatrixAlgo: (id: string) => void;
   updateMatrixAlgo: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
   runMatrix: () => Promise<void>;
-
-  // options straddle/strangle mode
-  straddle: StraddleConfig;
-  straddleResults: StraddleResult | null;
-  straddleLoading: boolean;
-  straddleError: string | null;
-  setStraddle: (p: Partial<StraddleConfig>) => void;
-  runStraddle: () => Promise<void>;
-
-  // options spreads mode
-  optionsFamily: "straddle" | "spread";
-  setOptionsFamily: (f: "straddle" | "spread") => void;
-  spread: SpreadConfig;
-  spreadResults: SpreadResult | null;
-  spreadLoading: boolean;
-  spreadError: string | null;
-  setSpread: (p: Partial<SpreadConfig>) => void;
-  runSpread: () => Promise<void>;
 
   // ORB mode
   orb: ORBConfig;
@@ -410,7 +313,7 @@ interface BacktestState {
 
   // Feature picker — shared list of trainable columns, selection lives on ml.features / mlReg.features
   mlFeatureList: string[];      // default (technical) feature set
-  mlAltFeatureList: string[];   // opt-in alternative-data features (FII/DII, options)
+  mlAltFeatureList: string[];   // opt-in alternative-data features (FII/DII)
   loadMlFeatures: () => Promise<void>;
 
   // Stock Clustering (unsupervised — nested in the ML wizard alongside Regression/Classification)
@@ -598,7 +501,6 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           max_bars: slot.strategy.max_bars,
           capital_per_trade: slot.strategy.capital_per_trade,
           timeframe: slot.strategy.timeframe,
-          data_source: slot.strategy.data_source,
         });
         const symResult = res.per_symbol[multiAlgoSymbol] ?? null;
         set((s) => ({
@@ -658,7 +560,6 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           symbols: pickedSymbols, algos,
           from_date: strategy.from_date, to_date: strategy.to_date,
           capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
-          data_source: strategy.data_source,
         }),
       });
       if (!res.ok) {
@@ -687,49 +588,6 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       }
     } catch (e) {
       set({ matrixLoading: false, matrixError: String(e), matrixProgress: null });
-    }
-  },
-
-  // ── Options straddle/strangle mode ────────────────────────────────────────
-  straddle: DEFAULT_STRADDLE,
-  straddleResults: null,
-  straddleLoading: false,
-  straddleError: null,
-
-  setStraddle: (p) => set((s) => ({ straddle: { ...s.straddle, ...p } })),
-
-  runStraddle: async () => {
-    const { straddle } = get();
-    if (!straddle.symbol) return;
-    set({ straddleLoading: true, straddleError: null, straddleResults: null });
-    try {
-      const res = await api.runStraddleBacktest(straddle);
-      set({ straddleResults: res, straddleLoading: false });
-    } catch (e) {
-      set({ straddleLoading: false, straddleError: String(e) });
-    }
-  },
-
-  // ── Options spreads mode ──────────────────────────────────────────────────
-  optionsFamily: "straddle",
-  setOptionsFamily: (f) => set({ optionsFamily: f }),
-
-  spread: DEFAULT_SPREAD,
-  spreadResults: null,
-  spreadLoading: false,
-  spreadError: null,
-
-  setSpread: (p) => set((s) => ({ spread: { ...s.spread, ...p } })),
-
-  runSpread: async () => {
-    const { spread } = get();
-    if (!spread.symbol) return;
-    set({ spreadLoading: true, spreadError: null, spreadResults: null });
-    try {
-      const res = await api.runSpreadBacktest(spread);
-      set({ spreadResults: res, spreadLoading: false });
-    } catch (e) {
-      set({ spreadLoading: false, spreadError: String(e) });
     }
   },
 
@@ -786,7 +644,6 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           sweep_dims: grid.sweep_dims,
           target_pct: grid.target_pct, sl_pct: grid.sl_pct, max_bars: grid.max_bars,
           capital_per_trade: strategy.capital_per_trade, timeframe: strategy.timeframe,
-          data_source: strategy.data_source,
           train_ratio: grid.train_ratio, top_n: grid.top_n,
         }),
       });
@@ -856,7 +713,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           models: ml.models, prob_threshold: ml.prob_threshold, train_ratio: ml.train_ratio,
           target_pct: ml.target_pct, sl_pct: ml.sl_pct, max_bars: ml.max_bars,
           capital_per_trade: strategy.capital_per_trade, timeframe: ml.timeframe,
-          data_source: strategy.data_source, features: ml.features,
+          features: ml.features,
         }),
       });
       if (!res.ok) {
@@ -921,7 +778,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
           from_date: strategy.from_date, to_date: strategy.to_date,
           entry_conditions: mlReg.entry_conditions, sample_mode: mlReg.sample_mode,
           models: mlReg.models, horizon_bars: mlReg.horizon_bars, train_ratio: mlReg.train_ratio,
-          timeframe: mlReg.timeframe, data_source: strategy.data_source, features: mlReg.features,
+          timeframe: mlReg.timeframe, features: mlReg.features,
         }),
       });
       if (!res.ok) {
@@ -969,7 +826,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         symbols: pickedSymbols,
         from_date: strategy.from_date, to_date: strategy.to_date,
         entry_conditions: cfg.entry_conditions, sample_mode: cfg.sample_mode,
-        timeframe: cfg.timeframe, data_source: strategy.data_source, features: cfg.features,
+        timeframe: cfg.timeframe, features: cfg.features,
       });
       if (result.error) set({ mlEdaError: result.error, mlEdaLoading: false });
       else set({ mlEdaResult: result, mlEdaLoading: false });
@@ -1003,7 +860,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         symbols: pickedSymbols,
         from_date: strategy.from_date, to_date: strategy.to_date,
         algo: clustering.algo, k: clustering.k, eps: clustering.eps, min_samples: clustering.min_samples,
-        lookback_days: clustering.lookback_days, timeframe: clustering.timeframe, data_source: strategy.data_source,
+        lookback_days: clustering.lookback_days, timeframe: clustering.timeframe,
         features: clustering.features,
       });
       set({ clusteringResult: result, clusteringLoading: false });
@@ -1094,7 +951,6 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
         max_bars: strategy.max_bars,
         capital_per_trade: strategy.capital_per_trade,
         timeframe: strategy.timeframe,
-        data_source: strategy.data_source,
       });
       const firstSym = Object.keys(res.per_symbol)[0] ?? null;
       set({ v2Results: res, v2Loading: false, activeSymbol: firstSym });
