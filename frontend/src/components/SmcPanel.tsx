@@ -75,7 +75,7 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
       },
       {
         key: "showMitigated", label: "Show mitigated", option: true, legend: [],
-        hint: "keep fully mitigated and invalidated blocks, drawn up to the bar that ended them",
+        hint: "keep fully mitigated blocks and filled FVGs, drawn up to the bar that ended them",
       },
       {
         key: "breaker", label: "Breaker block", hint: "order block that failed, then flips polarity on a retest",
@@ -99,10 +99,30 @@ const GROUPS: { title: string; concepts: Concept[] }[] = [
         legend: [{ color: "bg-cyan-500", text: "EQH / EQL — equal highs / lows · SWEEP — liquidity grab" }],
       },
       {
-        key: "fvg", label: "FVG", hint: "fair value gap",
+        key: "fvg", label: "FVG (all)",
+        hint: "gap between candle 1 and candle 3 along the IDM → HL / LH leg; the one under an order block is bold, the rest dim",
         legend: [
-          { color: "bg-blue-500", text: "Bullish FVG" },
-          { color: "bg-purple-500", text: "Bearish FVG" },
+          { color: "bg-blue-500", text: "Bullish FVG, CE dotted at its 50%" },
+          { color: "bg-purple-500", text: "Bearish FVG, CE dotted at its 50%" },
+        ],
+      },
+      {
+        key: "pfg", label: "PFG", hint: "perfect — small third candle that holds the middle candle's close; best chance of a retest",
+        legend: [{ color: "bg-sky-500", text: "PFG — perfect FVG" }],
+      },
+      {
+        key: "bfg", label: "BFG", hint: "breakaway — large third candle closing beyond the middle one; strong momentum, rarely retraces",
+        legend: [{ color: "bg-sky-500", text: "BFG — breakaway FVG" }],
+      },
+      {
+        key: "rfg", label: "RFG", hint: "rejection — third candle closes back into the middle one; weakening momentum",
+        legend: [{ color: "bg-sky-500", text: "RFG — rejection FVG" }],
+      },
+      {
+        key: "ifvg", label: "IFVG", hint: "inverse — a gap price closed through; it now works the other way",
+        legend: [
+          { color: "bg-yellow-500", text: "Bullish IFVG (a broken bearish gap)" },
+          { color: "bg-pink-500", text: "Bearish IFVG (a broken bullish gap)" },
         ],
       },
     ],

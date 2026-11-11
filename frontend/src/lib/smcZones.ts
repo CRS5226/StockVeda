@@ -1,12 +1,13 @@
 // SMC (Smart Money Concepts) price-zone detection — client-side, chart-overlay only.
-// Order Blocks and FVG (Fair Value Gap). See GitHub issue #79 for the full concept list.
+// Basic colour-based order blocks, still used by smcBlocks.ts. The structure-aware order blocks and FVGs
+// are in smcOrderBlocks.ts and smcFvg.ts. See GitHub issue #79 for the full concept list.
 
 import { barKey } from "./barTime";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
 
 export interface SmcZone {
-  type: "orderBlock" | "fvg";
+  type: "orderBlock";
   direction: "bullish" | "bearish";
   startDate: string;
   endDate: string;
@@ -57,39 +58,6 @@ export function detectOrderBlocks(ohlcv: OhlcvRow[]): SmcZone[] {
         type: "orderBlock", direction: "bearish",
         startDate: barKey(prev.date),
         endDate: firstMitigationDate(ohlcv, i + 1, top, bottom),
-        top, bottom, originIndex: i - 1,
-      });
-    }
-  }
-  return zones;
-}
-
-/**
- * Standard 3-candle FVG: the middle (displacement) candle leaves a gap between the
- * first and third candles' wicks — first.high < third.low (bullish, price gapped up)
- * or first.low > third.high (bearish, gapped down). Zone spans that gap and is drawn
- * until price first trades back into it.
- */
-export function detectFvgZones(ohlcv: OhlcvRow[]): SmcZone[] {
-  const zones: SmcZone[] = [];
-  for (let i = 1; i < ohlcv.length - 1; i++) {
-    const left = ohlcv[i - 1], right = ohlcv[i + 1];
-
-    if (left.high < right.low) {
-      const top = right.low, bottom = left.high;
-      zones.push({
-        type: "fvg", direction: "bullish",
-        startDate: barKey(left.date),
-        endDate: firstMitigationDate(ohlcv, i + 2, top, bottom),
-        top, bottom, originIndex: i - 1,
-      });
-    }
-    if (left.low > right.high) {
-      const top = left.low, bottom = right.high;
-      zones.push({
-        type: "fvg", direction: "bearish",
-        startDate: barKey(left.date),
-        endDate: firstMitigationDate(ohlcv, i + 2, top, bottom),
         top, bottom, originIndex: i - 1,
       });
     }
