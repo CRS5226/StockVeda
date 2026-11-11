@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropCoveredIfvgs, detectSwingFvgs, detectSwingOrderBlocks, detectSwingTypedBlocks } from "./smcSwingZones";
+import { dropCoveredIfvgs, detectSwingCombinedBlocks, detectSwingFvgs, detectSwingOrderBlocks, detectSwingTypedBlocks } from "./smcSwingZones";
 import type { Fvg } from "./smcFvg";
 
 // A bar is [open, high, low, close]. Swing length 1 keeps the fixtures short.
@@ -184,5 +184,47 @@ describe("dropCoveredIfvgs", () => {
     const kept = dropCoveredIfvgs([], [gap("IFVG", "bullish", 100, 110), gap("IFVG", "bullish", 102, 112)]);
     expect(kept).toHaveLength(1);
     expect(kept[0].bottom).toBe(100);
+  });
+});
+
+describe("detectSwingCombinedBlocks", () => {
+  const combined = (rows: Bar[]) => detectSwingCombinedBlocks(bars(rows), { length: 1 });
+  // Order block (bar 3, range 8 - 11.5) with a gap 11.5 - 12.5 opening at it.
+  const GAP: Bar[] = [
+    [10, 11, 9, 10],
+    [10, 13, 10, 12],
+    [12, 12, 10, 11],
+    [11, 11.5, 8, 9],
+    [9, 12, 9, 12],
+    [12, 15, 12.5, 15],
+  ];
+
+  it("joins an order block and the FVG that opens at it into one zone", () => {
+    const [c] = combined(GAP);
+    expect(c).toMatchObject({ direction: "bullish", date: day(3), top: 12.5, bottom: 8, ce: 10.25, fvgType: "BFG", status: "unmitigated" });
+  });
+
+  it("mirrors for a bearish break", () => {
+    const [c] = combined(mirror(GAP));
+    expect(c).toMatchObject({ direction: "bearish", top: 192, bottom: 187.5 });
+  });
+
+  it("takes status and end from the order block", () => {
+    const [c] = combined([...GAP, [15, 15, 7, 7.5]]); // closes through the block's far side (8)
+    expect(c.status).toBe("full");
+    expect(c.endDate).toBe(day(6));
+  });
+
+  it("finds nothing when the gap is away from the order block", () => {
+    const away: Bar[] = [
+      [10, 11, 9, 10],
+      [10, 13, 10, 12],
+      [12, 12, 10, 11],
+      [11, 11.5, 8, 9],
+      [9, 10, 9, 9.8],
+      [9.8, 11, 9.5, 10.8],
+      [10.8, 14, 10.5, 14],
+    ];
+    expect(combined(away)).toEqual([]);
   });
 });

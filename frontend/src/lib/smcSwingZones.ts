@@ -5,7 +5,7 @@
 // Chart-overlay only. The lecture-rule detectors in smcOrderBlocks.ts / smcFvg.ts stay for the Backtest tab.
 
 import { barKey } from "./barTime";
-import { classifyFvg, detectInverseFvgs, judgeFvg, type Fvg } from "./smcFvg";
+import { classifyFvg, detectInverseFvgs, judgeFvg, type Fvg, type FvgType } from "./smcFvg";
 import { classifySwingLevels, mapSwingStructure, type SwingStructureOptions } from "./smcSwingStructure";
 
 interface OhlcvRow { date: string; open: number; high: number; low: number; close: number }
@@ -217,4 +217,38 @@ export function detectSwingTypedBlocks(ohlcv: OhlcvRow[], opts: SwingStructureOp
     }
   }
   return out;
+}
+
+/** An order block drawn together with the FVG that opens at it: one zone, block candle range plus the gap. */
+export interface SwingCombinedBlock {
+  direction: "bullish" | "bearish";
+  k: number;
+  date: string;
+  top: number;
+  bottom: number;
+  /** 50% of the whole combined zone. */
+  ce: number;
+  status: SwingOrderBlock["status"];
+  endK: number;
+  endDate: string;
+  followThrough: boolean | null;
+  fvgType: FvgType;
+}
+
+/**
+ * Order block + FVG: a swing order block whose pivot candle is also candle 1 of an FVG, so the gap sits right
+ * on the block's far side (above a bullish block, below a bearish one). The zone runs from the block's far
+ * edge to the gap's far edge. Status and the 4-candle check come from the order block.
+ */
+export function detectSwingCombinedBlocks(ohlcv: OhlcvRow[], opts: SwingStructureOptions = {}): SwingCombinedBlock[] {
+  const gaps = detectSwingFvgs(ohlcv, opts).filter((f) => f.type !== "IFVG" && f.attached);
+  return detectSwingOrderBlocks(ohlcv, opts).flatMap((b) => {
+    const gap = gaps.find((f) => f.direction === b.direction && f.k === b.k);
+    if (!gap) return [];
+    const top = Math.max(b.top, gap.top), bottom = Math.min(b.bottom, gap.bottom);
+    return [{
+      direction: b.direction, k: b.k, date: b.date, top, bottom, ce: (top + bottom) / 2, status: b.status,
+      endK: b.endK, endDate: b.endDate, followThrough: b.followThrough, fvgType: gap.type,
+    }];
+  });
 }

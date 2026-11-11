@@ -9,7 +9,10 @@ import { BacktestTradeV2 } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import { mapStructure } from "../lib/smcStructure";
 import { DEFAULT_SWING_LENGTH, classifySwingLevels, mapSwingStructure, zigzagPoints } from "../lib/smcSwingStructure";
-import { detectSwingFvgs, detectSwingOrderBlocks, detectSwingTypedBlocks, type SwingOrderBlock, type SwingTypedBlock } from "../lib/smcSwingZones";
+import {
+  detectSwingCombinedBlocks, detectSwingFvgs, detectSwingOrderBlocks, detectSwingTypedBlocks,
+  type SwingCombinedBlock, type SwingOrderBlock, type SwingTypedBlock,
+} from "../lib/smcSwingZones";
 import type { FvgType } from "../lib/smcFvg";
 import { detectStructureFvgs } from "../lib/smcFvg";
 import { detectAdvancedOrderBlocks, detectStructureOrderBlocks, type OrderBlock } from "../lib/smcOrderBlocks";
@@ -66,12 +69,13 @@ export interface SmcToggles {
   swingLevels: boolean;       // ITH / LTH (ITL / LTL) swing hierarchy; swing mode only
   swingLines: boolean;        // zigzag line joining the swings; swing mode only
   rejection: boolean;         // wick-only block at a pivot candle; swing mode only
+  obFvg: boolean;             // order block and the FVG that opens at it as one zone; swing mode only
 }
 
 export const NO_SMC: SmcToggles = {
   bos: false, choch: false, idm: false, points: false,
   orderBlocks: false, advancedBlocks: false, fourCandle: false, showMitigated: false, fvg: false, pfg: false, bfg: false, rfg: false, ifvg: false, liquidity: false,
-  breaker: false, reclaimed: false, mitigation: false, swingLevels: false, swingLines: false, rejection: false,
+  breaker: false, reclaimed: false, mitigation: false, swingLevels: false, swingLines: false, rejection: false, obFvg: false,
 };
 
 interface Props {
@@ -136,6 +140,9 @@ const BLOCK_KIND_COLORS: Record<SwingTypedBlock["kind"], { rgb: string; hex: str
   mitigation: { rgb: "100,116,139", hex: "#64748b", label: "MIT" }, // slate
   rejection:  { rgb: "132,204,22",  hex: "#84cc16", label: "REJ" }, // lime
 };
+
+// Order block + FVG zone (fuchsia, so it does not read as a plain block or a plain gap).
+const COMBINED_COLOR = { rgb: "217,70,239", hex: "#d946ef" };
 
 // One colour per FVG type, so a PFG, BFG and RFG can be told apart on the chart.
 const FVG_COLORS: Record<FvgType, { rgb: string; hex: string }> = {
@@ -221,12 +228,13 @@ export default function BacktestChart({
   const { bos: bosOn, choch: chochOn, idm: idmRaw, points: pointsOn,
           orderBlocks: obOn, advancedBlocks: advRaw, fourCandle: fourOn, showMitigated: showMitOn,
           fvg: fvgOn, pfg: pfgOn, bfg: bfgOn, rfg: rfgOn, ifvg: ifvgOn, liquidity: liqOn,
-          breaker: brkRaw, reclaimed: rclRaw, mitigation: mitRaw, swingLevels: slvRaw, swingLines: slnRaw, rejection: rejRaw } = smc;
+          breaker: brkRaw, reclaimed: rclRaw, mitigation: mitRaw, swingLevels: slvRaw, swingLines: slnRaw, rejection: rejRaw, obFvg: obFvgRaw } = smc;
   // Swing mode has no IDM, advanced or reclaimed block (lecture rules); its breaker / mitigation / rejection
   // blocks come from the swing detectors, and the swing hierarchy, zigzag and rejection exist only there.
   const swingMode = structureMode === "swing";
   const idmOn = !swingMode && idmRaw, advOn = !swingMode && advRaw, brkOn = !swingMode && brkRaw;
   const rclOn = !swingMode && rclRaw, mitOn = !swingMode && mitRaw, slvOn = swingMode && slvRaw, slnOn = swingMode && slnRaw;
+  const obFvgOn = swingMode && obFvgRaw;
   const typedOn = { breaker: swingMode && brkRaw, mitigation: swingMode && mitRaw, rejection: swingMode && rejRaw };
 
   // Order blocks follow the structure map, so they are computed once per data/toggle change and
@@ -252,6 +260,13 @@ export default function BacktestChart({
     if (!advOn) return [];
     return detectAdvancedOrderBlocks(ohlcv).filter((b) => showMitOn || b.invalidatedK === null);
   }, [ohlcv, advOn, showMitOn]);
+  // Order block + FVG as one zone; same filters as the order block (invalidated ones hidden, 4-candle rule).
+  const combinedBlocks = useMemo(() => {
+    if (!obFvgOn) return [] as SwingCombinedBlock[];
+    return detectSwingCombinedBlocks(ohlcv, { length: swingLength })
+      .filter((b) => showMitOn || b.status !== "full")
+      .filter((b) => b.followThrough !== false);
+  }, [ohlcv, obFvgOn, showMitOn, swingLength]);
   // Breaker / mitigation / rejection blocks of the swing structure (the lecture mode draws its own lines).
   const typedBlocks = useMemo(() => {
     if (!typedOn.breaker && !typedOn.mitigation && !typedOn.rejection) return [] as SwingTypedBlock[];
@@ -390,6 +405,10 @@ export default function BacktestChart({
       fill: b.direction === "bullish" ? "rgba(20,184,166,0.15)" : "rgba(249,115,22,0.15)",
       border: b.direction === "bullish" ? "#14b8a6" : "#f97316",
     }));
+    combinedBlocks.forEach((b) => smcZones.push({
+      entry_date: b.date, exit_date: b.endDate, top: b.top, bottom: b.bottom,
+      fill: `rgba(${COMBINED_COLOR.rgb},0.2)`, border: COMBINED_COLOR.hex,
+    }));
     typedBlocks.forEach((b) => smcZones.push({
       entry_date: b.date, exit_date: b.endDate, top: b.top, bottom: b.bottom,
       fill: `rgba(${BLOCK_KIND_COLORS[b.kind].rgb},0.15)`, border: BLOCK_KIND_COLORS[b.kind].hex,
@@ -406,7 +425,7 @@ export default function BacktestChart({
     });
     boxZonesRef.current = [...boxZones, ...smcZones];
     scheduleRecompute();
-  }, [boxZones, ohlcv, orderBlocks, advancedBlocks, typedBlocks, fvgs]);
+  }, [boxZones, ohlcv, orderBlocks, advancedBlocks, typedBlocks, combinedBlocks, fvgs]);
 
   // Update candle data — only fitContent() when the underlying symbol/data changes,
   // not when the caller swaps ohlcv references for the same stock data.
@@ -635,6 +654,7 @@ export default function BacktestChart({
       }));
     }
 
+    combinedBlocks.forEach((b) => addLevel(b.date, b.endDate, b.ce, COMBINED_COLOR.hex, LineStyle.Dotted, "OB+FVG"));
     typedBlocks.forEach((b) => addLevel(b.date, b.endDate, b.ce, BLOCK_KIND_COLORS[b.kind].hex, LineStyle.Dotted, BLOCK_KIND_COLORS[b.kind].label));
     advancedBlocks.forEach((b) => addLevel(b.date, b.endDate, b.mean, b.direction === "bullish" ? "#14b8a6" : "#f97316", LineStyle.Dotted, "50%"));
 
@@ -670,7 +690,7 @@ export default function BacktestChart({
     markers.push(...extraMarkers);
     markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, combinedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
