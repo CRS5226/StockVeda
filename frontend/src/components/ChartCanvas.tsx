@@ -6,9 +6,8 @@ import {
 import type { Candle } from "../lib/api";
 import { barKey, toChartTime } from "../lib/barTime";
 
-const BG = "#ffffff";
-const GRID = "#f1f5f9";
-const TEXT = "#64748b";
+import { PALETTES, type ChartPalette, type ChartTheme } from "../lib/chartTheme";
+
 const UP = "#22c55e";
 const DOWN = "#ef4444";
 
@@ -33,8 +32,24 @@ const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2,
 const fmtVol = (n: number) =>
   n >= 1e7 ? `${(n / 1e7).toFixed(2)}Cr` : n >= 1e5 ? `${(n / 1e5).toFixed(2)}L` : n.toLocaleString("en-IN");
 
+/** Chart options that depend on the theme; used both at creation and when the theme changes. */
+function themeOptions(p: ChartPalette) {
+  return {
+    layout: { background: { type: ColorType.Solid, color: p.background }, textColor: p.text },
+    grid: { vertLines: { color: p.grid }, horzLines: { color: p.grid } },
+    crosshair: {
+      vertLine: { color: p.crosshair, labelBackgroundColor: p.border },
+      horzLine: { color: p.crosshair, labelBackgroundColor: p.border },
+    },
+    rightPriceScale: { borderColor: p.border },
+    timeScale: { borderColor: p.border },
+  };
+}
+
 /** Candlestick + volume chart that fills its parent (the parent must have a definite height). */
-export default function ChartCanvas({ bars }: { bars: Candle[] }) {
+export default function ChartCanvas({ bars, theme = "light" }: { bars: Candle[]; theme?: ChartTheme }) {
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -46,12 +61,11 @@ export default function ChartCanvas({ bars }: { bars: Candle[] }) {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const initial = themeOptions(PALETTES[themeRef.current]);
     const chart = createChart(el, {
-      layout: { background: { type: ColorType.Solid, color: BG }, textColor: TEXT },
-      grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: GRID },
-      timeScale: { borderColor: GRID, timeVisible: true, rightOffset: 6 },
+      ...initial,
+      crosshair: { mode: CrosshairMode.Normal, ...initial.crosshair },
+      timeScale: { ...initial.timeScale, timeVisible: true, rightOffset: 6 },
       width: el.clientWidth,
       height: el.clientHeight,
     });
@@ -83,6 +97,11 @@ export default function ChartCanvas({ bars }: { bars: Candle[] }) {
     };
   }, []);
 
+  // Recolour the live chart when the theme changes (no rebuild, so zoom and scroll are kept).
+  useEffect(() => {
+    chartRef.current?.applyOptions(themeOptions(PALETTES[theme]));
+  }, [theme]);
+
   // Push new data and frame it.
   useEffect(() => {
     if (!candleRef.current || !volumeRef.current) return;
@@ -96,13 +115,14 @@ export default function ChartCanvas({ bars }: { bars: Candle[] }) {
   }, [bars]);
 
   const up = readout ? readout.close >= readout.open : true;
-  const color = up ? "text-emerald-600" : "text-red-500";
+  const color = up ? "text-emerald-500" : "text-red-500";
+  const dark = theme === "dark";
 
   return (
     <div className="relative w-full h-full">
       <div ref={containerRef} className="absolute inset-0" />
       {readout && (
-        <div className="absolute top-2 left-3 z-10 flex flex-wrap gap-x-3 text-xs font-medium pointer-events-none select-none bg-white/80 rounded px-1.5 py-0.5">
+        <div className={`absolute top-2 left-3 z-10 flex flex-wrap gap-x-3 text-xs font-medium pointer-events-none select-none rounded px-1.5 py-0.5 ${dark ? "bg-[#131722]/80" : "bg-white/80"}`}>
           <span className="text-slate-500">O <span className={color}>{fmt(readout.open)}</span></span>
           <span className="text-slate-500">H <span className={color}>{fmt(readout.high)}</span></span>
           <span className="text-slate-500">L <span className={color}>{fmt(readout.low)}</span></span>
