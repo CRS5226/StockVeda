@@ -1033,6 +1033,7 @@ const STRADDLE_STRATEGIES = [
 const EXIT_REASON_LABELS: Record<string, string> = {
   target: "Target Hit",
   sl: "Stoploss Hit",
+  end_of_data: "End of Data",
   expiry: "Expiry Hit",
   data_end: "NA",
 };

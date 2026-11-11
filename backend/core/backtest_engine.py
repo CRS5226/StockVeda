@@ -480,13 +480,13 @@ def _run_trades(
             "target_price": round(target_price, 2),
             "sl_price":     round(sl_price, 2),
             "exit_price":   round(close, 2),
-            "exit_reason":  "timeout",
+            "exit_reason":  "end_of_data",
             "shares":       shares,
             "pnl":          round(pnl, 2),
             "pnl_pct":      round((close / entry_price - 1) * 100, 2),
         })
 
-    winners = [t for t in trades if t["exit_reason"] == "target"]
+    winners = [t for t in trades if t["pnl"] > 0]
     total_pnl = sum(t["pnl"] for t in trades)
     stats = {
         "total_trades":  len(trades),
