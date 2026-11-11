@@ -212,13 +212,6 @@ VALID_INDICATORS = [
     # Candle patterns (0/1 columns)
     "cdl_hammer", "cdl_bull_engulf", "cdl_inside_bar", "cdl_pin_bar_bull",
     "cdl_doji", "cdl_shooting_star", "cdl_morning_star", "cdl_evening_star", "cdl_bear_engulf",
-    # F&O signals (Phase 1) — daily PCR/max-pain/basis/rollover from fno_ohlcv + fno_futures_ohlcv.
-    # NaN for symbols with no synced F&O data — conditions on them simply never fire.
-    "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration",
-    "basis", "cost_of_carry", "rollover_pct",
-    # Options IV (Phase 3) — ATM IV solved via Black-Scholes/Newton-Raphson, plus its
-    # trailing-60-session percentile rank.
-    "atm_iv", "iv_rank",
     # Markov chain (Phase 5) — walk-forward transition-matrix probabilities. Computed
     # causally (each day's value only uses transitions up to and including that day),
     # so these are safe to use as ordinary backtest conditions.

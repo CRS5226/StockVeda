@@ -3,7 +3,7 @@ Opening Range Breakout (ORB) backtester — standalone module, deliberately NOT
 wired into backend/core/backtest_engine.py (which assumes one row per calendar
 day; ORB needs intraday bars and produces at most one trade per trading day,
 which is a different shape from the condition engine's bar-by-bar crossover
-signals). Mirrors options_backtest.py's standalone, one-trade-per-period style.
+signals). One trade per day, standalone from the condition-based engine.
 
 Strategy: define the "opening range" as the high/low of the first
 `or_minutes` minutes of each trading day (from the day's first available bar).

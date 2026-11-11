@@ -134,7 +134,7 @@ def get_candle_stats(symbols: str = Query(..., description="Comma-separated symb
 
 
 
-# Index pseudo-symbols used across F&O features (options/futures/ORB) — these aren't
+# Index pseudo-symbols (backtests, ORB, charts) — these aren't
 # equities, so they never appear in nse_symbols and would otherwise be unfindable by
 # search (e.g. "NIFTY" would only surface unrelated ETF tickers like NIFTYBEES).
 _INDEX_SEARCH_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
@@ -353,49 +353,6 @@ def prefetch_symbol(symbol: str):
             print(f"[prefetch:{sym}] fundamentals: {e}")
 
     # Shareholding: covered by sync_shareholding_master (NSE quarterly filings, all stocks)
-
-    # --- F&O Options Chain (yfinance — NSE bhavcopy not accessible from cloud IPs) ---
-    fno_count = db.execute(
-        "SELECT COUNT(*) FROM fno_ohlcv WHERE symbol = ? AND date = ?", [sym, date.today()]
-    ).fetchone()[0]
-    if fno_count == 0:
-        try:
-            from backend.data_sync.base import upsert_df as _upsert
-            expiries = t.options  # tuple of expiry date strings
-            if expiries:
-                rows = []
-                for expiry_str in expiries[:4]:
-                    try:
-                        chain = t.option_chain(expiry_str)
-                        expiry_date = date.fromisoformat(expiry_str)
-                        for side, opt_type in [(chain.calls, "CE"), (chain.puts, "PE")]:
-                            for _, c in side.iterrows():
-                                lp = c.get("lastPrice")
-                                oi = c.get("openInterest")
-                                vol = c.get("volume")
-                                rows.append({
-                                    "date": date.today(), "symbol": sym,
-                                    "instrument": "OPTSTK",
-                                    "expiry": expiry_date,
-                                    "strike": float(c["strike"]),
-                                    "option_type": opt_type,
-                                    "open": None, "high": None, "low": None,
-                                    "close": float(lp) if pd.notna(lp) else None,
-                                    "settle_price": float(lp) if pd.notna(lp) else None,
-                                    "contracts": int(vol) if pd.notna(vol) else None,
-                                    "open_interest": int(oi) if pd.notna(oi) else None,
-                                    "oi_change": None,
-                                })
-                    except Exception:
-                        continue
-                if rows:
-                    cols = ["date", "symbol", "instrument", "expiry", "strike", "option_type",
-                            "open", "high", "low", "close", "settle_price", "contracts",
-                            "open_interest", "oi_change"]
-                    _upsert(pd.DataFrame(rows)[cols], "fno_ohlcv")
-                    fetched.append(f"fno:{len(rows)}")
-        except Exception as e:
-            print(f"[prefetch:{sym}] fno: {e}")
 
     # --- Corporate actions (dividends + splits) ---
     ca_count = db.execute(
@@ -715,28 +672,6 @@ def get_beta_history(
         "window_days": window_days,
         "history": df.to_dict(orient="records"),
     }
-
-
-@router.get("/fno/{symbol}")
-def get_fno_ohlcv(
-    symbol: str,
-    instrument: Optional[str] = Query(None, description="FUTSTK, OPTSTK etc."),
-    from_date:  Optional[date] = Query(None),
-    to_date:    Optional[date] = Query(None),
-    limit: int = Query(500, le=5000),
-):
-    db = get_db()
-    sql = "SELECT * FROM fno_ohlcv WHERE symbol = ?"
-    params = [symbol.upper()]
-    if instrument:
-        sql += " AND instrument = ?"; params.append(instrument.upper())
-    if from_date:
-        sql += " AND date >= ?"; params.append(from_date)
-    if to_date:
-        sql += " AND date <= ?"; params.append(to_date)
-    sql += f" ORDER BY date DESC, expiry LIMIT {limit}"
-    df = db.execute(sql, params).df()
-    return df_to_records(df)
 
 
 @router.get("/sector-compare/{symbol}")

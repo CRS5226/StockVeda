@@ -4,7 +4,7 @@ returns, SIP/XIRR, and GBM NAV projection + alpha/beta vs a benchmark index.
 
 Reuses the generic GBM (monte_carlo.py) and OLS beta (beta_analysis.py)
 primitives already built for stocks, and the RBI-repo-rate helper from
-options_math.py — only the data source (mf_nav NAV series instead of
+rates.py — only the data source (mf_nav NAV series instead of
 stock_ohlcv closes) and orchestration are new here.
 """
 
@@ -77,8 +77,8 @@ def rolling_returns(nav_df: pd.DataFrame, window_days: int = 365 * 3, sample_ste
 
 
 def _xirr(cash_flows: list[tuple[pd.Timestamp, float]], guess: float = 0.12) -> float | None:
-    """Newton-Raphson XIRR solve on a list of (date, amount) cash flows (mirrors the
-    Newton-Raphson pattern in options_math.implied_vol, applied to an NPV root-find)."""
+    """Newton-Raphson XIRR solve on a list of (date, amount) cash flows (applied to an
+    NPV root-find)."""
     if len(cash_flows) < 2:
         return None
     t0 = cash_flows[0][0]

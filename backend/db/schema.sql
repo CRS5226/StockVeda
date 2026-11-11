@@ -179,50 +179,6 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
     PRIMARY KEY (symbol, ex_date, action_type)
 );
 
-CREATE TABLE IF NOT EXISTS fno_ohlcv (
-    date DATE,
-    symbol VARCHAR,
-    instrument VARCHAR,
-    expiry DATE,
-    strike DOUBLE,
-    option_type VARCHAR,
-    open DOUBLE,
-    high DOUBLE,
-    low DOUBLE,
-    close DOUBLE,
-    settle_price DOUBLE,
-    contracts BIGINT,
-    open_interest BIGINT,
-    oi_change BIGINT,
-    PRIMARY KEY (date, symbol, instrument, expiry, strike, option_type)
-);
-
-CREATE TABLE IF NOT EXISTS fno_futures_ohlcv (
-    date         DATE    NOT NULL,
-    symbol       VARCHAR NOT NULL,
-    instrument   VARCHAR NOT NULL,  -- FUTIDX or FUTSTK
-    expiry       DATE    NOT NULL,
-    open         DOUBLE,
-    high         DOUBLE,
-    low          DOUBLE,
-    close        DOUBLE,
-    settle_price DOUBLE,
-    contracts    BIGINT,
-    open_interest BIGINT,
-    oi_change    BIGINT,
-    PRIMARY KEY (date, symbol, instrument, expiry)
-);
-
-CREATE TABLE IF NOT EXISTS fno_oi (
-    date DATE,
-    participant_type VARCHAR,
-    instrument VARCHAR,
-    long_oi BIGINT,
-    short_oi BIGINT,
-    net_oi BIGINT,
-    PRIMARY KEY (date, participant_type, instrument)
-);
-
 CREATE TABLE IF NOT EXISTS bulk_block_deals (
     date DATE,
     symbol VARCHAR,
@@ -399,3 +355,8 @@ ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS pct_from_52w_low  DOU
 ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_1d    DOUBLE;
 ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_5d    DOUBLE;
 ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_20d   DOUBLE;
+
+-- Futures and options data is no longer stored. Remove the old tables from existing databases.
+DROP TABLE IF EXISTS fno_ohlcv;
+DROP TABLE IF EXISTS fno_futures_ohlcv;
+DROP TABLE IF EXISTS fno_oi;

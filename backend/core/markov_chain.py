@@ -5,7 +5,7 @@ Discretizes daily returns into states (default: up/flat/down), estimates a trans
 probability matrix from historical data, and uses the current state to project forward
 probabilities. Two consumers:
   - compute_markov_signal_series(): a CAUSAL/walk-forward per-day signal series, wired
-    into the condition-based backtest engine like fno_signals.py's Phase 1 indicators.
+    into the condition-based backtest engine like the other indicators.
   - run_markov_analysis(): a standalone snapshot (current transition matrix, forward
     projection, historical state timeline) for a dedicated analysis view.
 
@@ -146,7 +146,7 @@ def attach_markov_signals(price_df: pd.DataFrame, symbol: str, from_date: str, t
                            params: MarkovParams | None = None) -> pd.DataFrame:
     """
     Left-joins the walk-forward Markov signal series onto price_df (must have a 'date'
-    column). Mirrors fno_signals.attach_fno_signals: if the symbol has too little price
+    column). If the symbol has too little price
     history, the new columns are added as all-NaN so downstream indicator lookups never
     KeyError — conditions on them just never fire.
     """
