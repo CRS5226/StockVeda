@@ -1,21 +1,22 @@
 import { useState } from "react";
-import { levelFromDistance, marketDirection, validateOrder, type Instrument, type LevelUnit, type Position, type Side } from "../lib/paperTrading";
+import {
+  buildOrder, fieldToLevel, levelToField, validateLevel, type CardSettings,
+} from "../lib/orderSettings";
+import type { Instrument, LevelUnit, Order, Position, Side } from "../lib/paperTrading";
 import { price as fmtPrice } from "../lib/formatTrade";
-
-export interface OrderInput { instrument: Instrument; side: Side; qty: number; stopLoss: number | null; target: number | null }
 
 interface Props {
   /** Close of the newest revealed candle: the price a market order fills at. */
   price: number;
   dark: boolean;
-  /** What is open on each instrument right now. */
+  /** Open positions, with any line being dragged on the chart already applied. */
   positions: Record<Instrument, Position | null>;
-  onPlace: (order: OrderInput) => void;
+  settings: Record<Instrument, CardSettings>;
+  onSettings: (instrument: Instrument, next: CardSettings) => void;
+  /** Move the stop-loss and / or target of an open position (null removes one). */
+  onLevels: (instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null }) => void;
+  onPlace: (order: Order) => void;
 }
-
-// A new card opens with a 1% stop-loss and a 2% target; clear a field to place the order without it.
-const DEFAULT_STOPLOSS_PCT = "1";
-const DEFAULT_TARGET_PCT = "2";
 
 const COPY: Record<Instrument, { title: string; hint: string }> = {
   CE: { title: "CE", hint: "Buy gains when the price rises, Sell when it falls" },
@@ -23,59 +24,59 @@ const COPY: Record<Instrument, { title: string; hint: string }> = {
 };
 
 /**
- * One order card (CE or PE) with its own size, stop-loss and target (points or percent from the entry) and a
- * Buy and a Sell button. Levels are on the chart price; a PE moves against the chart, so Buy PE gains when it falls.
+ * One order card (CE or PE) with its own size, stop-loss and target (points or percent) and a Buy and a Sell button.
+ * With no position the fields are the levels the next order will use. With a position open they show its live
+ * stop-loss and target, the same ones as the lines on the chart: typing here moves the lines, and dragging a line
+ * changes the fields. Levels are on the chart price; a PE moves against the chart, so Buy PE gains when it falls.
  */
-function OrderCard({ instrument, price, dark, positions, onPlace }: Props & { instrument: Instrument }) {
+function OrderCard({ instrument, price, dark, positions, settings, onSettings, onLevels, onPlace }: Props & { instrument: Instrument }) {
   const holding = positions[instrument];
-  const [qty, setQty] = useState("1");
-  const [slValue, setSlValue] = useState(DEFAULT_STOPLOSS_PCT);
-  const [slUnit, setSlUnit] = useState<LevelUnit>("%");
-  const [tpValue, setTpValue] = useState(DEFAULT_TARGET_PCT);
-  const [tpUnit, setTpUnit] = useState<LevelUnit>("%");
+  const s = settings[instrument];
+  const [draft, setDraft] = useState<{ stoploss: string | null; target: string | null }>({ stoploss: null, target: null });
   const [error, setError] = useState("");
 
-  const parse = (v: string) => (v.trim() === "" ? null : Number(v));
-  const valid = (n: number | null) => n === null || (Number.isFinite(n) && n > 0);
-  const levels = (side: Side) => {
-    const direction = marketDirection(instrument, side);
-    const sl = parse(slValue), tp = parse(tpValue);
-    return {
-      direction,
-      stopLoss: sl !== null && valid(sl) ? levelFromDistance(direction, price, "stoploss", sl, slUnit) : null,
-      target: tp !== null && valid(tp) ? levelFromDistance(direction, price, "target", tp, tpUnit) : null,
-    };
+  const unitOf = (kind: "stoploss" | "target") => (kind === "stoploss" ? s.slUnit : s.tpUnit);
+  const fieldValue = (kind: "stoploss" | "target") =>
+    holding ? (draft[kind] ?? levelToField(holding, kind, unitOf(kind))) : (kind === "stoploss" ? s.slValue : s.tpValue);
+
+  const edit = (kind: "stoploss" | "target", text: string) => {
+    if (!holding) {
+      onSettings(instrument, kind === "stoploss" ? { ...s, slValue: text } : { ...s, tpValue: text });
+      return;
+    }
+    setDraft((d) => ({ ...d, [kind]: text }));
+    const level = fieldToLevel(holding, kind, text, unitOf(kind));
+    if (level === undefined) { setError("Type a number."); return; }
+    const problem = level === null ? null : validateLevel(holding.direction, price, kind, level);
+    if (problem) { setError(problem); return; }
+    setError("");
+    onLevels(instrument, kind === "stoploss" ? { stopLoss: level } : { target: level });
   };
 
-  /** How much of an order on `side` closes what is open on the opposite side, and how much opens something new. */
-  const split = (side: Side) => {
-    const n = Number(qty);
-    const open = holding && holding.side !== side ? holding.qty : 0;
-    const closes = Number.isInteger(n) && n > 0 ? Math.min(n, open) : 0;
-    return { n, open, closes, extra: Number.isInteger(n) ? n - closes : n };
+  const changeUnit = (kind: "stoploss" | "target", unit: LevelUnit) => {
+    setDraft((d) => ({ ...d, [kind]: null }));
+    onSettings(instrument, kind === "stoploss" ? { ...s, slUnit: unit } : { ...s, tpUnit: unit });
   };
 
   const place = (side: Side) => {
-    if (!valid(parse(slValue)) || !valid(parse(tpValue))) {
-      setError("Stop-loss and target distances must be numbers above 0.");
-      return;
-    }
-    const { direction, stopLoss, target } = levels(side);
-    const { n, extra } = split(side);
-    // the levels only apply to a new trade; an order that just books part of a holding needs none
-    const problem = extra > 0 ? validateOrder(direction, price, n, stopLoss, target) : validateOrder(direction, price, n, null, null);
-    if (problem) { setError(problem); return; }
+    const built = buildOrder(instrument, side, s, price, holding);
+    if ("error" in built) { setError(built.error); return; }
     setError("");
-    onPlace({ instrument, side, qty: n, stopLoss: extra > 0 ? stopLoss : null, target: extra > 0 ? target : null });
+    onPlace(built.order);
   };
 
+  /** One line of text under the fields saying what a press of Buy or Sell would do. */
   const preview = (side: Side) => {
     const word = side === "buy" ? "Buy" : "Sell";
-    const { open, closes, extra } = split(side);
-    if (open > 0 && closes > 0) {
-      return `${word}: books ${closes} of your ${open}${extra > 0 ? `, ${extra} opens a new trade` : ""}`;
+    const built = buildOrder(instrument, side, s, price, holding);
+    if ("error" in built) return null;
+    const { qty } = built.order;
+    if (holding && holding.side !== side) {
+      const closes = Math.min(qty, holding.qty);
+      return `${word}: books ${closes} of your ${holding.qty}${qty > closes ? `, ${qty - closes} opens a new trade` : ""}`;
     }
-    const { stopLoss, target } = levels(side);
+    if (holding) return `${word}: adds ${qty}, with the position's stop-loss and target`;
+    const { stopLoss, target } = built.order;
     if (stopLoss === null && target === null) return null;
     return `${word}: ${stopLoss !== null ? `SL ${fmtPrice(stopLoss)}` : "no SL"} · ${target !== null ? `TP ${fmtPrice(target)}` : "no TP"}`;
   };
@@ -104,19 +105,21 @@ function OrderCard({ instrument, price, dark, positions, onPlace }: Props & { in
         <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${muted}`}>
           <label className="flex items-center gap-1.5">
             Qty
-            <input className={field} type="number" min={1} step={1} value={qty} onChange={(e) => setQty(e.target.value)} />
+            <input className={field} type="number" min={1} step={1} value={s.qty} onChange={(e) => onSettings(instrument, { ...s, qty: e.target.value })} />
           </label>
-          <label className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5" title={holding ? "Live stop-loss of the position, same as the red line on the chart" : "Stop-loss for the next order"}>
             Stop-loss
-            <input className={field} type="number" min={0} step="any" placeholder="none" value={slValue} onChange={(e) => setSlValue(e.target.value)} />
-            <select className={unitCls} value={slUnit} onChange={(e) => setSlUnit(e.target.value as LevelUnit)}>
+            <input className={field} type="number" step="any" placeholder="none" value={fieldValue("stoploss")}
+              onChange={(e) => edit("stoploss", e.target.value)} onBlur={() => setDraft((d) => ({ ...d, stoploss: null }))} />
+            <select className={unitCls} value={s.slUnit} onChange={(e) => changeUnit("stoploss", e.target.value as LevelUnit)}>
               <option value="%">%</option><option value="pts">pts</option>
             </select>
           </label>
-          <label className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5" title={holding ? "Live target of the position, same as the green line on the chart" : "Target for the next order"}>
             Target
-            <input className={field} type="number" min={0} step="any" placeholder="none" value={tpValue} onChange={(e) => setTpValue(e.target.value)} />
-            <select className={unitCls} value={tpUnit} onChange={(e) => setTpUnit(e.target.value as LevelUnit)}>
+            <input className={field} type="number" step="any" placeholder="none" value={fieldValue("target")}
+              onChange={(e) => edit("target", e.target.value)} onBlur={() => setDraft((d) => ({ ...d, target: null }))} />
+            <select className={unitCls} value={s.tpUnit} onChange={(e) => changeUnit("target", e.target.value as LevelUnit)}>
               <option value="%">%</option><option value="pts">pts</option>
             </select>
           </label>
@@ -140,11 +143,11 @@ function OrderCard({ instrument, price, dark, positions, onPlace }: Props & { in
 }
 
 /** The two order cards under the player: CE and PE, each with Buy and Sell. */
-export default function OrderCards({ price, dark, positions, onPlace }: Props) {
+export default function OrderCards(props: Props) {
   return (
-    <div className={`shrink-0 flex gap-3 px-3 py-2 border-t ${dark ? "border-[#2a2e39] bg-[#131722]" : "border-slate-200 bg-white"}`}>
-      <OrderCard instrument="CE" price={price} dark={dark} positions={positions} onPlace={onPlace} />
-      <OrderCard instrument="PE" price={price} dark={dark} positions={positions} onPlace={onPlace} />
+    <div className={`shrink-0 flex gap-3 px-3 py-2 border-t ${props.dark ? "border-[#2a2e39] bg-[#131722]" : "border-slate-200 bg-white"}`}>
+      <OrderCard instrument="CE" {...props} />
+      <OrderCard instrument="PE" {...props} />
     </div>
   );
 }

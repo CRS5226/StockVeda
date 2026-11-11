@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, Download, Layers, Moon, Rewind, Sun } from "lucide-react";
-import BacktestChart, { NO_SMC, type ChartPriceLine } from "../components/BacktestChart";
-import OrderCards, { type OrderInput } from "../components/OrderCards";
+import BacktestChart, { NO_SMC, type ChartHandle } from "../components/BacktestChart";
+import OrderCards from "../components/OrderCards";
+import OrderOverlay from "../components/OrderOverlay";
 import ReplayControls from "../components/ReplayControls";
 import TradePanel from "../components/TradePanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
@@ -11,7 +12,11 @@ import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
 import { useReplay } from "../lib/useReplay";
 import { barKey, toChartTime } from "../lib/barTime";
-import { closeTradeAtMarket, evaluateTrade, marketDirection, placeOrder, positionOf, type PaperTrade } from "../lib/paperTrading";
+import {
+  adjustLevels, closeAll, closePosition, closeTradeAtMarket, evaluateTrade, marketDirection, placeOrder, positionOf,
+  type Instrument, type Order, type PaperTrade, type Position,
+} from "../lib/paperTrading";
+import { buildOrder, DEFAULT_SETTINGS, type CardSettings } from "../lib/orderSettings";
 import { loadChartTheme, saveChartTheme, type ChartTheme } from "../lib/chartTheme";
 import { loadSmcPrefs, saveSmcPrefs, loadStructureSettings, saveStructureSettings, type StructureSettings } from "../lib/smcPrefs";
 
@@ -35,12 +40,18 @@ export default function Charts() {
   const [picking, setPicking] = useState(false); // waiting for a click on the candle to start from
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const nextTradeId = useRef(1);
+  const [handle, setHandle] = useState<ChartHandle | null>(null);
+  // card values per instrument, shared by the cards and the "+" menu on the chart
+  const [settings, setSettings] = useState<Record<Instrument, CardSettings>>({ CE: DEFAULT_SETTINGS, PE: DEFAULT_SETTINGS });
+  // a stop-loss / target line being dragged: shown on the chart and the cards at once, committed when dropped
+  const [live, setLive] = useState<Partial<Record<Instrument, { stopLoss?: number; target?: number }>>>({});
 
   // A different symbol, timeframe or data set means the replay position and trades no longer apply.
   useEffect(() => {
     replay.exit();
     setPicking(false);
     setTrades([]);
+    setLive({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf, bars]);
 
@@ -115,18 +126,6 @@ export default function Charts() {
     return out;
   }, [trades, bars, replay.active, replay.cursor]);
 
-  const tradeLines = useMemo(() => {
-    if (!replay.active) return [] as ChartPriceLine[];
-    const out: ChartPriceLine[] = [];
-    for (const t of trades) {
-      if (evaluateTrade(t, bars, replay.cursor).status !== "open") continue;
-      out.push({ price: t.entryPrice, color: "#3b82f6", title: `${t.side === "buy" ? "BUY" : "SELL"} ${t.instrument} ${t.qty}`, dashed: true });
-      if (t.stopLoss !== null) out.push({ price: t.stopLoss, color: "#ef4444", title: "SL" });
-      if (t.target !== null) out.push({ price: t.target, color: "#22c55e", title: "TP" });
-    }
-    return out;
-  }, [trades, bars, replay.active, replay.cursor]);
-
   const onChartClick = (time: Time) => {
     if (!picking) return;
     const i = indexByTime.get(String(time));
@@ -143,18 +142,55 @@ export default function Charts() {
   };
 
   // What is open on each instrument; an order nets against it (selling 3 of a 10-lot buy leaves 7).
-  const positions = useMemo(
+  const heldNow = useMemo(
     () => ({
       CE: replay.active ? positionOf(trades, bars, replay.cursor, "CE") : null,
       PE: replay.active ? positionOf(trades, bars, replay.cursor, "PE") : null,
     }),
     [trades, bars, replay.active, replay.cursor],
   );
+  // the same positions with a line that is being dragged applied, for the chart and the cards
+  const positions = useMemo(() => {
+    const show = (p: Position | null, drag?: { stopLoss?: number; target?: number }) =>
+      p && drag ? { ...p, stopLoss: drag.stopLoss ?? p.stopLoss, target: drag.target ?? p.target } : p;
+    return { CE: show(heldNow.CE, live.CE), PE: show(heldNow.PE, live.PE) };
+  }, [heldNow, live]);
 
-  const placeTrade = (order: OrderInput) => {
+  const placeTrade = (order: Order) => {
     if (price === undefined) return;
     setTrades((prev) => placeOrder(prev, order, bars, replay.cursor, nextTradeId.current++).trades);
   };
+
+  const moveLevels = (instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null }) => {
+    setTrades((prev) => adjustLevels(prev, instrument, changes, bars, replay.cursor));
+  };
+
+  const dragLevel = (instrument: Instrument, kind: "stoploss" | "target", level: number) =>
+    setLive((l) => ({ ...l, [instrument]: { ...l[instrument], [kind === "stoploss" ? "stopLoss" : "target"]: level } }));
+
+  const dropLevel = (instrument: Instrument, kind: "stoploss" | "target", level: number) => {
+    setLive((l) => ({ ...l, [instrument]: undefined }));
+    moveLevels(instrument, kind === "stoploss" ? { stopLoss: level } : { target: level });
+  };
+
+  /** Buy from the "+" menu on the chart: the card's levels, the quantity typed there. Returns an error message or null. */
+  const buyFromChart = (instrument: Instrument, qty: number): string | null => {
+    if (price === undefined) return "No price yet.";
+    const built = buildOrder(instrument, "buy", settings[instrument], price, heldNow[instrument], qty);
+    if ("error" in built) return built.error;
+    placeTrade(built.order);
+    return null;
+  };
+
+  const orderSummary = (instrument: Instrument): string => {
+    const held = heldNow[instrument];
+    if (held && held.side === "buy") return "Adds to your position with its stop-loss and target.";
+    const { slValue, slUnit, tpValue, tpUnit } = settings[instrument];
+    return `Stop-loss ${slValue.trim() ? `${slValue}${slUnit}` : "none"} · Target ${tpValue.trim() ? `${tpValue}${tpUnit}` : "none"} (from the ${instrument} card)`;
+  };
+
+  const exitFromChart = (instrument: Instrument, qty: number) =>
+    setTrades((prev) => closePosition(prev, instrument, qty, bars, replay.cursor));
 
   const closeTrade = (id: number) => {
     setTrades((prev) => closeTradeAtMarket(prev, id, bars, replay.cursor));
@@ -232,7 +268,12 @@ export default function Charts() {
       <div className="relative flex-1 min-h-0">
         <BacktestChart fill ohlcv={shown} symbol={symbol} smc={replay.active ? NO_SMC : smc} theme={theme}
           structureMode="swing" swingLength={structure.length} stableView={replay.active}
-          onChartClick={onChartClick} extraMarkers={tradeMarkers} priceLines={tradeLines} />
+          onChartClick={onChartClick} extraMarkers={tradeMarkers} onChartReady={setHandle} />
+        {replay.active && handle && price !== undefined && (
+          <OrderOverlay chart={handle.chart} series={handle.series} positions={positions} price={price} dark={dark}
+            summary={{ CE: orderSummary("CE"), PE: orderSummary("PE") }}
+            onDrag={dragLevel} onDrop={dropLevel} onExit={exitFromChart} onBuy={buyFromChart} />
+        )}
         {picking && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold shadow-lg">
             Click a candle to start the replay from it (Esc to cancel)
@@ -263,13 +304,15 @@ export default function Charts() {
         <>
           <ReplayControls replay={replay} dark={dark} onExit={exitReplay} price={price}
             label={bars[replay.cursor]?.date.replace("T", " ").slice(0, 16).replace(/ 00:00$/, "") ?? ""} />
-          {price !== undefined && <OrderCards price={price} dark={dark} positions={positions} onPlace={placeTrade} />}
+          {price !== undefined && <OrderCards price={price} dark={dark} positions={positions} settings={settings} onPlace={placeTrade}
+            onSettings={(ins, next) => setSettings((prev) => ({ ...prev, [ins]: next }))} onLevels={moveLevels} />}
         </>
       )}
       </div>
       {replay.active && (
         <aside className={`w-96 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
-          <TradePanel trades={trades} bars={bars} cursor={replay.cursor} dark={dark} positions={positions} onClose={closeTrade} />
+          <TradePanel trades={trades} bars={bars} cursor={replay.cursor} dark={dark} positions={positions} onClose={closeTrade}
+            onCloseAll={() => setTrades((prev) => closeAll(prev, bars, replay.cursor))} />
         </aside>
       )}
       </div>

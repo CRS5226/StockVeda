@@ -11,6 +11,8 @@ interface Props {
   /** What is open on each instrument right now. */
   positions: Record<Instrument, Position | null>;
   onClose: (id: number) => void;
+  /** Close everything that is open, on both instruments. */
+  onCloseAll: () => void;
 }
 
 const REASON: Record<ExitReason, string> = { target: "Target hit", stoploss: "Stoploss hit", manual: "Closed" };
@@ -22,7 +24,7 @@ const stamp = (d: string) => {
 };
 
 /** Trades placed in the replay, newest first, with target / stop-loss / booked result in points, percent and money. */
-export default function TradePanel({ trades, bars, cursor, dark, positions, onClose }: Props) {
+export default function TradePanel({ trades, bars, cursor, dark, positions, onClose, onCloseAll }: Props) {
   const sum = summarize(trades, bars, cursor);
   const muted = dark ? "text-slate-400" : "text-slate-500";
   const strong = dark ? "text-slate-100" : "text-slate-800";
@@ -39,7 +41,15 @@ export default function TradePanel({ trades, bars, cursor, dark, positions, onCl
   return (
     <div className={`h-full flex flex-col text-xs ${dark ? "bg-[#131722] text-slate-300" : "bg-white text-slate-700"}`}>
       <div className={`px-3 py-2 border-b ${rule}`}>
-        <div className={`font-semibold text-sm ${strong}`}>Paper trades</div>
+        <div className="flex items-center justify-between">
+          <div className={`font-semibold text-sm ${strong}`}>Paper trades</div>
+          <button onClick={onCloseAll} disabled={!positions.CE && !positions.PE} title="Close everything that is open at market"
+            className={`px-2 py-1 rounded border text-[11px] font-semibold disabled:opacity-30 disabled:cursor-not-allowed ${
+              dark ? "border-[#2a2e39] text-slate-200 hover:bg-[#2a2e39]" : "border-slate-300 text-slate-700 hover:bg-slate-100"
+            }`}>
+            Close all
+          </button>
+        </div>
         <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
           <span className={muted}>Booked</span>
           <span className={`text-right tabular-nums font-semibold ${tone(sum.booked.money, dark)}`}>{money(sum.booked.money)}</span>
@@ -73,8 +83,8 @@ export default function TradePanel({ trades, bars, cursor, dark, positions, onCl
           const s = evaluateTrade(t, bars, cursor);
           const buySide = t.side === "buy";
           const basis = s.status === "open" ? s.openQty : t.qty; // levels are shown for what is still open
-          const target = t.target === null ? null : amountAt(t, t.target, basis);
-          const stop = t.stopLoss === null ? null : amountAt(t, t.stopLoss, basis);
+          const target = s.target === null ? null : amountAt(t, s.target, basis);
+          const stop = s.stopLoss === null ? null : amountAt(t, s.stopLoss, basis);
           const exitWord = buySide ? "Sold" : "Bought";
           const partly = s.status === "open" && s.exits.length > 0;
           return (
@@ -95,11 +105,11 @@ export default function TradePanel({ trades, bars, cursor, dark, positions, onCl
               <div className={muted}>Entered {shortDate(bars[t.entryIndex].date)}</div>
               <div>
                 <span className={muted}>Target </span>
-                {target && t.target !== null ? <>{price(t.target)} {line(target)}</> : <span className={muted}>none</span>}
+                {target && s.target !== null ? <>{price(s.target)} {line(target)}</> : <span className={muted}>none</span>}
               </div>
               <div>
                 <span className={muted}>Stoploss </span>
-                {stop && t.stopLoss !== null ? <>{price(t.stopLoss)} {line(stop)}</> : <span className={muted}>none</span>}
+                {stop && s.stopLoss !== null ? <>{price(s.stopLoss)} {line(stop)}</> : <span className={muted}>none</span>}
               </div>
 
               {s.exits.length > 0 && (

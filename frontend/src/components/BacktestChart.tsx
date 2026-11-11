@@ -121,9 +121,14 @@ interface Props {
   extraMarkers?: SeriesMarker<Time>[];
   /** Horizontal price lines across the chart (for example the entry, stop-loss and target of open trades). */
   priceLines?: ChartPriceLine[];
+  /** Called with the chart once it exists, and with null when it is torn down. */
+  onChartReady?: (handle: ChartHandle | null) => void;
 }
 
 export interface ChartPriceLine { price: number; color: string; title: string; dashed?: boolean }
+
+/** The live chart and its candle series, for overlays that need to convert between prices and screen positions. */
+export interface ChartHandle { chart: IChartApi; series: ISeriesApi<"Candlestick"> }
 
 // Colours of the swing-mode block types (breaker / mitigation / rejection) and the label on their CE line.
 const BLOCK_KIND_COLORS: Record<SwingTypedBlock["kind"], { rgb: string; hex: string; label: string }> = {
@@ -187,10 +192,12 @@ export default function BacktestChart({
   ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS, hLines = true,
   strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES, smc = NO_SMC,
   fill = false, theme = "light", structureMode = "lecture", swingLength = DEFAULT_SWING_LENGTH,
-  stableView = false, onChartClick, extraMarkers = EMPTY_MARKERS, priceLines = EMPTY_PRICE_LINES,
+  stableView = false, onChartClick, extraMarkers = EMPTY_MARKERS, priceLines = EMPTY_PRICE_LINES, onChartReady,
 }: Props) {
   const clickRef = useRef(onChartClick);
   clickRef.current = onChartClick;
+  const readyRef = useRef(onChartReady);
+  readyRef.current = onChartReady;
   const priceLineRefs = useRef<IPriceLine[]>([]);
   const themeRef = useRef(theme);
   themeRef.current = theme;
@@ -335,6 +342,7 @@ export default function BacktestChart({
 
     const onClick = (p: MouseEventParams) => { if (p.time !== undefined) clickRef.current?.(p.time); };
     chart.subscribeClick(onClick);
+    readyRef.current?.({ chart, series: cs });
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current)
@@ -352,6 +360,7 @@ export default function BacktestChart({
       chart.timeScale().unsubscribeVisibleTimeRangeChange(recomputeZones);
       if (onMove) chart.unsubscribeCrosshairMove(onMove);
       chart.unsubscribeClick(onClick);
+      readyRef.current?.(null);
       priceLineRefs.current = [];
       ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null; volumeRef.current = null;
       // Trade-line series belong to the chart instance being destroyed above —
