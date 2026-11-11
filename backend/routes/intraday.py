@@ -77,8 +77,8 @@ def get_intraday_fetch_job(job_id: str):
 
 @router.get("/data-status/{symbol}")
 def intraday_data_status(symbol: str, interval: str = Query("5m")):
-    """Mirrors the F&O option-chain data-status endpoint pattern, for the ORB
-    fetch panel to show what's already synced before triggering a new fetch."""
+    """What intraday data is already synced, so the ORB fetch panel can show it
+    before triggering a new fetch."""
     db = get_db()
     row = db.execute(
         "SELECT MIN(datetime), MAX(datetime), COUNT(*) FROM stock_intraday_ohlcv WHERE symbol = ? AND interval = ?",

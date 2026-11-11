@@ -1,5 +1,5 @@
 """
-On-demand intraday OHLCV fetch via yfinance — mirrors backend/routes/fno.py's
+On-demand intraday OHLCV fetch via yfinance — uses a
 job-tracking dict pattern (background-task driven, polled via a fetch-job
 endpoint), because intraday data cannot be bulk-backfilled the way EOD
 bhavcopy is: yfinance intraday lookback is capped (~7 days for 1m bars, longer

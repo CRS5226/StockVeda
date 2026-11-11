@@ -1,5 +1,5 @@
 """
-Macro routes: indices, FII/DII flows, FnO OI, currency, macro monthly/quarterly, market breadth.
+Macro routes: indices, FII/DII flows, currency, macro monthly/quarterly, market breadth.
 """
 
 import logging
@@ -315,27 +315,6 @@ def get_fii_dii(
     df = db.execute(sql, params).df()
     if df.empty:
         raise HTTPException(404, "No FII/DII data")
-    return df_to_records(df)
-
-
-@router.get("/fno-oi")
-def get_fno_oi(
-    instrument: Optional[str] = Query(None),
-    from_date:  Optional[date] = Query(None),
-    to_date:    Optional[date] = Query(None),
-    limit: int = Query(500, le=5000),
-):
-    db = get_db()
-    sql = "SELECT * FROM fno_oi WHERE 1=1"
-    params = []
-    if instrument:
-        sql += " AND instrument = ?"; params.append(instrument.upper())
-    if from_date:
-        sql += " AND date >= ?"; params.append(from_date)
-    if to_date:
-        sql += " AND date <= ?"; params.append(to_date)
-    sql += f" ORDER BY date DESC LIMIT {limit}"
-    df = db.execute(sql, params).df()
     return df_to_records(df)
 
 

@@ -15,11 +15,8 @@ from backend.core.backtest_engine import (
     run_backtest_v2, BacktestParamsV2, ConditionRow,
     ENTRY_CONDITIONS, VALID_INDICATORS, VALID_OPERATORS,
 )
-from backend.core.fno_signals import attach_fno_signals
-from backend.core.futures_continuous import build_continuous_futures
-from backend.core.options_backtest import run_straddle_backtest, StraddleParams, STRATEGIES
-from backend.core.options_spreads import run_spread_backtest, SpreadParams, SPREAD_STRATEGIES
 from backend.core.markov_chain import attach_markov_signals
+from backend.core.spot_prices import IDX_NAME_MAP, INDEX_SYMBOLS
 from backend.core.orb_backtest import run_orb_backtest, ORBParams, DIRECTIONS
 from backend.core.backtest_engine import prepare_frame
 from backend.core import grid_search as gs
@@ -31,8 +28,8 @@ import numpy as np
 import pandas as pd
 
 
-def _load_price_df(db, sym: str, from_date: str, to_date: str, data_source: str, interval: str | None = None) -> pd.DataFrame:
-    """data_source: 'cash' (stock_ohlcv) or 'futures' (continuous roll-adjusted near-month series).
+def _load_price_df(db, sym: str, from_date: str, to_date: str, interval: str | None = None) -> pd.DataFrame:
+    """Daily candles of a stock (stock_ohlcv) or an index such as NIFTY (index_ohlcv, no volume).
     interval: one of sync_intraday.VALID_INTERVALS to read stock_intraday_ohlcv instead of the
     daily stock_ohlcv table — the `datetime` column is aliased to `date` so downstream code
     (prepare_frame, ml_backtest, etc.) works unchanged regardless of bar granularity, since the
@@ -43,8 +40,12 @@ def _load_price_df(db, sym: str, from_date: str, to_date: str, data_source: str,
                WHERE symbol = ? AND interval = ? AND datetime BETWEEN ? AND ? ORDER BY datetime""",
             [sym, interval, from_date, to_date],
         ).df()
-    if data_source == "futures":
-        return build_continuous_futures(sym, from_date, to_date)
+    if sym in INDEX_SYMBOLS:
+        return db.execute(
+            """SELECT date, open, high, low, close, 0 AS volume FROM index_ohlcv
+               WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date""",
+            [IDX_NAME_MAP.get(sym, sym), from_date, to_date],
+        ).df()
     return db.execute(
         """SELECT date, open, high, low, close, volume FROM stock_ohlcv
            WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date""",
@@ -184,7 +185,6 @@ class BacktestV2Request(BaseModel):
     max_bars: int = Field(30, ge=1, le=252)
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
 
 
 @router.post("/run-v2")
@@ -209,10 +209,9 @@ def run_v2(req: BacktestV2Request):
     per_symbol: dict = {}
     for sym in req.symbols:
         sym = sym.upper()
-        df = _load_price_df(db, sym, req.from_date, req.to_date, req.data_source)
+        df = _load_price_df(db, sym, req.from_date, req.to_date)
         if len(df) < 30:
             continue
-        df = attach_fno_signals(df, sym, req.from_date, req.to_date)
         df = attach_markov_signals(df, sym, req.from_date, req.to_date)
         try:
             per_symbol[sym] = run_backtest_v2(df, params)
@@ -263,7 +262,6 @@ class MatrixRequest(BaseModel):
     to_date: str
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
 
 
 @router.post("/run-matrix")
@@ -273,9 +271,9 @@ def run_matrix(req: MatrixRequest):
     ohlcv: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
+        df = _load_price_df(db, s, req.from_date, req.to_date)
         if len(df) >= 30:
-            ohlcv[s] = attach_markov_signals(attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date)
+            ohlcv[s] = attach_markov_signals(df, s, req.from_date, req.to_date)
 
     if not ohlcv:
         raise HTTPException(400, "No data found for any symbol in the given date range. Sync data first via the Screener.")
@@ -446,9 +444,9 @@ def run_matrix_stream(req: MatrixRequest):
     ohlcv: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
+        df = _load_price_df(db, s, req.from_date, req.to_date)
         if len(df) >= 30:
-            ohlcv[s] = attach_markov_signals(attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date)
+            ohlcv[s] = attach_markov_signals(df, s, req.from_date, req.to_date)
 
     if not ohlcv:
         raise HTTPException(400, "No data found for any symbol in the given date range.")
@@ -497,112 +495,6 @@ def run_matrix_stream(req: MatrixRequest):
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
-
-
-# ── Straddle / strangle backtester ──────────────────────────────────────────
-
-class StraddleRequest(BaseModel):
-    symbol: str
-    from_date: str
-    to_date: str
-    strategy: Literal["short_straddle", "long_straddle", "short_strangle", "long_strangle"] = "short_straddle"
-    strangle_width_pct: float = Field(2.0, gt=0, le=20)
-    entry_dte: int = Field(7, ge=1, le=30)
-    target_pct: float = Field(30.0, gt=0)
-    sl_pct: float = Field(50.0, gt=0)
-    force_exit_dte: int = Field(0, ge=0, le=5)
-    capital_per_trade: float = Field(50_000.0, gt=0)
-    data_source: Literal["cash", "futures"] = "cash"
-
-
-@router.get("/straddle-strategies")
-def get_straddle_strategies():
-    return {"strategies": list(STRATEGIES)}
-
-
-@router.post("/run-straddle")
-def run_straddle(req: StraddleRequest):
-    params = StraddleParams(
-        strategy=req.strategy,
-        strangle_width_pct=req.strangle_width_pct,
-        entry_dte=req.entry_dte,
-        target_pct=req.target_pct,
-        sl_pct=req.sl_pct,
-        force_exit_dte=req.force_exit_dte,
-        capital_per_trade=req.capital_per_trade,
-        data_source=req.data_source,
-    )
-    try:
-        result = run_straddle_backtest(req.symbol, req.from_date, req.to_date, params)
-    except Exception:
-        logger.exception("Straddle backtest failed")
-        raise HTTPException(500, "Backtest failed, see server logs")
-
-    if result["stats"]["total_trades"] == 0:
-        raise HTTPException(
-            400,
-            f"No {req.strategy.replace('_', ' ')} cycles found for {req.symbol.upper()} in this range — "
-            "fetch its option chain data across at least one full expiry cycle on the F&O page first."
-        )
-    return result
-
-
-# ── Options spreads (Phase 4) ───────────────────────────────────────────────
-
-class SpreadRequest(BaseModel):
-    symbol: str
-    from_date: str
-    to_date: str
-    strategy: Literal["bull_call_spread", "bear_put_spread", "iron_condor"] = "bull_call_spread"
-    long_offset_pct: float = Field(0.0, ge=0, le=20)
-    short_offset_pct: float = Field(3.0, gt=0, le=20)
-    condor_call_short_pct: float = Field(3.0, gt=0, le=20)
-    condor_call_long_pct: float = Field(6.0, gt=0, le=30)
-    condor_put_short_pct: float = Field(3.0, gt=0, le=20)
-    condor_put_long_pct: float = Field(6.0, gt=0, le=30)
-    entry_dte: int = Field(20, ge=1, le=45)
-    target_pct: float = Field(50.0, gt=0, le=100)
-    sl_pct: float = Field(100.0, gt=0)
-    force_exit_dte: int = Field(1, ge=0, le=5)
-    capital_per_trade: float = Field(50_000.0, gt=0)
-    data_source: Literal["cash", "futures"] = "cash"
-
-
-@router.get("/spread-strategies")
-def get_spread_strategies():
-    return {"strategies": list(SPREAD_STRATEGIES)}
-
-
-@router.post("/run-spread")
-def run_spread(req: SpreadRequest):
-    params = SpreadParams(
-        strategy=req.strategy,
-        long_offset_pct=req.long_offset_pct,
-        short_offset_pct=req.short_offset_pct,
-        condor_call_short_pct=req.condor_call_short_pct,
-        condor_call_long_pct=req.condor_call_long_pct,
-        condor_put_short_pct=req.condor_put_short_pct,
-        condor_put_long_pct=req.condor_put_long_pct,
-        entry_dte=req.entry_dte,
-        target_pct=req.target_pct,
-        sl_pct=req.sl_pct,
-        force_exit_dte=req.force_exit_dte,
-        capital_per_trade=req.capital_per_trade,
-        data_source=req.data_source,
-    )
-    try:
-        result = run_spread_backtest(req.symbol, req.from_date, req.to_date, params)
-    except Exception:
-        logger.exception("Spread backtest failed")
-        raise HTTPException(500, "Backtest failed, see server logs")
-
-    if result["stats"]["total_trades"] == 0:
-        raise HTTPException(
-            400,
-            f"No {req.strategy.replace('_', ' ')} cycles found for {req.symbol.upper()} in this range — "
-            "fetch its option chain data across at least one full expiry cycle on the F&O page first."
-        )
-    return result
 
 
 # ── Opening Range Breakout (Phase 10) ───────────────────────────────────────
@@ -672,7 +564,6 @@ class GridSearchRequest(BaseModel):
     max_bars: int = Field(30, ge=1, le=252)
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
     train_ratio: float = Field(0.7, ge=0.5, le=0.9)
     top_n: int = Field(20, ge=1, le=gs.MAX_TOP_N)
 
@@ -708,10 +599,10 @@ def run_grid_search(req: GridSearchRequest):
     raw: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source)
+        df = _load_price_df(db, s, req.from_date, req.to_date)
         if len(df) >= 60:
             raw[s] = attach_markov_signals(
-                attach_fno_signals(df, s, req.from_date, req.to_date), s, req.from_date, req.to_date
+                df, s, req.from_date, req.to_date
             )
     if not raw:
         raise HTTPException(400, "No data (need ≥60 bars/symbol). Sync data first via the Screener.")
@@ -821,7 +712,7 @@ def run_grid_search(req: GridSearchRequest):
 def _attach_ml_daily_signals(df: pd.DataFrame, sym: str, from_date: str, to_date: str) -> pd.DataFrame:
     """Daily-only series joined onto a symbol's bars for the ML routes: F&O, Markov, FII/DII."""
     return mlb.attach_fii_dii(
-        attach_markov_signals(attach_fno_signals(df, sym, from_date, to_date), sym, from_date, to_date)
+        attach_markov_signals(df, sym, from_date, to_date)
     )
 
 
@@ -852,7 +743,6 @@ class MlRequest(BaseModel):
     max_bars: int = Field(30, ge=1, le=252)
     capital_per_trade: float = Field(10_000.0, gt=0)
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
     features: list[str] | None = None  # subset of mlb.ML_FEATURES; None = use all
 
 
@@ -880,7 +770,6 @@ class MlEdaRequest(BaseModel):
     entry_conditions: list[ConditionRowIn] = []
     sample_mode: Literal["entry_signals", "all_bars"] = "entry_signals"
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
     features: list[str] | None = None
 
 
@@ -898,7 +787,7 @@ def run_ml_eda(req: MlEdaRequest):
     raw: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        df = _load_price_df(db, s, req.from_date, req.to_date, interval=intraday_interval)
         if len(df) >= 60:
             raw[s] = df if intraday_interval else _attach_ml_daily_signals(df, s, req.from_date, req.to_date)
     if not raw:
@@ -939,7 +828,7 @@ def run_ml_stream(req: MlRequest):
     raw: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        df = _load_price_df(db, s, req.from_date, req.to_date, interval=intraday_interval)
         if len(df) >= 60:
             # F&O/Markov/FII-DII signals are daily-only series — skip attaching them onto intraday bars.
             raw[s] = df if intraday_interval else _attach_ml_daily_signals(df, s, req.from_date, req.to_date)
@@ -1033,7 +922,6 @@ class MlRegressionRequest(BaseModel):
     horizon_bars: int = Field(10, ge=1, le=252)
     train_ratio: float = Field(0.7, ge=0.5, le=0.9)
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
     features: list[str] | None = None  # subset of mlb.ML_FEATURES; None = use all
 
 
@@ -1064,7 +952,7 @@ def run_ml_regression_stream(req: MlRegressionRequest):
     raw: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        df = _load_price_df(db, s, req.from_date, req.to_date, interval=intraday_interval)
         if len(df) >= 60:
             raw[s] = df if intraday_interval else _attach_ml_daily_signals(df, s, req.from_date, req.to_date)
     if not raw:
@@ -1129,7 +1017,6 @@ class ClusteringRequest(BaseModel):
     min_samples: int = Field(2, ge=1)
     lookback_days: int = Field(60, ge=20, le=252)
     timeframe: str = "1D"
-    data_source: Literal["cash", "futures"] = "cash"
     features: list[str] | None = None  # subset of sc.ALL_CLUSTER_FEATURES; None = use all
 
 
@@ -1145,7 +1032,7 @@ def run_clustering(req: ClusteringRequest):
     raw: dict[str, pd.DataFrame] = {}
     for sym in req.symbols:
         s = sym.upper()
-        df = _load_price_df(db, s, req.from_date, req.to_date, req.data_source, interval=intraday_interval)
+        df = _load_price_df(db, s, req.from_date, req.to_date, interval=intraday_interval)
         if len(df) >= req.lookback_days:
             raw[s] = df
     if not raw:

@@ -14,12 +14,11 @@ Framing (classification-first, quant-standard):
 Leakage guards: chronological split (no shuffle); a train sample whose label window
 would reach into the test period is purged.
 
-Alternative-data features (ALT_FEATURES, opt-in): FII/DII flows (market-wide) and
-options positioning from attach_fno_signals(). Both are published after the close,
-so each uses the PREVIOUS session's value — the same-day number isn't knowable at a
-close[i] entry. Options features exist only for F&O stocks with synced F&O history;
-elsewhere they're NaN and those bars are excluded (never zero-filled). Daily/weekly
-timeframes only — the source series are daily.
+Alternative-data features (ALT_FEATURES, opt-in): FII/DII flows (market-wide). They are
+published after the close, so each uses the PREVIOUS session's value — the same-day
+number isn't knowable at a close[i] entry. Where the data is missing the feature is NaN
+and those bars are excluded (never zero-filled). Daily/weekly timeframes only — the
+source series are daily.
 """
 
 from __future__ import annotations
@@ -54,16 +53,12 @@ ML_FEATURES = [
 ]
 
 # Opt-in alternative data — never part of the default set, since requiring them
-# would silently drop every non-F&O stock (feat_ok needs all selected features).
+# would silently drop every symbol without that data (feat_ok needs all selected features).
 # feature -> source column; the feature is the source shifted one session.
 ALT_FEATURE_SOURCES = {
     "fii_net_prev": "fii_net",
     "fii_net_5d_prev": "fii_net_5d",
     "dii_net_5d_prev": "dii_net_5d",
-    "pcr_oi_prev": "pcr_oi",
-    "oi_concentration_prev": "oi_concentration",
-    "atm_iv_prev": "atm_iv",
-    "max_pain_dist_pct_prev": "max_pain_dist_pct",
 }
 ALT_FEATURES = list(ALT_FEATURE_SOURCES)
 
@@ -131,7 +126,7 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     frame["ret_5"] = close.pct_change(5) * 100
     frame["ret_10"] = close.pct_change(10) * 100
     # Previous session's value (see module docstring); all-NaN if the source wasn't
-    # attached (intraday, or no FII/DII/F&O data), so selecting one never KeyErrors.
+    # attached (intraday, or no FII/DII data), so selecting one never KeyErrors.
     for feat, src in ALT_FEATURE_SOURCES.items():
         frame[feat] = pd.to_numeric(frame[src], errors="coerce").shift(1) if src in frame else np.nan
     return frame
