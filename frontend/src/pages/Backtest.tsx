@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch, Download } from "lucide-react";
 import Analysis from "./Analysis";
 import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore, AltCoverage } from "../lib/api";
 import { useBacktestStore, SavedRun, ALGO_COLORS, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
@@ -11,6 +11,7 @@ import OrbTradeChart from "../components/OrbTradeChart";
 import SymbolCombobox from "../components/SymbolCombobox";
 import type { PatternHit } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
+import { downloadCsv, backtestCsvFilename, multiStockCsv, multiAlgoCsv, matrixCsv } from "../lib/backtestCsv";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -798,6 +799,10 @@ function MultiAlgoResults({
           <div className="p-3 border-b border-slate-100 bg-slate-50/60">
             <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Algo Comparison</div>
             {symbol && <div className="text-xs font-bold text-slate-700 mt-0.5">{symbol}</div>}
+            <button onClick={() => downloadCsv(backtestCsvFilename("multi-algo"), multiAlgoCsv(symbol, slotsWithResults))}
+              className="mt-2 flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-lg font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 transition-colors bg-white">
+              <Download size={12} /> Download CSV
+            </button>
           </div>
           <div className="overflow-y-auto flex-1">
             {slotsWithResults.map((slot) => {
@@ -3400,6 +3405,10 @@ export default function Backtest() {
           {v2Results && (
             <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 bg-slate-50/60 flex-wrap">
               <span className="text-xs font-semibold text-slate-500">Results</span>
+              <button onClick={() => downloadCsv(backtestCsvFilename("multi-stock"), multiStockCsv(displayResults!, strategy))}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-lg font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 transition-colors">
+                <Download size={12} /> Download CSV
+              </button>
               {savedRuns.length > 0 && (
                 <>
                   <button onClick={() => { setCompareMode((m) => !m); setActiveRunId(null); }}
@@ -3718,6 +3727,10 @@ export default function Backtest() {
             <span className={`font-semibold ${pnlClass(matrixResults.aggregate.total_pnl)}`}>
               ₹{fmt(matrixResults.aggregate.total_pnl)}
             </span>
+            <button onClick={() => downloadCsv(backtestCsvFilename("matrix"), matrixCsv(matrixResults, matrixAlgos))}
+              className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-lg font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 transition-colors bg-white">
+              <Download size={12} /> Download CSV
+            </button>
             {matrixResults.aggregate.best_combo && (
               <span className="text-xs text-slate-500 hidden lg:inline">
                 Best: <span className="text-emerald-600 font-semibold">
