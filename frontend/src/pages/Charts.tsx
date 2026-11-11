@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Download, Moon, Sun } from "lucide-react";
-import ChartCanvas from "../components/ChartCanvas";
+import { AlertCircle, Download, Layers, Moon, Sun } from "lucide-react";
+import BacktestChart from "../components/BacktestChart";
+import SmcFloatingBox from "../components/SmcFloatingBox";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
 import { loadChartTheme, saveChartTheme, type ChartTheme } from "../lib/chartTheme";
+import { loadSmcPrefs, saveSmcPrefs, loadStructureSettings, saveStructureSettings, type StructureSettings } from "../lib/smcPrefs";
 
 export const DEFAULT_CHART_SYMBOL = "HDFCBANK";
 
@@ -17,6 +19,9 @@ export default function Charts() {
   const [draft, setDraft] = useState(symbol);
   const [theme, setTheme] = useState<ChartTheme>(loadChartTheme);
   const dark = theme === "dark";
+  const [smc, setSmc] = useState(loadSmcPrefs);
+  const [smcOpen, setSmcOpen] = useState(false);
+  const [structure, setStructure] = useState(loadStructureSettings);
   const { timeframes, bars, loading, error, notice, fetching, fetchMissing } = useChartData(symbol, tf);
 
   // Keep the search box in step with the URL (back/forward, links).
@@ -32,6 +37,23 @@ export default function Charts() {
     setTheme(next);
     saveChartTheme(next);
   };
+
+  const changeSmc = (next: typeof smc) => {
+    setSmc(next);
+    saveSmcPrefs(next);
+  };
+
+  const changeStructure = (next: StructureSettings) => {
+    setStructure(next);
+    saveStructureSettings(next);
+  };
+
+  // Stable rows for the chart; the SMC detectors recompute only when the bars change.
+  const ohlcv = useMemo(
+    () => bars.map(({ date, open, high, low, close, volume }) => ({ date, open, high, low, close, volume })),
+    [bars],
+  );
+  const smcActive = Object.values(smc).some(Boolean);
 
   const empty = !loading && !fetching && !error && bars.length === 0;
 
@@ -56,6 +78,15 @@ export default function Charts() {
             </button>
           ))}
         </div>
+        <button onClick={() => setSmcOpen((v) => !v)} title="Smart Money Concepts overlays"
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+            smcOpen
+              ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+              : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
+          }`}>
+          <Layers size={14} /> SMC
+          {smcActive && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+        </button>
         <div className={`ml-auto flex items-center gap-3 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
           {(loading || fetching) && (
             <span className="flex items-center gap-1.5">
@@ -74,7 +105,9 @@ export default function Charts() {
 
       {/* Chart area */}
       <div className="relative flex-1 min-h-0">
-        <ChartCanvas bars={bars} theme={theme} />
+        <BacktestChart fill ohlcv={ohlcv} symbol={symbol} smc={smc} theme={theme} structureMode="swing" swingLength={structure.length} />
+        {smcOpen && <SmcFloatingBox smc={smc} onChange={changeSmc} onClose={() => setSmcOpen(false)} dark={dark}
+          structure={structure} onStructureChange={changeStructure} />}
         {error && (
           <div className={`absolute inset-0 flex items-center justify-center ${dark ? "bg-[#131722]/80" : "bg-white/80"}`}>
             <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
