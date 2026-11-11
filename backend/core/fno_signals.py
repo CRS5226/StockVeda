@@ -9,15 +9,9 @@ them exactly like any other indicator column (crosses_above/below, thresholds).
 
 import pandas as pd
 from backend.db.connection import get_db
-from backend.core.options_math import implied_vol, get_risk_free_rate
-
-INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "NIFTYBANK"}
-
-IDX_NAME_MAP = {
-    "NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK", "NIFTYBANK": "NIFTY BANK",
-    "FINNIFTY": "NIFTY FIN SERVICE", "MIDCPNIFTY": "NIFTY MIDCAP 100",
-    "SENSEX": "S&P BSE SENSEX",
-}
+from backend.core.options_math import implied_vol
+from backend.core.rates import get_risk_free_rate
+from backend.core.spot_prices import INDEX_SYMBOLS, get_spot_ohlcv
 
 FNO_SIGNAL_COLUMNS = [
     "pcr_oi", "max_pain", "max_pain_dist_pct", "atm_oi", "oi_concentration",
@@ -33,25 +27,6 @@ def _get_spot_series(sym: str, from_date: str, to_date: str) -> pd.DataFrame:
     """
     df = get_spot_ohlcv(sym, from_date, to_date)
     return df[["date", "close"]] if not df.empty else df
-
-
-def get_spot_ohlcv(sym: str, from_date: str, to_date: str) -> pd.DataFrame:
-    """Full OHLC cash/index candles — for charting (spot series only, not options premium)."""
-    db = get_db()
-    sym = sym.strip().upper()
-    if sym in INDEX_SYMBOLS:
-        df = db.execute(
-            "SELECT date, open, high, low, close FROM index_ohlcv WHERE index_name = ? AND date BETWEEN ? AND ? ORDER BY date",
-            [IDX_NAME_MAP.get(sym, sym), from_date, to_date],
-        ).df()
-    else:
-        df = db.execute(
-            "SELECT date, open, high, low, close FROM stock_ohlcv WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date",
-            [sym, from_date, to_date],
-        ).df()
-    if not df.empty:
-        df["date"] = df["date"].astype(str)
-    return df
 
 
 def _option_signals(sym: str, instr: str, from_date: str, to_date: str, spot: pd.DataFrame) -> pd.DataFrame:

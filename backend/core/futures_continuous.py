@@ -20,7 +20,7 @@ technique valid; mixing adjusted and raw prices within one run would not be.
 
 import pandas as pd
 from backend.db.connection import get_db
-from backend.core.fno_signals import INDEX_SYMBOLS
+from backend.core.spot_prices import INDEX_SYMBOLS
 
 
 def build_continuous_futures(symbol: str, from_date: str, to_date: str) -> pd.DataFrame:
