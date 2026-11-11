@@ -5,7 +5,6 @@ import MarketDashboard from "./pages/MarketDashboard";
 import StockDetail from "./pages/StockDetail";
 import Screener from "./pages/Screener";
 import Backtest from "./pages/Backtest";
-import FnO from "./pages/FnO";
 import MutualFunds from "./pages/MutualFunds";
 import MutualFundDetail from "./pages/MutualFundDetail";
 import Charts from "./pages/Charts";
@@ -23,7 +22,6 @@ export default function App() {
           <Route path="/stock/:symbol" element={<StockDetail />} />
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
-          <Route path="/fno" element={<FnO />} />
           <Route path="/mutual-funds" element={<MutualFunds />} />
           <Route path="/mutual-funds/:schemeCode" element={<MutualFundDetail />} />
           <Route path="/analysis" element={<Navigate to="/backtest" replace />} />

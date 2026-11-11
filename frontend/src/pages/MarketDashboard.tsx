@@ -17,8 +17,6 @@ type FiiRow = { date: string; fii_net: number; dii_net: number };
 interface DashSnapshot {
   data: DashboardData;
   fiiHistory: FiiRow[];
-  fnoHistory: FiiRow[];
-  fnoFailed: boolean;
   indiaNews: NewsItem[];
   globalNews: NewsItem[];
 }
@@ -146,49 +144,6 @@ function FiiDiiChart({ rows }: { rows: FiiRow[] }) {
     // Zero baseline
     const zero = chart.addLineSeries({ color: "#cbd5e1", lineWidth: 1, lineStyle: 2, priceLineVisible: false });
     zero.setData(sorted.map(r => ({ time: r.date.slice(0, 10) as Time, value: 0 } as LineData)));
-
-    chart.timeScale().fitContent();
-
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
-    });
-    ro.observe(containerRef.current);
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
-  }, [rows]);
-
-  return <div ref={containerRef} className="w-full" />;
-}
-
-// ── FII / DII Index Futures Net Position chart ──────────────────────────────
-
-function FiiDiiFuturesChart({ rows }: { rows: { date: string; fii_net: number; dii_net: number }[] }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-
-  useEffect(() => {
-    if (!containerRef.current || !rows.length) return;
-    const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#64748b" },
-      grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
-      rightPriceScale: { borderColor: "#f1f5f9" },
-      leftPriceScale: { visible: false },
-      timeScale: { borderColor: "#f1f5f9", timeVisible: true },
-      crosshair: { mode: CrosshairMode.Normal },
-      width: containerRef.current.clientWidth,
-      height: 160,
-    });
-    chartRef.current = chart;
-
-    const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
-
-    const fiiS = chart.addLineSeries({ color: "#3b82f6", lineWidth: 2, priceLineVisible: false, title: "FII" });
-    fiiS.setData(sorted.map(r => ({ time: r.date as unknown as Time, value: r.fii_net } as LineData)));
-
-    const diiS = chart.addLineSeries({ color: "#10b981", lineWidth: 2, priceLineVisible: false, title: "DII" });
-    diiS.setData(sorted.map(r => ({ time: r.date as unknown as Time, value: r.dii_net } as LineData)));
-
-    const zero = chart.addLineSeries({ color: "#cbd5e1", lineWidth: 1, lineStyle: 2, priceLineVisible: false });
-    zero.setData(sorted.map(r => ({ time: r.date as unknown as Time, value: 0 } as LineData)));
 
     chart.timeScale().fitContent();
 
@@ -414,9 +369,6 @@ export default function MarketDashboard() {
   const [indiaNews, setIndiaNews] = useState<NewsItem[]>(_snap?.indiaNews ?? []);
   const [globalNews, setGlobalNews] = useState<NewsItem[]>(_snap?.globalNews ?? []);
   const [fiiHistory, setFiiHistory] = useState<FiiRow[]>(_snap?.fiiHistory ?? []);
-  const [fnoHistory, setFnoHistory] = useState<FiiRow[]>(_snap?.fnoHistory ?? []);
-  const [fnoFailed, setFnoFailed] = useState(_snap?.fnoFailed ?? false);
-  const [fiiTab, setFiiTab] = useState<"equity" | "futures">("futures");
   const [breadth, setBreadth] = useState<MarketBreadthRow | null>(null);
 
   // Chart tab: "perf" = normalized % chart, or an index name
@@ -458,35 +410,23 @@ export default function MarketDashboard() {
       if (!background) crawlTo(99, 2, 80);
 
       // Fetch all data in parallel
-      const [dash, indNews, glbNews, fiiRows, fnoRows] = await Promise.all([
+      const [dash, indNews, glbNews, fiiRows] = await Promise.all([
         api.getDashboard(),
         api.getMarketNews().catch(() => [] as NewsItem[]),
         api.getGlobalNews().catch(() => [] as NewsItem[]),
         api.getFiiDiiHistory(252).catch(() => []),
-        api.getFnoParticipantOI(252).catch(() => null),
       ]);
       if (cancelled) return;
 
       const fiiHist = fiiRows.map(r => ({ date: r.date, fii_net: r.fii_net, dii_net: r.dii_net }));
-      const byDate: Record<string, FiiRow> = {};
-      const fnoErr = fnoRows === null;
-      (fnoRows ?? []).forEach(r => {
-        const d = r.date.slice(0, 10);
-        if (!byDate[d]) byDate[d] = { date: d, fii_net: 0, dii_net: 0 };
-        if (r.participant_type === "FII") byDate[d].fii_net = r.net_oi;
-        if (r.participant_type === "DII") byDate[d].dii_net = r.net_oi;
-      });
-      const fnoHist = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 
       // Save to module cache
-      _snap = { data: dash, fiiHistory: fiiHist, fnoHistory: fnoHist, fnoFailed: fnoErr, indiaNews: indNews, globalNews: glbNews };
+      _snap = { data: dash, fiiHistory: fiiHist, indiaNews: indNews, globalNews: glbNews };
 
       setData(dash);
       setIndiaNews(indNews);
       setGlobalNews(glbNews);
       setFiiHistory(fiiHist);
-      setFnoHistory(fnoHist);
-      setFnoFailed(fnoErr);
       if (!background) setLoadPct(100);
       setSeeding(false);
       setLoading(false);
@@ -783,17 +723,6 @@ export default function MarketDashboard() {
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={14} className="text-blue-500" />
           <span className="text-sm font-semibold text-slate-700">FII / DII Activity</span>
-          {/* Tab toggle */}
-          <div className="flex items-center ml-auto bg-slate-100 rounded-lg p-0.5 text-[11px]">
-            <button
-              onClick={() => setFiiTab("futures")}
-              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${fiiTab === "futures" ? "bg-white text-slate-700 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-            >Index Futures</button>
-            <button
-              onClick={() => setFiiTab("equity")}
-              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${fiiTab === "equity" ? "bg-white text-slate-700 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-            >Equity Flows</button>
-          </div>
           <div className="flex items-center gap-3 text-[11px]">
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded-full" />FII</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded-full" />DII</span>
@@ -821,33 +750,15 @@ export default function MarketDashboard() {
         )}
 
         {/* Chart */}
-        {fiiTab === "futures" ? (
-          fnoHistory.length > 0 ? (
-            <>
-              <FiiDiiFuturesChart rows={fnoHistory} />
-              <div className="text-[10px] text-slate-300 mt-1 flex items-center justify-between">
-                <span>Net index futures position (long − short contracts) · NSE FnO archive</span>
-                <span>{fnoHistory.length} days</span>
-              </div>
-            </>
-          ) : (
-            <div className="h-32 flex items-center justify-center text-slate-400 text-sm text-center px-4">
-              {fnoFailed
-                ? "Couldn't load index futures data — check that the API is running"
-                : "No index futures OI data synced yet — run the fno_participant sync from the Sync panel"}
-            </div>
-          )
+        {fiiHistory.length > 0 ? (
+          <>
+            <FiiDiiChart rows={fiiHistory} />
+            <div className="text-[10px] text-slate-300 mt-1 text-right">{fiiHistory.length} trading days</div>
+          </>
         ) : (
-          fiiHistory.length > 0 ? (
-            <>
-              <FiiDiiChart rows={fiiHistory} />
-              <div className="text-[10px] text-slate-300 mt-1 text-right">{fiiHistory.length} trading days</div>
-            </>
-          ) : (
-            <div className="h-32 flex items-center justify-center text-slate-400 text-sm">
-              FII/DII equity flows accumulate daily via scheduler
-            </div>
-          )
+          <div className="h-32 flex items-center justify-center text-slate-400 text-sm">
+            FII/DII equity flows accumulate daily via scheduler
+          </div>
         )}
       </section>
 
