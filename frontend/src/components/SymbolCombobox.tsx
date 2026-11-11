@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Search } from "lucide-react";
 import { api } from "../lib/api";
 
-export default function SymbolCombobox({ value, onChange, placeholder }: {
+export default function SymbolCombobox({ value, onChange, onSelect, placeholder }: {
   value: string;
   onChange: (sym: string) => void;
+  /** Called only when a suggestion is chosen (click or Enter), not on every keystroke. */
+  onSelect?: (sym: string) => void;
   placeholder?: string;
 }) {
   const [results, setResults] = useState<{ symbol: string; name: string }[]>([]);
@@ -26,7 +28,7 @@ export default function SymbolCombobox({ value, onChange, placeholder }: {
     }, 180);
   }, []);
 
-  const pick = (sym: string) => { onChange(sym); setResults([]); setOpen(false); setHighlighted(-1); };
+  const pick = (sym: string) => { onChange(sym); onSelect?.(sym); setResults([]); setOpen(false); setHighlighted(-1); };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open || !results.length) return;
