@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  amountAt, closeTradeAtMarket, evaluateTrade, levelFromDistance, marketDirection, placeOrder, positionOf, summarize,
-  validateOrder, type PaperTrade,
+  adjustLevels, amountAt, closeAll, closePosition, closeTradeAtMarket, evaluateTrade, levelFromDistance, marketDirection,
+  placeOrder, positionOf, summarize, validateOrder, type PaperTrade,
 } from "./paperTrading";
 
 // A bar is [open, high, low, close].
@@ -10,7 +10,7 @@ const bars = (rows: Bar[]) => rows.map(([open, high, low, close]) => ({ open, hi
 const START: Bar[] = [[100, 101, 99, 100], [100, 101, 99, 100]];
 
 const buy = (over: Partial<PaperTrade> = {}): PaperTrade => ({
-  id: 1, instrument: "CE", side: "buy", qty: 10, entryIndex: 1, entryPrice: 100, stopLoss: 95, target: 110, manualExits: [], ...over,
+  id: 1, instrument: "CE", side: "buy", qty: 10, entryIndex: 1, entryPrice: 100, stopLoss: 95, target: 110, manualExits: [], adjustments: [], ...over,
 });
 
 const FLAT = bars([
@@ -129,7 +129,7 @@ describe("placeOrder netting", () => {
     const s = evaluateTrade(r.trades[0], book, 2);
     expect(s).toMatchObject({ openQty: 7, status: "open" });
     expect(s.booked.money).toBe(3 * 5); // sold 3 at 105 against a 100 entry
-    expect(positionOf(r.trades, book, 2, "CE")).toEqual({ side: "buy", qty: 7, avgPrice: 100 });
+    expect(positionOf(r.trades, book, 2, "CE")).toMatchObject({ side: "buy", qty: 7, avgPrice: 100 });
   });
 
   it("closes the oldest trade first", () => {
@@ -145,7 +145,7 @@ describe("placeOrder netting", () => {
     const r = placeOrder(first, order({ side: "sell", qty: 10, stopLoss: 110, target: 90 }), book, 2, 2);
     expect(r).toMatchObject({ closedQty: 4, openedQty: 6 });
     expect(r.trades[1]).toMatchObject({ side: "sell", qty: 6, stopLoss: 110, target: 90 });
-    expect(positionOf(r.trades, book, 2, "CE")).toEqual({ side: "sell", qty: 6, avgPrice: 105 });
+    expect(positionOf(r.trades, book, 2, "CE")).toMatchObject({ side: "sell", qty: 6, avgPrice: 105 });
   });
 
   it("keeps CE and PE apart", () => {
@@ -256,5 +256,93 @@ describe("summarize", () => {
 
   it("ignores trades placed after the current position", () => {
     expect(summarize([buy({ entryIndex: 3 })], FLAT, 1).total).toBe(0);
+  });
+});
+
+describe("moving the stop-loss and target", () => {
+  const run = bars([
+    [100, 101, 99, 100],
+    [100, 101, 99, 100],   // entry at 100 (index 1)
+    [100, 103, 98, 102],   // candle 2: low 98
+    [102, 104, 101, 103],  // candle 3: low 101
+    [103, 105, 100, 101],  // candle 4: low 100
+  ]);
+
+  it("applies a change from the candle after the one it was made on", () => {
+    // stop-loss raised to 99 on candle 2: candle 2's own low of 98 does not trigger it, candle 3 (low 101) does not either
+    const t = buy({ stopLoss: 90, adjustments: [{ index: 2, stopLoss: 99 }] });
+    expect(evaluateTrade(t, run, 3)).toMatchObject({ status: "open", stopLoss: 99 });
+    // candle 4 has a low of 100, still above 99; raise it to 102 on candle 3 and candle 4 stops it out
+    const trailed = buy({ stopLoss: 90, adjustments: [{ index: 2, stopLoss: 99 }, { index: 3, stopLoss: 102 }] });
+    expect(evaluateTrade(trailed, run, 4)).toMatchObject({ status: "closed", exitIndex: 4, exitPrice: 102, exitReason: "stoploss" });
+  });
+
+  it("shows the level in force at each replay position", () => {
+    const t = buy({ adjustments: [{ index: 3, stopLoss: 101, target: null }] });
+    expect(evaluateTrade(t, run, 2)).toMatchObject({ stopLoss: 95, target: 110 });
+    expect(evaluateTrade(t, run, 3)).toMatchObject({ stopLoss: 101, target: null });
+  });
+
+  it("adjustLevels moves the open trades of one instrument and merges changes on the same candle", () => {
+    const trades = [buy({ id: 1 }), buy({ id: 2, instrument: "PE" })];
+    let next = adjustLevels(trades, "CE", { stopLoss: 97 }, run, 2);
+    next = adjustLevels(next, "CE", { stopLoss: 98, target: 112 }, run, 2); // same candle: replaces the first change
+    expect(next[0].adjustments).toEqual([{ index: 2, stopLoss: 98, target: 112 }]);
+    expect(next[1].adjustments).toEqual([]); // the PE trade is untouched
+    expect(evaluateTrade(next[0], run, 2)).toMatchObject({ stopLoss: 98, target: 112 });
+  });
+
+  it("removes a level with null, and leaves closed trades alone", () => {
+    const done = buy({ id: 3, manualExits: [{ index: 2, price: 102, qty: 10 }] });
+    const [open, closed] = adjustLevels([buy(), done], "CE", { stopLoss: null }, run, 3);
+    expect(evaluateTrade(open, run, 3).stopLoss).toBeNull();
+    expect(closed.adjustments).toEqual([]);
+  });
+
+  it("makes a new buy on the instrument adopt the position's current stop-loss and target", () => {
+    const first = placeOrder([], { instrument: "CE", side: "buy", qty: 5, stopLoss: 95, target: 110 }, run, 1, 1).trades;
+    const moved = adjustLevels(first, "CE", { stopLoss: 99 }, run, 2);
+    const r = placeOrder(moved, { instrument: "CE", side: "buy", qty: 5, stopLoss: 90, target: 130 }, run, 3, 2);
+    expect(r.trades[1]).toMatchObject({ stopLoss: 99, target: 110 }); // the order's own 90 / 130 are ignored
+    expect(positionOf(r.trades, run, 3, "CE")).toMatchObject({ qty: 10, stopLoss: 99, target: 110 });
+  });
+
+  it("uses the order's own levels when the instrument is flat", () => {
+    const r = placeOrder([], { instrument: "PE", side: "buy", qty: 2, stopLoss: 105, target: 90 }, run, 1, 1);
+    expect(r.trades[0]).toMatchObject({ stopLoss: 105, target: 90 });
+  });
+});
+
+describe("position levels, closePosition and closeAll", () => {
+  const run = bars([
+    [100, 101, 99, 100],
+    [100, 101, 99, 100],
+    [100, 104, 99, 104],
+  ]);
+
+  it("reports the position's levels, direction and floating result", () => {
+    const trades = placeOrder([], { instrument: "PE", side: "buy", qty: 10, stopLoss: 105, target: 90 }, run, 1, 1).trades;
+    expect(positionOf(trades, run, 2, "PE")).toEqual({
+      instrument: "PE", side: "buy", direction: -1, qty: 10, avgPrice: 100, stopLoss: 105, target: 90,
+      floating: -40, // a Buy PE loses 4 per unit when the chart rises to 104
+    });
+  });
+
+  it("closePosition books part of a position at market and never opens an opposite trade", () => {
+    const trades = placeOrder([], { instrument: "CE", side: "buy", qty: 10, stopLoss: null, target: null }, run, 1, 1).trades;
+    const part = closePosition(trades, "CE", 4, run, 2);
+    expect(positionOf(part, run, 2, "CE")).toMatchObject({ qty: 6 });
+    const over = closePosition(trades, "CE", 99, run, 2);
+    expect(positionOf(over, run, 2, "CE")).toBeNull();
+    expect(over).toHaveLength(1); // nothing new was opened
+    expect(closePosition(trades, "PE", 3, run, 2)).toBe(trades); // nothing open on PE
+  });
+
+  it("closeAll closes both instruments", () => {
+    let trades = placeOrder([], { instrument: "CE", side: "buy", qty: 3, stopLoss: null, target: null }, run, 1, 1).trades;
+    trades = placeOrder(trades, { instrument: "PE", side: "buy", qty: 2, stopLoss: null, target: null }, run, 1, 2).trades;
+    const flat = closeAll(trades, run, 2);
+    expect(positionOf(flat, run, 2, "CE")).toBeNull();
+    expect(positionOf(flat, run, 2, "PE")).toBeNull();
   });
 });
