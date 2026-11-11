@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, PiggyBank } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, BarChart2, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -97,6 +97,7 @@ export default function Navbar() {
   const navLinks = [
     { to: "/", label: "Home", icon: TrendingUp },
     { to: "/screener", label: "Screener", icon: SlidersHorizontal },
+    { to: "/charts", label: "Charts", icon: ChartCandlestick },
     { to: "/backtest", label: "Backtest", icon: FlaskConical },
     { to: "/fno", label: "F&O", icon: BarChart2 },
     { to: "/mutual-funds", label: "Mutual Funds", icon: PiggyBank },
