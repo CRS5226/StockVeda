@@ -31,6 +31,8 @@ export interface Fvg {
   /** The gap that makes an order block valid (see smcOrderBlocks.ts); other gaps are context only. */
   attached: boolean;
   leg: number;
+  /** IFVG only: the bar that closed through the original gap and turned it inverse. */
+  invertedDate?: string;
 }
 
 /**
@@ -41,6 +43,9 @@ export interface Fvg {
 export const SMALL_THIRD = 0.5;
 export const LARGE_THIRD = 0.75;
 
+/** What the gap logic reads from a candle; both merged lecture candles and plain bars fit. */
+export interface FvgBar { date: string; high: number; low: number; close: number }
+
 type Dir = 1 | -1;
 
 /**
@@ -50,7 +55,7 @@ type Dir = 1 | -1;
  *  - BFG: a large third candle that closes beyond the middle candle's extreme;
  *  - FVG: anything else.
  */
-function classify(c: Candle[], k: number, d: Dir): FvgType {
+export function classifyFvg(c: FvgBar[], k: number, d: Dir): FvgType {
   const mid = c[k + 1], third = c[k + 2];
   const ratio = (third.high - third.low) / Math.max(mid.high - mid.low, 1e-9);
   const closedBack = d > 0 ? third.close < mid.high : third.close > mid.low;
@@ -62,7 +67,7 @@ function classify(c: Candle[], k: number, d: Dir): FvgType {
 }
 
 /** Status, CE state and the end of a zone, judged on the candles after `from`. */
-function judge(c: Candle[], from: number, top: number, bottom: number, d: Dir) {
+export function judgeFvg(c: FvgBar[], from: number, top: number, bottom: number, d: Dir) {
   const ce = (top + bottom) / 2;
   let status: Fvg["status"] = "unmitigated";
   let ceBroken = false;
@@ -96,8 +101,8 @@ export function detectLegFvgs(c: Candle[], leg: StructureLeg, legIndex = 0): Fvg
     const gap = d > 0 ? (a.high < b.low ? { top: b.low, bottom: a.high } : null) : (a.low > b.high ? { top: a.low, bottom: b.high } : null);
     if (!gap) continue;
     out.push({
-      type: classify(c, k, d), direction: leg.direction, k, date: c[k].date, ...gap,
-      ...judge(c, k + 3, gap.top, gap.bottom, d), endDate: "", attached: attachedAt.has(k), leg: legIndex,
+      type: classifyFvg(c, k, d), direction: leg.direction, k, date: c[k].date, ...gap,
+      ...judgeFvg(c, k + 3, gap.top, gap.bottom, d), endDate: "", attached: attachedAt.has(k), leg: legIndex,
     });
   }
   out.forEach((f) => { f.endDate = c[f.endK].date; });
@@ -108,17 +113,20 @@ export function detectLegFvgs(c: Candle[], leg: StructureLeg, legIndex = 0): Fvg
  * Inverse FVG: a gap that price closed straight through. The zone keeps its edges but flips role — a
  * broken bullish gap becomes a bearish IFVG and the reverse — starting at the bar that closed through.
  */
-export function detectInverseFvgs(c: Candle[], fvgs: Fvg[]): Fvg[] {
+export function detectInverseFvgs(c: FvgBar[], fvgs: Fvg[], opts: { fromOrigin?: boolean } = {}): Fvg[] {
   const out: Fvg[] = [];
   fvgs.forEach((f) => {
     const d: Dir = f.direction === "bullish" ? 1 : -1;
     for (let j = f.k + 3; j < c.length; j++) {
       if (!(d > 0 ? c[j].close < f.bottom : c[j].close > f.top)) continue;
       const flip: Dir = d > 0 ? -1 : 1;
-      const m = judge(c, j + 1, f.top, f.bottom, flip);
+      const m = judgeFvg(c, j + 1, f.top, f.bottom, flip);
+      // fromOrigin draws the zone from the three candles where the gap first formed; otherwise it starts
+      // at the candle that closed through it. Either way the edges stay the original gap's.
       out.push({
-        type: "IFVG", direction: flip > 0 ? "bullish" : "bearish", k: j, date: c[j].date, top: f.top, bottom: f.bottom,
-        ...m, endDate: c[m.endK].date, attached: false, leg: f.leg,
+        type: "IFVG", direction: flip > 0 ? "bullish" : "bearish",
+        k: opts.fromOrigin ? f.k : j, date: opts.fromOrigin ? f.date : c[j].date, top: f.top, bottom: f.bottom,
+        ...m, endDate: c[m.endK].date, attached: false, leg: f.leg, invertedDate: c[j].date,
       });
       break;
     }
