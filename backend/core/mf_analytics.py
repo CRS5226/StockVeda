@@ -12,8 +12,8 @@ import pandas as pd
 
 from backend.core.monte_carlo import estimate_drift_volatility, simulate_gbm_paths, _percentile_paths, TRADING_DAYS_PER_YEAR
 from backend.core.beta_analysis import compute_beta
-from backend.core.fno_signals import get_spot_ohlcv
-from backend.core.options_math import get_risk_free_rate
+from backend.core.spot_prices import get_spot_ohlcv
+from backend.core.rates import get_risk_free_rate
 
 
 def annualized_volatility(nav: pd.Series) -> float | None:

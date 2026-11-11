@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.db.connection import get_db, df_to_records
 from backend.core.indicators import add_indicators
 from backend.core.beta_analysis import get_current_beta, rolling_beta, BetaParams
-from backend.core.fno_signals import IDX_NAME_MAP
+from backend.core.spot_prices import IDX_NAME_MAP
 import pandas as pd
 import yfinance as yf
 

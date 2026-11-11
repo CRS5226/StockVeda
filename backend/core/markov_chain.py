@@ -18,7 +18,7 @@ future data into past signals and silently corrupt any backtest that uses it.
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from backend.core.fno_signals import get_spot_ohlcv
+from backend.core.spot_prices import get_spot_ohlcv
 
 
 @dataclass

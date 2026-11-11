@@ -9,7 +9,8 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi import Query as FQuery
 from backend.db.connection import get_db
-from backend.core.options_math import implied_vol, greeks, get_risk_free_rate
+from backend.core.options_math import implied_vol, greeks
+from backend.core.rates import get_risk_free_rate
 from backend.core.fno_universe import INDEX_SYMBOLS, FNO_STOCK_UNIVERSE as _FNO_STOCK_UNIVERSE
 
 router = APIRouter(prefix="/fno", tags=["fno"])

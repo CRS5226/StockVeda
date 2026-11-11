@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Literal
 import pandas as pd
 from backend.db.connection import get_db
-from backend.core.fno_signals import INDEX_SYMBOLS, get_spot_ohlcv
+from backend.core.spot_prices import INDEX_SYMBOLS, get_spot_ohlcv
 from backend.core.options_price_source import get_price_series
 
 SPREAD_STRATEGIES = ("bull_call_spread", "bear_put_spread", "iron_condor")

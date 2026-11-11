@@ -10,6 +10,7 @@ import pandas as pd
 from backend.db.connection import get_db, df_to_records
 from backend.data_sync.base import get_client
 from backend.core import mf_analytics
+from backend.core.rates import get_risk_free_rate
 
 router = APIRouter(prefix="/mutual-fund", tags=["mutual-fund"])
 
@@ -72,7 +73,7 @@ def _add_stockveda_score(db, rows: list) -> list:
         ).df()
         if len(hist) < 60:
             continue
-        rf = mf_analytics.get_risk_free_rate(str(hist["date"].iloc[-1]))
+        rf = get_risk_free_rate(str(hist["date"].iloc[-1]))
         sharpes[code] = mf_analytics.sharpe_ratio(hist["nav"], rf)
 
     if not sharpes:
