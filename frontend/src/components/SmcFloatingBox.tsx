@@ -16,7 +16,7 @@ const CATEGORIES: Category[] = [
   { id: "structure", title: "Structure", keys: ["bos", "choch", "points", "swingLines", "swingLevels"] },
   {
     id: "ob", title: "Order blocks",
-    keys: ["orderBlocks", "rejection", "breaker", "mitigation", "showMitigated"],
+    keys: ["orderBlocks", "obFvg", "rejection", "breaker", "mitigation", "showMitigated"],
   },
   { id: "fvg", title: "FVG", keys: ["fvg", "pfg", "bfg", "rfg", "ifvg", "showMitigated"] },
   { id: "liquidity", title: "Liquidity", keys: ["liquidity"] },
@@ -55,6 +55,11 @@ const CHARTS_TEXT: Partial<Record<keyof SmcToggles, { label: string; hint: strin
 
 // Concepts that exist only on the Charts page (the lecture-based Backtest tab has no swing hierarchy).
 const EXTRA_CONCEPTS: Concept[] = [
+  {
+    key: "obFvg", label: "OB + FVG",
+    hint: "an order block together with the FVG that opens at it, drawn as one zone from the block's far edge to the gap's far edge",
+    legend: [{ color: "bg-fuchsia-500", text: "OB+FVG — order block with its FVG, CE dotted at 50%" }],
+  },
   {
     key: "rejection", label: "Rejection block",
     hint: "the pivot candle's wick when it is at least 40% of the candle's range; only the wick is the zone (low to body bottom, or body top to high)",
