@@ -10,7 +10,7 @@ const bars = (rows: Bar[]) => rows.map(([open, high, low, close]) => ({ open, hi
 const START: Bar[] = [[100, 101, 99, 100], [100, 101, 99, 100]];
 
 const buy = (over: Partial<PaperTrade> = {}): PaperTrade => ({
-  id: 1, instrument: "CE", side: "buy", qty: 10, entryIndex: 1, entryPrice: 100, stopLoss: 95, target: 110, manualExits: [], adjustments: [], ...over,
+  id: 1, instrument: "CE", side: "buy", qty: 10, entryIndex: 1, entryPrice: 100, stopLoss: 95, target: 110, trail: null, manualExits: [], adjustments: [], ...over,
 });
 
 const FLAT = bars([
@@ -323,7 +323,7 @@ describe("position levels, closePosition and closeAll", () => {
   it("reports the position's levels, direction and floating result", () => {
     const trades = placeOrder([], { instrument: "PE", side: "buy", qty: 10, stopLoss: 105, target: 90 }, run, 1, 1).trades;
     expect(positionOf(trades, run, 2, "PE")).toEqual({
-      instrument: "PE", side: "buy", direction: -1, qty: 10, avgPrice: 100, stopLoss: 105, target: 90,
+      instrument: "PE", side: "buy", direction: -1, qty: 10, avgPrice: 100, stopLoss: 105, target: 90, trail: null,
       floating: -40, // a Buy PE loses 4 per unit when the chart rises to 104
     });
   });
@@ -344,5 +344,106 @@ describe("position levels, closePosition and closeAll", () => {
     const flat = closeAll(trades, run, 2);
     expect(positionOf(flat, run, 2, "CE")).toBeNull();
     expect(positionOf(flat, run, 2, "PE")).toBeNull();
+  });
+});
+
+describe("trailing stop-loss", () => {
+  // entry at 100 on candle 1; the price climbs to a high of 108 on candle 3, then pulls back
+  const climb = bars([
+    [100, 101, 99, 100],
+    [100, 101, 99, 100],    // 1: entry
+    [100, 104, 100, 103],   // 2: high 104
+    [103, 108, 103, 107],   // 3: high 108
+    [107, 107, 104, 105],   // 4: low 104
+    [105, 105, 100, 101],   // 5: low 100
+  ]);
+  const trailing = (over: Partial<PaperTrade> = {}) => buy({ stopLoss: null, target: null, trail: 2, ...over });
+
+  it("starts right away: the first stop is the entry price minus the trail distance", () => {
+    expect(evaluateTrade(trailing(), climb, 1)).toMatchObject({ status: "open", stopLoss: 98, trail: 2 });
+  });
+
+  it("follows the highest high at the trail distance", () => {
+    expect(evaluateTrade(trailing(), climb, 2).stopLoss).toBe(102);
+    expect(evaluateTrade(trailing(), climb, 3).stopLoss).toBe(106);
+  });
+
+  it("never moves backwards when the price pulls back without touching it", () => {
+    const calm = bars([...[[100, 101, 99, 100], [100, 101, 99, 100], [100, 104, 100, 103], [103, 108, 103, 107]] as Bar[], [107, 107, 106.5, 106.8]]);
+    expect(evaluateTrade(trailing(), calm, 3).stopLoss).toBe(106);
+    expect(evaluateTrade(trailing(), calm, 4)).toMatchObject({ status: "open", stopLoss: 106 }); // the high stayed at 108
+  });
+
+  it("exits at the trailing stop on the candle that reaches it", () => {
+    const s = evaluateTrade(trailing(), climb, 4);
+    expect(s).toMatchObject({ status: "closed", exitIndex: 4, exitPrice: 106, exitReason: "stoploss" });
+    expect(s.booked.money).toBe(60); // 10 units from 100 to 106
+  });
+
+  it("keeps the better of a fixed stop-loss and the trailing one", () => {
+    expect(evaluateTrade(trailing({ stopLoss: 99.5 }), climb, 1).stopLoss).toBe(99.5); // fixed stop is tighter than 98
+    expect(evaluateTrade(trailing({ stopLoss: 90 }), climb, 1).stopLoss).toBe(98);
+  });
+
+  it("fills at the open when a candle gaps below the trailing stop", () => {
+    const gap = bars([...[[100, 101, 99, 100], [100, 101, 99, 100], [100, 108, 100, 107]] as Bar[], [100, 101, 99, 100]]);
+    expect(evaluateTrade(trailing(), gap, 3)).toMatchObject({ exitReason: "stoploss", exitPrice: 100 }); // stop 106, opens at 100
+  });
+
+  it("mirrors for a short: the stop sits above the lowest low and only comes down", () => {
+    const fall = bars([
+      [100, 101, 99, 100],
+      [100, 101, 99, 100],    // entry
+      [100, 100, 96, 97],     // low 96
+      [97, 97.5, 92, 93],     // low 92
+    ]);
+    const short = trailing({ side: "sell" });
+    expect(evaluateTrade(short, fall, 1).stopLoss).toBe(102);
+    expect(evaluateTrade(short, fall, 2).stopLoss).toBe(98);
+    expect(evaluateTrade(short, fall, 3).stopLoss).toBe(94);
+  });
+
+  it("works for a Buy PE, which gains as the chart falls", () => {
+    const fall = bars([[100, 101, 99, 100], [100, 101, 99, 100], [100, 100, 96, 97]]);
+    expect(evaluateTrade(trailing({ instrument: "PE" }), fall, 2).stopLoss).toBe(98);
+  });
+
+  it("changes the trail distance from the candle after the change", () => {
+    const t = trailing({ adjustments: [{ index: 2, trail: 4 }] });
+    expect(evaluateTrade(t, climb, 2).trail).toBe(4);
+    // candle 3's high of 108 now trails by 4: 104, which is below the 102 already reached? no, 104 > 102, so it rises
+    expect(evaluateTrade(t, climb, 3).stopLoss).toBe(104);
+  });
+
+  it("turns off with null and leaves the stop where it was", () => {
+    const t = trailing({ adjustments: [{ index: 2, trail: null }] });
+    expect(evaluateTrade(t, climb, 3)).toMatchObject({ trail: null, stopLoss: 102 });
+  });
+
+  it("keeps trailing from a stop set by hand, restarting from that candle's close", () => {
+    // on candle 3 (close 107) the stop is dragged down to 105 and the gap to the price becomes the trail: 2
+    const t = trailing({ adjustments: [{ index: 3, stopLoss: 105, trail: 2 }] });
+    expect(evaluateTrade(t, climb, 3).stopLoss).toBe(105);
+    // candle 4: high 107 gives 105 again (no change); low 104 hits the 105 stop
+    expect(evaluateTrade(t, climb, 4)).toMatchObject({ status: "closed", exitPrice: 105 });
+  });
+
+  it("is rewind-safe", () => {
+    const t = trailing();
+    expect(evaluateTrade(t, climb, 2).stopLoss).toBe(102);
+    expect(evaluateTrade(t, climb, 3).stopLoss).toBe(106);
+    expect(evaluateTrade(t, climb, 2).stopLoss).toBe(102);
+  });
+
+  it("is adopted by a new buy on the instrument, and reported on the position", () => {
+    const first = placeOrder([], { instrument: "CE", side: "buy", qty: 5, stopLoss: 95, target: null, trail: 2 }, climb, 1, 1).trades;
+    const r = placeOrder(first, { instrument: "CE", side: "buy", qty: 5, stopLoss: 90, target: null, trail: 9 }, climb, 2, 2);
+    expect(r.trades[1].trail).toBe(2);
+    expect(positionOf(r.trades, climb, 2, "CE")).toMatchObject({ trail: 2, qty: 10 });
+  });
+
+  it("adjustLevels can set the trail together with a stop-loss", () => {
+    const t = adjustLevels([buy({ trail: null })], "CE", { stopLoss: 101, trail: 2 }, climb, 3);
+    expect(t[0].adjustments).toEqual([{ index: 3, stopLoss: 101, trail: 2 }]);
   });
 });

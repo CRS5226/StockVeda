@@ -7,10 +7,14 @@ import {
 } from "./paperTrading";
 
 /** Values of one card. Text, so a half-typed number is fine. */
-export interface CardSettings { qty: string; slValue: string; slUnit: LevelUnit; tpValue: string; tpUnit: LevelUnit }
+export interface CardSettings {
+  qty: string; slValue: string; slUnit: LevelUnit; tpValue: string; tpUnit: LevelUnit;
+  /** Trailing stop distance; empty = no trail. */
+  trailValue: string; trailUnit: LevelUnit;
+}
 
 // A card opens with a 1% stop-loss and a 2% target; clear a field to place the order without it.
-export const DEFAULT_SETTINGS: CardSettings = { qty: "1", slValue: "1", slUnit: "%", tpValue: "2", tpUnit: "%" };
+export const DEFAULT_SETTINGS: CardSettings = { qty: "1", slValue: "1", slUnit: "%", tpValue: "2", tpUnit: "%", trailValue: "", trailUnit: "%" };
 
 type Kind = "stoploss" | "target";
 
@@ -34,6 +38,21 @@ export function fieldToLevel(position: Position, kind: Kind, text: string, unit:
   if (!Number.isFinite(value)) return undefined;
   const away = unit === "%" ? (position.avgPrice * value) / 100 : value;
   return position.avgPrice + (kind === "target" ? position.direction : -position.direction) * away;
+}
+
+/** What the Trail field shows for an open position: the trailing distance in `unit` (percent of the average entry), "" when off. */
+export function trailToField(position: Position, unit: LevelUnit): string {
+  if (position.trail === null) return "";
+  const value = unit === "%" ? (position.trail / position.avgPrice) * 100 : position.trail;
+  return String(Number(value.toFixed(2)));
+}
+
+/** The trailing distance in price points for text typed into the Trail field: null = off, undefined = not a valid distance. */
+export function fieldToTrail(position: Position, text: string, unit: LevelUnit): number | null | undefined {
+  if (text.trim() === "") return null;
+  const value = Number(text);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return unit === "%" ? (position.avgPrice * value) / 100 : value;
 }
 
 /** Why a level cannot be set, or null. A stop-loss has to sit on the losing side of the current price, a target on the winning side. */
@@ -71,13 +90,14 @@ export function buildOrder(
   const adds = !!holding && holding.side === side;
 
   const parse = (text: string) => (text.trim() === "" ? null : Number(text));
-  const sl = parse(settings.slValue), tp = parse(settings.tpValue);
+  const sl = parse(settings.slValue), tp = parse(settings.tpValue), tr = parse(settings.trailValue);
   const bad = (n: number | null) => n !== null && (!Number.isFinite(n) || n <= 0);
-  if (opensNew && !adds && (bad(sl) || bad(tp))) return { error: "Stop-loss and target distances must be numbers above 0." };
+  if (opensNew && !adds && (bad(sl) || bad(tp) || bad(tr))) return { error: "Stop-loss, target and trail distances must be numbers above 0." };
 
   const useLevels = opensNew && !adds;
   const stopLoss = useLevels && sl !== null ? levelFromDistance(direction, price, "stoploss", sl, settings.slUnit) : null;
   const target = useLevels && tp !== null ? levelFromDistance(direction, price, "target", tp, settings.tpUnit) : null;
+  const trail = useLevels && tr !== null ? (settings.trailUnit === "%" ? (price * tr) / 100 : tr) : null;
   const problem = validateOrder(direction, price, qty, stopLoss, target);
-  return problem ? { error: problem } : { order: { instrument, side, qty, stopLoss, target } };
+  return problem ? { error: problem } : { order: { instrument, side, qty, stopLoss, target, trail } };
 }

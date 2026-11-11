@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  buildOrder, fieldToLevel, levelToField, validateLevel, type CardSettings,
+  buildOrder, fieldToLevel, fieldToTrail, levelToField, trailToField, validateLevel, type CardSettings,
 } from "../lib/orderSettings";
 import type { Instrument, LevelUnit, Order, Position, Side } from "../lib/paperTrading";
 import { price as fmtPrice } from "../lib/formatTrade";
@@ -14,7 +14,7 @@ interface Props {
   settings: Record<Instrument, CardSettings>;
   onSettings: (instrument: Instrument, next: CardSettings) => void;
   /** Move the stop-loss and / or target of an open position (null removes one). */
-  onLevels: (instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null }) => void;
+  onLevels: (instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null; trail?: number | null }) => void;
   onPlace: (order: Order) => void;
 }
 
@@ -32,7 +32,7 @@ const COPY: Record<Instrument, { title: string; hint: string }> = {
 function OrderCard({ instrument, price, dark, positions, settings, onSettings, onLevels, onPlace }: Props & { instrument: Instrument }) {
   const holding = positions[instrument];
   const s = settings[instrument];
-  const [draft, setDraft] = useState<{ stoploss: string | null; target: string | null }>({ stoploss: null, target: null });
+  const [draft, setDraft] = useState<{ stoploss: string | null; target: string | null; trail: string | null }>({ stoploss: null, target: null, trail: null });
   const [error, setError] = useState("");
 
   const unitOf = (kind: "stoploss" | "target") => (kind === "stoploss" ? s.slUnit : s.tpUnit);
@@ -50,12 +50,33 @@ function OrderCard({ instrument, price, dark, positions, settings, onSettings, o
     const problem = level === null ? null : validateLevel(holding.direction, price, kind, level);
     if (problem) { setError(problem); return; }
     setError("");
-    onLevels(instrument, kind === "stoploss" ? { stopLoss: level } : { target: level });
+    if (kind === "target") { onLevels(instrument, { target: level }); return; }
+    // While a trail is on, a stop-loss set by hand keeps trailing from there: the gap to the price becomes the trail
+    if (holding.trail !== null) {
+      onLevels(instrument, level === null ? { stopLoss: null, trail: null } : { stopLoss: level, trail: (price - level) * holding.direction });
+    } else {
+      onLevels(instrument, { stopLoss: level });
+    }
+  };
+
+  const trailValue = holding ? (draft.trail ?? trailToField(holding, s.trailUnit)) : s.trailValue;
+  const editTrail = (text: string) => {
+    if (!holding) { onSettings(instrument, { ...s, trailValue: text }); return; }
+    setDraft((d) => ({ ...d, trail: text }));
+    const distance = fieldToTrail(holding, text, s.trailUnit);
+    if (distance === undefined) { setError("The trail must be a number above 0, or empty to turn it off."); return; }
+    setError("");
+    onLevels(instrument, { trail: distance });
   };
 
   const changeUnit = (kind: "stoploss" | "target", unit: LevelUnit) => {
     setDraft((d) => ({ ...d, [kind]: null }));
     onSettings(instrument, kind === "stoploss" ? { ...s, slUnit: unit } : { ...s, tpUnit: unit });
+  };
+
+  const changeTrailUnit = (unit: LevelUnit) => {
+    setDraft((d) => ({ ...d, trail: null }));
+    onSettings(instrument, { ...s, trailUnit: unit });
   };
 
   const place = (side: Side) => {
@@ -76,9 +97,9 @@ function OrderCard({ instrument, price, dark, positions, settings, onSettings, o
       return `${word}: books ${closes} of your ${holding.qty}${qty > closes ? `, ${qty - closes} opens a new trade` : ""}`;
     }
     if (holding) return `${word}: adds ${qty}, with the position's stop-loss and target`;
-    const { stopLoss, target } = built.order;
-    if (stopLoss === null && target === null) return null;
-    return `${word}: ${stopLoss !== null ? `SL ${fmtPrice(stopLoss)}` : "no SL"} · ${target !== null ? `TP ${fmtPrice(target)}` : "no TP"}`;
+    const { stopLoss, target, trail } = built.order;
+    if (stopLoss === null && target === null && !trail) return null;
+    return `${word}: ${stopLoss !== null ? `SL ${fmtPrice(stopLoss)}` : "no SL"} · ${target !== null ? `TP ${fmtPrice(target)}` : "no TP"}${trail ? ` · trail ${fmtPrice(trail)}` : ""}`;
   };
   const previews = [preview("buy"), preview("sell")].filter(Boolean);
 
@@ -112,6 +133,14 @@ function OrderCard({ instrument, price, dark, positions, settings, onSettings, o
             <input className={field} type="number" step="any" placeholder="none" value={fieldValue("stoploss")}
               onChange={(e) => edit("stoploss", e.target.value)} onBlur={() => setDraft((d) => ({ ...d, stoploss: null }))} />
             <select className={unitCls} value={s.slUnit} onChange={(e) => changeUnit("stoploss", e.target.value as LevelUnit)}>
+              <option value="%">%</option><option value="pts">pts</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5" title="The stop-loss follows the best price at this distance and only moves in your favour. Empty = fixed stop-loss.">
+            Trail
+            <input className={field} type="number" step="any" placeholder="off" value={trailValue}
+              onChange={(e) => editTrail(e.target.value)} onBlur={() => setDraft((d) => ({ ...d, trail: null }))} />
+            <select className={unitCls} value={s.trailUnit} onChange={(e) => changeTrailUnit(e.target.value as LevelUnit)}>
               <option value="%">%</option><option value="pts">pts</option>
             </select>
           </label>

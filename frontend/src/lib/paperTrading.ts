@@ -24,7 +24,13 @@ export interface ManualExit { index: number; price: number; qty: number }
  * A change of stop-loss and / or target made at the close of candle `index`. It applies from the next candle.
  * `undefined` leaves a level as it is; `null` removes it.
  */
-export interface LevelChange { index: number; stopLoss?: number | null; target?: number | null }
+export interface LevelChange {
+  index: number;
+  stopLoss?: number | null;
+  target?: number | null;
+  /** Trailing distance in price points (null = off). */
+  trail?: number | null;
+}
 
 export interface PaperTrade {
   id: number;
@@ -38,6 +44,8 @@ export interface PaperTrade {
   stopLoss: number | null;
   target: number | null;
   manualExits: ManualExit[];
+  /** Trailing stop distance in price points when the trade was opened (null = fixed stop-loss only). */
+  trail: number | null;
   /** Changes the user made to the stop-loss / target while the trade was open (dragged on the chart or typed on the card). */
   adjustments: LevelChange[];
 }
@@ -59,6 +67,8 @@ export interface TradeState {
   /** The stop-loss and target in force at the current position (after any changes made so far). */
   stopLoss: number | null;
   target: number | null;
+  /** Trailing distance in force (null = off). */
+  trail: number | null;
   /** When closed: the exit that closed the last of it. */
   exitIndex: number | null;
   exitPrice: number | null;
@@ -95,25 +105,40 @@ export function evaluateTrade(t: PaperTrade, bars: Bar[], cursor: number): Trade
   if (t.entryIndex > cursor) {
     return {
       status: "pending", openQty: 0, exits: [], booked: { points: 0, pct: 0, money: 0 },
-      stopLoss: t.stopLoss, target: t.target, exitIndex: null, exitPrice: null, exitReason: null,
+      stopLoss: t.stopLoss, target: t.target, trail: t.trail, exitIndex: null, exitPrice: null, exitReason: null,
     };
   }
   const long = dirOf(t) === 1;
   const exits: BookedExit[] = [];
   let remaining = t.qty;
   // levels in force: the original ones, then each change from the candle after the one it was made on
-  let sl = t.stopLoss, tp = t.target;
+  let sl = t.stopLoss, tp = t.target, trail = t.trail;
+  // best price since entry, for the trailing stop: the highest high of a long, the lowest low of a short
+  let extreme = t.entryPrice;
   const changes = [...t.adjustments].sort((a, b) => a.index - b.index);
   let next = 0;
   const applyChanges = (upTo: number) => {
     while (next < changes.length && changes[next].index <= upTo) {
       const c = changes[next++];
-      if (c.stopLoss !== undefined) sl = c.stopLoss;
+      if (c.trail !== undefined) trail = c.trail;
       if (c.target !== undefined) tp = c.target;
+      if (c.stopLoss !== undefined) {
+        sl = c.stopLoss;
+        // a stop set by hand while trailing keeps trailing from there: the best price restarts at that candle's close
+        if (trail !== null && bars[c.index]) extreme = bars[c.index].close;
+      }
     }
   };
+  /** Moves the trailing stop to the best price minus the trail distance, never backwards. */
+  const ratchet = () => {
+    if (trail === null) return;
+    const candidate = long ? extreme - trail : extreme + trail;
+    sl = sl === null ? candidate : long ? Math.max(sl, candidate) : Math.min(sl, candidate);
+  };
   for (let i = t.entryIndex; i <= cursor && i < bars.length && remaining > 0; i++) {
-    if (i > t.entryIndex) {
+    if (i === t.entryIndex) {
+      ratchet(); // trailing starts right away: the first stop is the entry price minus the trail distance
+    } else {
       applyChanges(i - 1);
       const b = bars[i];
       const slHit = sl !== null && (long ? b.low <= sl : b.high >= sl);
@@ -130,6 +155,8 @@ export function evaluateTrade(t: PaperTrade, bars: Bar[], cursor: number): Trade
         remaining = 0;
         break;
       }
+      extreme = long ? Math.max(extreme, b.high) : Math.min(extreme, b.low);
+      ratchet();
     }
     for (const m of t.manualExits) {
       if (m.index !== i || remaining <= 0) continue;
@@ -146,6 +173,7 @@ export function evaluateTrade(t: PaperTrade, bars: Bar[], cursor: number): Trade
     booked: bookedAmount(t, exits),
     stopLoss: sl,
     target: tp,
+    trail,
     exitIndex: remaining === 0 && last ? last.index : null,
     exitPrice: remaining === 0 && last ? last.price : null,
     exitReason: remaining === 0 && last ? last.reason : null,
@@ -179,7 +207,11 @@ export function validateOrder(direction: 1 | -1, entry: number, qty: number, sto
   return null;
 }
 
-export interface Order { instrument: Instrument; side: Side; qty: number; stopLoss: number | null; target: number | null }
+export interface Order {
+  instrument: Instrument; side: Side; qty: number; stopLoss: number | null; target: number | null;
+  /** Trailing distance in price points; omitted or null = no trail. */
+  trail?: number | null;
+}
 
 export interface Position {
   instrument: Instrument;
@@ -193,6 +225,8 @@ export interface Position {
   /** One stop-loss and target for the whole position (new orders on it adopt them). */
   stopLoss: number | null;
   target: number | null;
+  /** Trailing distance in price points (null = off). */
+  trail: number | null;
   /** Result of the open quantity at the latest close, in money. */
   floating: number;
 }
@@ -200,20 +234,20 @@ export interface Position {
 /** What is open on one instrument at the current position, or null. FIFO netting keeps it to one side. */
 export function positionOf(trades: PaperTrade[], bars: Bar[], cursor: number, instrument: Instrument): Position | null {
   let qty = 0, cost = 0, floating = 0, side: Side | null = null;
-  let stopLoss: number | null = null, target: number | null = null;
+  let stopLoss: number | null = null, target: number | null = null, trail: number | null = null;
   const mark = bars[Math.min(cursor, bars.length - 1)]?.close;
   for (const t of trades) {
     if (t.instrument !== instrument) continue;
     const s = evaluateTrade(t, bars, cursor);
     if (s.status !== "open") continue;
-    if (side === null) { stopLoss = s.stopLoss; target = s.target; } // the levels of the oldest open trade stand for the position
+    if (side === null) { stopLoss = s.stopLoss; target = s.target; trail = s.trail; } // the levels of the oldest open trade stand for the position
     side = t.side;
     qty += s.openQty;
     cost += s.openQty * t.entryPrice;
     if (mark !== undefined) floating += amountAt(t, mark, s.openQty).money;
   }
   return side && qty > 0
-    ? { instrument, side, direction: marketDirection(instrument, side), qty, avgPrice: cost / qty, stopLoss, target, floating }
+    ? { instrument, side, direction: marketDirection(instrument, side), qty, avgPrice: cost / qty, stopLoss, target, trail, floating }
     : null;
 }
 
@@ -253,18 +287,18 @@ export function placeOrder(trades: PaperTrade[], order: Order, bars: Bar[], curs
     next.push({
       id: newId, instrument: order.instrument, side: order.side, qty: need, entryIndex: cursor, entryPrice: price,
       stopLoss: adopt ? held.stopLoss : order.stopLoss, target: adopt ? held.target : order.target,
-      manualExits: [], adjustments: [],
+      trail: adopt ? held.trail : (order.trail ?? null), manualExits: [], adjustments: [],
     });
   }
   return { trades: next, closedQty: order.qty - need, openedQty: need };
 }
 
 /**
- * Moves the stop-loss and / or target of everything open on an instrument, from the candle after `cursor`.
- * `null` removes a level. Changes made on the same candle merge instead of piling up while a line is dragged.
+ * Moves the stop-loss, target and / or trailing distance of everything open on an instrument, from the candle
+ * after `cursor`. `null` removes one. Changes made on the same candle merge instead of piling up while a line is dragged.
  */
 export function adjustLevels(
-  trades: PaperTrade[], instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null },
+  trades: PaperTrade[], instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null; trail?: number | null },
   bars: Bar[], cursor: number,
 ): PaperTrade[] {
   return trades.map((t) => {
