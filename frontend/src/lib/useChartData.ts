@@ -4,8 +4,12 @@ import { addDays, fromDateForCandles, isoDate } from "./timeframes";
 
 // Candle count each timeframe opens with; the date range follows from it.
 const DEFAULT_CANDLES: Record<string, number> = { "1D": 250, "1W": 150, "1M": 60 };
-const DEFAULT_INTRADAY_CANDLES = 300;
+// Intraday opens with about ten trading days of bars (at least 300, at most 1,500), so a 5-minute chart is not just a few days.
+const INTRADAY_DAYS = 10;
+const MIN_INTRADAY_CANDLES = 300;
+const MAX_INTRADAY_CANDLES = 1500;
 const FALLBACK_TIMEFRAMES: TimeframeInfo[] = [
+  { key: "5m", kind: "intraday", base_interval: "5m", bars_per_day: 75, max_lookback_days: 60 },
   { key: "1D", kind: "daily", base_interval: "1d", bars_per_day: 1, max_lookback_days: null },
   { key: "1W", kind: "daily", base_interval: "1d", bars_per_day: 1, max_lookback_days: null },
   { key: "1M", kind: "daily", base_interval: "1d", bars_per_day: 1, max_lookback_days: null },
@@ -26,7 +30,8 @@ export interface ChartData {
 /** Date range a timeframe opens with, clamped to what the data source can supply. */
 function defaultRange(info: TimeframeInfo): { from: string; to: string } {
   const to = isoDate(new Date());
-  const count = DEFAULT_CANDLES[info.key] ?? DEFAULT_INTRADAY_CANDLES;
+  const count = DEFAULT_CANDLES[info.key]
+    ?? Math.min(MAX_INTRADAY_CANDLES, Math.max(MIN_INTRADAY_CANDLES, Math.round((info.bars_per_day || 1) * INTRADAY_DAYS)));
   let from = fromDateForCandles(count, to, info.bars_per_day || 1);
   if (info.max_lookback_days) {
     const earliest = addDays(to, -info.max_lookback_days);

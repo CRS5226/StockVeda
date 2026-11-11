@@ -1,21 +1,29 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Download, Layers, Moon, Sun } from "lucide-react";
-import BacktestChart from "../components/BacktestChart";
+import { AlertCircle, Download, Layers, Moon, Rewind, Sun } from "lucide-react";
+import BacktestChart, { NO_SMC, type ChartPriceLine } from "../components/BacktestChart";
+import OrderCards, { type OrderInput } from "../components/OrderCards";
+import ReplayControls from "../components/ReplayControls";
+import TradePanel from "../components/TradePanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
+import { useReplay } from "../lib/useReplay";
+import { barKey, toChartTime } from "../lib/barTime";
+import { closeTradeAtMarket, evaluateTrade, marketDirection, placeOrder, positionOf, type PaperTrade } from "../lib/paperTrading";
 import { loadChartTheme, saveChartTheme, type ChartTheme } from "../lib/chartTheme";
 import { loadSmcPrefs, saveSmcPrefs, loadStructureSettings, saveStructureSettings, type StructureSettings } from "../lib/smcPrefs";
 
 export const DEFAULT_CHART_SYMBOL = "HDFCBANK";
+const DEFAULT_TIMEFRAME = "5m";
 
 /** Full-screen, TradingView-style chart page. Fills everything below the navbar. */
 export default function Charts() {
   const { symbol: routeSymbol } = useParams();
   const navigate = useNavigate();
   const symbol = (routeSymbol ?? DEFAULT_CHART_SYMBOL).toUpperCase();
-  const [tf, setTf] = useState("1D");
+  const [tf, setTf] = useState(DEFAULT_TIMEFRAME);
   const [draft, setDraft] = useState(symbol);
   const [theme, setTheme] = useState<ChartTheme>(loadChartTheme);
   const dark = theme === "dark";
@@ -23,6 +31,25 @@ export default function Charts() {
   const [smcOpen, setSmcOpen] = useState(false);
   const [structure, setStructure] = useState(loadStructureSettings);
   const { timeframes, bars, loading, error, notice, fetching, fetchMissing } = useChartData(symbol, tf);
+  const replay = useReplay(bars.length);
+  const [picking, setPicking] = useState(false); // waiting for a click on the candle to start from
+  const [trades, setTrades] = useState<PaperTrade[]>([]);
+  const nextTradeId = useRef(1);
+
+  // A different symbol, timeframe or data set means the replay position and trades no longer apply.
+  useEffect(() => {
+    replay.exit();
+    setPicking(false);
+    setTrades([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, tf, bars]);
+
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPicking(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picking]);
 
   // Keep the search box in step with the URL (back/forward, links).
   useEffect(() => setDraft(symbol), [symbol]);
@@ -55,6 +82,84 @@ export default function Charts() {
   );
   const smcActive = Object.values(smc).some(Boolean);
 
+  // Replay shows only the bars up to the cursor, with SMC off.
+  const shown = useMemo(() => (replay.active ? ohlcv.slice(0, replay.cursor + 1) : ohlcv), [ohlcv, replay.active, replay.cursor]);
+  const indexByTime = useMemo(
+    () => new Map(bars.map((b, i) => [String(toChartTime(barKey(b.date))), i] as const)),
+    [bars],
+  );
+  const timeAt = (i: number): Time => toChartTime(barKey(bars[i].date));
+  const price = replay.active ? bars[replay.cursor]?.close : undefined;
+
+  // Entries / exits as markers and the entry, stop-loss and target of open trades as price lines.
+  const tradeMarkers = useMemo(() => {
+    if (!replay.active) return [] as SeriesMarker<Time>[];
+    const out: SeriesMarker<Time>[] = [];
+    for (const t of trades) {
+      const s = evaluateTrade(t, bars, replay.cursor);
+      if (s.status === "pending") continue;
+      const long = marketDirection(t.instrument, t.side) === 1; // gains as the chart price rises
+      out.push({
+        time: toChartTime(barKey(bars[t.entryIndex].date)), position: long ? "belowBar" : "aboveBar",
+        shape: long ? "arrowUp" : "arrowDown", color: long ? "#16a34a" : "#dc2626",
+        text: `${t.side === "buy" ? "B" : "S"} ${t.instrument}`, size: 1,
+      });
+      for (const e of s.exits) {
+        out.push({
+          time: toChartTime(barKey(bars[e.index].date)), position: long ? "aboveBar" : "belowBar", shape: "circle",
+          color: e.reason === "target" ? "#16a34a" : e.reason === "stoploss" ? "#dc2626" : "#64748b",
+          text: e.reason === "target" ? "T" : e.reason === "stoploss" ? "SL" : `X ${e.qty}`, size: 1,
+        });
+      }
+    }
+    return out;
+  }, [trades, bars, replay.active, replay.cursor]);
+
+  const tradeLines = useMemo(() => {
+    if (!replay.active) return [] as ChartPriceLine[];
+    const out: ChartPriceLine[] = [];
+    for (const t of trades) {
+      if (evaluateTrade(t, bars, replay.cursor).status !== "open") continue;
+      out.push({ price: t.entryPrice, color: "#3b82f6", title: `${t.side === "buy" ? "BUY" : "SELL"} ${t.instrument} ${t.qty}`, dashed: true });
+      if (t.stopLoss !== null) out.push({ price: t.stopLoss, color: "#ef4444", title: "SL" });
+      if (t.target !== null) out.push({ price: t.target, color: "#22c55e", title: "TP" });
+    }
+    return out;
+  }, [trades, bars, replay.active, replay.cursor]);
+
+  const onChartClick = (time: Time) => {
+    if (!picking) return;
+    const i = indexByTime.get(String(time));
+    if (i === undefined) return;
+    replay.start(i);
+    setPicking(false);
+    setSmcOpen(false);
+  };
+
+  const exitReplay = () => {
+    if (trades.length > 0 && !window.confirm("Exit replay? Your paper trades will be cleared.")) return;
+    replay.exit();
+    setTrades([]);
+  };
+
+  // What is open on each instrument; an order nets against it (selling 3 of a 10-lot buy leaves 7).
+  const positions = useMemo(
+    () => ({
+      CE: replay.active ? positionOf(trades, bars, replay.cursor, "CE") : null,
+      PE: replay.active ? positionOf(trades, bars, replay.cursor, "PE") : null,
+    }),
+    [trades, bars, replay.active, replay.cursor],
+  );
+
+  const placeTrade = (order: OrderInput) => {
+    if (price === undefined) return;
+    setTrades((prev) => placeOrder(prev, order, bars, replay.cursor, nextTradeId.current++).trades);
+  };
+
+  const closeTrade = (id: number) => {
+    setTrades((prev) => closeTradeAtMarket(prev, id, bars, replay.cursor));
+  };
+
   const empty = !loading && !fetching && !error && bars.length === 0;
 
   return (
@@ -66,6 +171,11 @@ export default function Charts() {
         </div>
         <span className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>{symbol}</span>
         <div className={`w-px h-5 ${dark ? "bg-[#2a2e39]" : "bg-slate-200"}`} />
+        {replay.active ? (
+          <span className={`px-2 py-1 rounded text-xs font-semibold ${dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600"}`}>
+            Replay mode
+          </span>
+        ) : (
         <div className="flex items-center gap-0.5">
           {timeframes.map((t) => (
             <button key={t.key} onClick={() => setTf(t.key)}
@@ -78,8 +188,21 @@ export default function Charts() {
             </button>
           ))}
         </div>
-        <button onClick={() => setSmcOpen((v) => !v)} title="Smart Money Concepts overlays"
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+        )}
+        {!replay.active && (
+          <button onClick={() => setPicking((v) => !v)} disabled={bars.length < 10}
+            title="Replay the chart candle by candle and place paper trades"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
+              picking
+                ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+                : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
+            }`}>
+            <Rewind size={14} /> Replay
+          </button>
+        )}
+        <button onClick={() => setSmcOpen((v) => !v)} disabled={replay.active}
+          title={replay.active ? "SMC overlays are off during replay" : "Smart Money Concepts overlays"}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
             smcOpen
               ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
               : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
@@ -95,7 +218,7 @@ export default function Charts() {
             </span>
           )}
           {notice && !fetching && <span>{notice}</span>}
-          {bars.length > 0 && <span>{bars.length.toLocaleString()} bars</span>}
+          {bars.length > 0 && !replay.active && <span>{bars.length.toLocaleString()} bars</span>}
           <button onClick={toggleTheme} title={dark ? "Switch chart to light mode" : "Switch chart to dark mode"}
             className={`p-1.5 rounded transition-colors ${dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-500 hover:bg-slate-100"}`}>
             {dark ? <Sun size={15} /> : <Moon size={15} />}
@@ -103,10 +226,19 @@ export default function Charts() {
         </div>
       </div>
 
-      {/* Chart area */}
+      {/* Chart area: the chart (with the order bar under it during replay) and, in replay, the trades on the right */}
+      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-col flex-1 min-w-0">
       <div className="relative flex-1 min-h-0">
-        <BacktestChart fill ohlcv={ohlcv} symbol={symbol} smc={smc} theme={theme} structureMode="swing" swingLength={structure.length} />
-        {smcOpen && <SmcFloatingBox smc={smc} onChange={changeSmc} onClose={() => setSmcOpen(false)} dark={dark}
+        <BacktestChart fill ohlcv={shown} symbol={symbol} smc={replay.active ? NO_SMC : smc} theme={theme}
+          structureMode="swing" swingLength={structure.length} stableView={replay.active}
+          onChartClick={onChartClick} extraMarkers={tradeMarkers} priceLines={tradeLines} />
+        {picking && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold shadow-lg">
+            Click a candle to start the replay from it (Esc to cancel)
+          </div>
+        )}
+        {smcOpen && !replay.active && <SmcFloatingBox smc={smc} onChange={changeSmc} onClose={() => setSmcOpen(false)} dark={dark}
           structure={structure} onStructureChange={changeStructure} />}
         {error && (
           <div className={`absolute inset-0 flex items-center justify-center ${dark ? "bg-[#131722]/80" : "bg-white/80"}`}>
@@ -126,6 +258,20 @@ export default function Charts() {
             </div>
           </div>
         )}
+      </div>
+      {replay.active && (
+        <>
+          <ReplayControls replay={replay} dark={dark} onExit={exitReplay} price={price}
+            label={bars[replay.cursor]?.date.replace("T", " ").slice(0, 16).replace(/ 00:00$/, "") ?? ""} />
+          {price !== undefined && <OrderCards price={price} dark={dark} positions={positions} onPlace={placeTrade} />}
+        </>
+      )}
+      </div>
+      {replay.active && (
+        <aside className={`w-96 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
+          <TradePanel trades={trades} bars={bars} cursor={replay.cursor} dark={dark} positions={positions} onClose={closeTrade} />
+        </aside>
+      )}
       </div>
     </div>
   );

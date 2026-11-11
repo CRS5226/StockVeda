@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, type IChartApi, type ISeriesApi,
-  type CandlestickData, type HistogramData, type LineData, type Time, type MouseEventParams,
+  type CandlestickData, type HistogramData, type LineData, type Time, type MouseEventParams, type IPriceLine,
   type SeriesMarker,
   ColorType, CrosshairMode, LineStyle,
 } from "lightweight-charts";
@@ -110,7 +110,20 @@ interface Props {
   swingLength?: number;
   /** Colour theme of the chart itself; the rest of the page is unaffected. */
   theme?: ChartTheme;
+  /**
+   * Replay mode: bars are revealed one by one, so a longer data set must not re-fit the view. The view
+   * opens on the last ~100 bars and then follows the newest bar.
+   */
+  stableView?: boolean;
+  /** Called with the time of the bar the user clicks. */
+  onChartClick?: (time: Time) => void;
+  /** Extra markers (for example paper-trade entries and exits), merged with the chart's own. */
+  extraMarkers?: SeriesMarker<Time>[];
+  /** Horizontal price lines across the chart (for example the entry, stop-loss and target of open trades). */
+  priceLines?: ChartPriceLine[];
 }
+
+export interface ChartPriceLine { price: number; color: string; title: string; dashed?: boolean }
 
 // Colours of the swing-mode block types (breaker / mitigation / rejection) and the label on their CE line.
 const BLOCK_KIND_COLORS: Record<SwingTypedBlock["kind"], { rgb: string; hex: string; label: string }> = {
@@ -167,12 +180,18 @@ const EMPTY_TRADES: BacktestTradeV2[] = [];
 const EMPTY_PATTERNS: PatternHit[] = [];
 const EMPTY_STRIKE_LINES: StrikeLine[] = [];
 const EMPTY_BOX_ZONES: BoxZone[] = [];
+const EMPTY_MARKERS: SeriesMarker<Time>[] = [];
+const EMPTY_PRICE_LINES: ChartPriceLine[] = [];
 
 export default function BacktestChart({
   ohlcv, trades = EMPTY_TRADES, algoTrades, patternHits = EMPTY_PATTERNS, hLines = true,
   strikeLines = EMPTY_STRIKE_LINES, boxZones = EMPTY_BOX_ZONES, smc = NO_SMC,
   fill = false, theme = "light", structureMode = "lecture", swingLength = DEFAULT_SWING_LENGTH,
+  stableView = false, onChartClick, extraMarkers = EMPTY_MARKERS, priceLines = EMPTY_PRICE_LINES,
 }: Props) {
+  const clickRef = useRef(onChartClick);
+  clickRef.current = onChartClick;
+  const priceLineRefs = useRef<IPriceLine[]>([]);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
@@ -314,6 +333,9 @@ export default function BacktestChart({
 
     chart.timeScale().subscribeVisibleTimeRangeChange(recomputeZones);
 
+    const onClick = (p: MouseEventParams) => { if (p.time !== undefined) clickRef.current?.(p.time); };
+    chart.subscribeClick(onClick);
+
     const ro = new ResizeObserver(() => {
       if (containerRef.current)
         chart.applyOptions(fill
@@ -329,6 +351,8 @@ export default function BacktestChart({
       pendingTimeouts.current = [];
       chart.timeScale().unsubscribeVisibleTimeRangeChange(recomputeZones);
       if (onMove) chart.unsubscribeCrosshairMove(onMove);
+      chart.unsubscribeClick(onClick);
+      priceLineRefs.current = [];
       ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null; volumeRef.current = null;
       // Trade-line series belong to the chart instance being destroyed above —
       // drop the stale refs so a later "draw trade markers" effect (which runs
@@ -379,7 +403,10 @@ export default function BacktestChart({
   // not when the caller swaps ohlcv references for the same stock data.
   useEffect(() => {
     if (!candleRef.current || !ohlcv.length) return;
-    const identity = ohlcv[0]?.date + "|" + ohlcv[ohlcv.length - 1]?.date + "|" + ohlcv.length;
+    // In replay the bars grow one at a time, so only the first bar (and the replay switch) names the data set.
+    const identity = stableView
+      ? "replay|" + ohlcv[0]?.date
+      : ohlcv[0]?.date + "|" + ohlcv[ohlcv.length - 1]?.date + "|" + ohlcv.length;
     const isNewData = loadedSymRef.current !== identity;
     candleRef.current.setData(
       ohlcv.map((r) => ({
@@ -399,11 +426,28 @@ export default function BacktestChart({
       setReadout(lastReadout.current);
     }
     if (isNewData) {
-      chartRef.current?.timeScale().fitContent();
+      if (stableView) {
+        chartRef.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, ohlcv.length - 100), to: ohlcv.length + 6 });
+      } else {
+        chartRef.current?.timeScale().fitContent();
+      }
       loadedSymRef.current = identity;
+    } else if (stableView) {
+      chartRef.current?.timeScale().scrollToRealTime(); // follow the newest revealed bar, keeping the zoom
     }
     scheduleRecompute();
-  }, [ohlcv]);
+  }, [ohlcv, stableView]);
+
+  // Horizontal lines for open paper trades: drop the old ones and draw the current set.
+  useEffect(() => {
+    const series = candleRef.current;
+    if (!series) return;
+    priceLineRefs.current.forEach((l) => series.removePriceLine(l));
+    priceLineRefs.current = priceLines.map((l) => series.createPriceLine({
+      price: l.price, color: l.color, lineWidth: 1, lineStyle: l.dashed ? LineStyle.Dashed : LineStyle.Solid,
+      axisLabelVisible: true, title: l.title,
+    }));
+  }, [priceLines]);
 
   // Draw trade markers and h-lines
   useEffect(() => {
@@ -614,9 +658,10 @@ export default function BacktestChart({
     lineLabelsRef.current = levelLabels;
     scheduleRecompute();
 
+    markers.push(...extraMarkers);
     markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, fvgs, structureMode, swingLength, swingMode]);
+  }, [ohlcv, trades, algoTrades, patternHits, hLines, strikeLines, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 
