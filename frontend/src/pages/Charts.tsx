@@ -161,7 +161,7 @@ export default function Charts() {
     setTrades((prev) => placeOrder(prev, order, bars, replay.cursor, nextTradeId.current++).trades);
   };
 
-  const moveLevels = (instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null }) => {
+  const moveLevels = (instrument: Instrument, changes: { stopLoss?: number | null; target?: number | null; trail?: number | null }) => {
     setTrades((prev) => adjustLevels(prev, instrument, changes, bars, replay.cursor));
   };
 
@@ -170,7 +170,12 @@ export default function Charts() {
 
   const dropLevel = (instrument: Instrument, kind: "stoploss" | "target", level: number) => {
     setLive((l) => ({ ...l, [instrument]: undefined }));
-    moveLevels(instrument, kind === "stoploss" ? { stopLoss: level } : { target: level });
+    const held = heldNow[instrument];
+    if (kind === "target") { moveLevels(instrument, { target: level }); return; }
+    // dropping the stop-loss while a trail is on: it keeps trailing from there, with the new gap to the price as the trail
+    moveLevels(instrument, held && held.trail !== null && price !== undefined
+      ? { stopLoss: level, trail: (price - level) * held.direction }
+      : { stopLoss: level });
   };
 
   /** Buy from the "+" menu on the chart: the card's levels, the quantity typed there. Returns an error message or null. */

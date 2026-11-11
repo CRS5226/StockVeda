@@ -179,7 +179,7 @@ export default function OrderOverlay({ chart, series, positions, price, dark, su
               <div className={`absolute pointer-events-auto cursor-ns-resize select-none flex items-center gap-2 rounded border border-l-4 px-2 py-0.5 text-[11px] tabular-nums ${box}`}
                 style={{ left: 8, top: clampY(y) - 11, borderLeftColor: color }}
                 onPointerDown={(e) => startDrag(e, ins, kind)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
-                <span className="font-bold" style={{ color }}>{ins} {kind === "stoploss" ? "SL" : "TP"}</span>
+                <span className="font-bold" style={{ color }}>{ins} {kind === "stoploss" ? (pos.trail !== null ? "TSL" : "SL") : "TP"}</span>
                 <span>{fmt(level)}</span>
                 <span className={tone(result, dark)}>{percent((points / pos.avgPrice) * 100)}</span>
                 <span className={tone(result, dark)}>{money(result)}</span>

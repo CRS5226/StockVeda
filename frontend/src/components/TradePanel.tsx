@@ -108,7 +108,7 @@ export default function TradePanel({ trades, bars, cursor, dark, positions, onCl
                 {target && s.target !== null ? <>{price(s.target)} {line(target)}</> : <span className={muted}>none</span>}
               </div>
               <div>
-                <span className={muted}>Stoploss </span>
+                <span className={muted}>{s.trail !== null ? "Trailing stop " : "Stoploss "}</span>
                 {stop && s.stopLoss !== null ? <>{price(s.stopLoss)} {line(stop)}</> : <span className={muted}>none</span>}
               </div>
 

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildOrder, clampLevel, DEFAULT_SETTINGS, fieldToLevel, levelToField, validateLevel } from "./orderSettings";
+import { buildOrder, clampLevel, DEFAULT_SETTINGS, fieldToLevel, fieldToTrail, levelToField, trailToField, validateLevel } from "./orderSettings";
 import type { Position } from "./paperTrading";
 
 const pos = (over: Partial<Position> = {}): Position => ({
-  instrument: "CE", side: "buy", direction: 1, qty: 10, avgPrice: 100, stopLoss: 99, target: 102, floating: 0, ...over,
+  instrument: "CE", side: "buy", direction: 1, qty: 10, avgPrice: 100, stopLoss: 99, target: 102, trail: null, floating: 0, ...over,
 });
 
 describe("levelToField and fieldToLevel", () => {
@@ -60,10 +60,10 @@ describe("validateLevel and clampLevel", () => {
 describe("buildOrder", () => {
   it("builds a fresh order with the card's levels", () => {
     expect(buildOrder("CE", "buy", DEFAULT_SETTINGS, 100, null)).toEqual({
-      order: { instrument: "CE", side: "buy", qty: 1, stopLoss: 99, target: 102 },
+      order: { instrument: "CE", side: "buy", qty: 1, stopLoss: 99, target: 102, trail: null },
     });
     expect(buildOrder("PE", "buy", DEFAULT_SETTINGS, 100, null)).toEqual({
-      order: { instrument: "PE", side: "buy", qty: 1, stopLoss: 101, target: 98 },
+      order: { instrument: "PE", side: "buy", qty: 1, stopLoss: 101, target: 98, trail: null },
     });
   });
 
@@ -74,21 +74,51 @@ describe("buildOrder", () => {
 
   it("needs no levels for an order that only books part of a holding", () => {
     const r = buildOrder("CE", "sell", { ...DEFAULT_SETTINGS, slValue: "x" }, 100, pos(), 3);
-    expect(r).toEqual({ order: { instrument: "CE", side: "sell", qty: 3, stopLoss: null, target: null } });
+    expect(r).toEqual({ order: { instrument: "CE", side: "sell", qty: 3, stopLoss: null, target: null, trail: null } });
   });
 
   it("leaves the levels to the position when adding to it", () => {
     const r = buildOrder("CE", "buy", DEFAULT_SETTINGS, 100, pos(), 5);
-    expect(r).toEqual({ order: { instrument: "CE", side: "buy", qty: 5, stopLoss: null, target: null } });
+    expect(r).toEqual({ order: { instrument: "CE", side: "buy", qty: 5, stopLoss: null, target: null, trail: null } });
   });
 
   it("applies the card's levels to the part of a sell that opens a new short", () => {
     const r = buildOrder("CE", "sell", DEFAULT_SETTINGS, 100, pos({ qty: 4 }), 10);
-    expect(r).toEqual({ order: { instrument: "CE", side: "sell", qty: 10, stopLoss: 101, target: 98 } });
+    expect(r).toEqual({ order: { instrument: "CE", side: "sell", qty: 10, stopLoss: 101, target: 98, trail: null } });
   });
 
   it("rejects a bad quantity and bad distances", () => {
     expect(buildOrder("CE", "buy", DEFAULT_SETTINGS, 100, null, 0)).toHaveProperty("error");
     expect(buildOrder("CE", "buy", { ...DEFAULT_SETTINGS, slValue: "-1" }, 100, null)).toHaveProperty("error");
+  });
+});
+
+describe("trail", () => {
+  it("shows an open position's trailing distance as percent of the entry or as points, and empty when off", () => {
+    expect(trailToField(pos({ trail: 0.5 }), "%")).toBe("0.5");
+    expect(trailToField(pos({ trail: 2 }), "pts")).toBe("2");
+    expect(trailToField(pos({ trail: null }), "%")).toBe("");
+  });
+
+  it("turns typed text into a distance in points, off for empty, undefined for nonsense", () => {
+    expect(fieldToTrail(pos(), "0.5", "%")).toBe(0.5); // 0.5% of a 100 entry
+    expect(fieldToTrail(pos(), "3", "pts")).toBe(3);
+    expect(fieldToTrail(pos(), "", "%")).toBeNull();
+    expect(fieldToTrail(pos(), "0", "%")).toBeUndefined();
+    expect(fieldToTrail(pos(), "-1", "pts")).toBeUndefined();
+    expect(fieldToTrail(pos(), "abc", "%")).toBeUndefined();
+  });
+
+  it("builds a fresh order with the card's trail, in points", () => {
+    const r = buildOrder("CE", "buy", { ...DEFAULT_SETTINGS, trailValue: "0.5" }, 200, null);
+    expect(r).toEqual({ order: { instrument: "CE", side: "buy", qty: 1, stopLoss: 198, target: 204, trail: 1 } });
+    const pts = buildOrder("CE", "buy", { ...DEFAULT_SETTINGS, trailValue: "3", trailUnit: "pts" }, 200, null);
+    expect("order" in pts && pts.order.trail).toBe(3);
+  });
+
+  it("leaves the trail to the position when adding to it, and rejects a bad one on a fresh order", () => {
+    const adds = buildOrder("CE", "buy", { ...DEFAULT_SETTINGS, trailValue: "0.5" }, 100, pos({ trail: 2 }), 5);
+    expect("order" in adds && adds.order.trail).toBeNull();
+    expect(buildOrder("CE", "buy", { ...DEFAULT_SETTINGS, trailValue: "-1" }, 100, null)).toHaveProperty("error");
   });
 });
