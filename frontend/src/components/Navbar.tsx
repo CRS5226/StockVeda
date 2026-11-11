@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, Wifi, WifiOff, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -11,7 +11,6 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(-1);
   const [loading, setLoading] = useState(false);
-  const [online, setOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -19,18 +18,6 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Track browser connectivity so the user knows whether live data can be fetched.
-  useEffect(() => {
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, []);
 
   const search = useCallback((q: string) => {
     if (q.length < 1) { setResults([]); setOpen(false); setLoading(false); return; }
@@ -143,16 +130,6 @@ export default function Navbar() {
             ))}
           </ul>
         )}
-      </div>
-
-      {/* Connectivity indicator */}
-      <div
-        title={online ? "Online — live data available" : "Offline — showing saved data only"}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${
-          online ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
-        }`}>
-        {online ? <Wifi size={13} /> : <WifiOff size={13} />}
-        <span className="hidden sm:inline">{online ? "Online" : "Offline"}</span>
       </div>
 
       {/* Sync button */}
