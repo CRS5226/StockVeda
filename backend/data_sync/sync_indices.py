@@ -39,6 +39,8 @@ NSE_INDICES = {
     "NIFTY METAL":  "Nifty Metal",
     "NIFTY ENERGY": "Nifty Energy",
     "NIFTY REALTY": "Nifty Realty",
+    "NIFTY FINANCIAL SERVICES": "Nifty Financial Services",
+    "NIFTY MIDCAP SELECT": "Nifty Midcap Select",
 }
 
 

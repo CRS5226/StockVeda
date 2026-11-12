@@ -11,6 +11,8 @@ NIFTY FMCG,18-09-2026,45100,45200,44950,45053.75,-130.5,-0.29,30000000,2500,45.2
 Nifty Metal,18-09-2026,-,13084.1,12886.1,12999.05,-305.9,-2.30,50000000,4000,15.2,2.1,2.4
 Nifty Energy,18-09-2026,37900,38000,37800,37935.2,-285.4,-0.75,20000000,1500,12.1,1.9,2.9
 Nifty Realty,18-09-2026,860,865,845,848.5,-23.6,-2.70,10000000,800,40.3,4.2,0.3
+Nifty Financial Services,18-09-2026,26900.2,27150.8,26810.4,27055.35,132.4,0.49,45000000,5200.6,16.8,3.9,1.1
+Nifty Midcap Select,18-09-2026,12450.6,12520.3,12410.2,12488.9,38.3,0.31,28000000,2900.4,24.6,4.8,0.9
 """
 
 
@@ -39,6 +41,12 @@ def test_every_dashboard_sector_has_a_source():
     sources = set(INDICES) | set(NSE_INDICES)
     assert set(SECTOR_INDICES) <= sources
     assert not set(INDICES) & set(NSE_INDICES)  # no index fetched from both
+
+
+def test_every_idx_name_map_target_is_synced():
+    from backend.core.spot_prices import IDX_NAME_MAP
+    sources = set(INDICES) | set(NSE_INDICES)
+    assert set(IDX_NAME_MAP.values()) <= sources
 
 
 class _Resp:
