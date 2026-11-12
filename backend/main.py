@@ -13,8 +13,8 @@ app.add_middleware(
         "http://localhost:4173",
         *(o.strip() for o in settings.cors_origins.split(",") if o.strip()),
     ],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(stock.router, prefix="/api")
