@@ -369,6 +369,23 @@ export interface TimeframeInfo {
   max_lookback_days: number | null;
 }
 
+/** A long / short trade box saved from the Charts "Trade plot" mode. Times are the exchange wall clock, "YYYY-MM-DDTHH:MM:SS". */
+export interface PlottedTrade {
+  id: number;
+  symbol: string;
+  side: "long" | "short";
+  entry_time: string;
+  end_time: string;
+  entry_price: number;
+  stop_loss: number;
+  target: number;
+  qty: number | null;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+export type PlotDraft = Omit<PlottedTrade, "id" | "created_at" | "updated_at">;
+
 export interface TimeframeCandles {
   interval: string;
   bars: (Candle)[];
@@ -596,6 +613,18 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+
+  getTradePlots: (symbol?: string) =>
+    apiFetch<PlottedTrade[]>(`/trade-plots${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`),
+  createTradePlot: (body: PlotDraft) =>
+    apiFetch<PlottedTrade>("/trade-plots", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }),
+  updateTradePlot: (id: number, body: PlotDraft) =>
+    apiFetch<PlottedTrade>(`/trade-plots/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }),
+  deleteTradePlot: (id: number) => apiFetch<{ ok: boolean }>(`/trade-plots/${id}`, { method: "DELETE" }),
 
   getTimeframes: () => apiFetch<TimeframeInfo[]>("/intraday/timeframes"),
   getTimeframeCandles: (symbol: string, interval: string, range: { from?: string; to?: string; limit?: number } = {}) => {

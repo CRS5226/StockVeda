@@ -360,3 +360,22 @@ ALTER TABLE stock_technical_cache ADD COLUMN IF NOT EXISTS change_20d   DOUBLE;
 DROP TABLE IF EXISTS fno_ohlcv;
 DROP TABLE IF EXISTS fno_futures_ohlcv;
 DROP TABLE IF EXISTS fno_oi;
+
+-- ── Plotted trades (Charts "Trade plot" mode) ──────────────────────────────
+-- A long / short trade box drawn on a chart: entry, stop-loss and target prices,
+-- anchored at the entry time and drawn until end_time. Times are the exchange's wall clock.
+CREATE TABLE IF NOT EXISTS plotted_trades (
+    id          INTEGER,
+    symbol      VARCHAR NOT NULL,
+    side        VARCHAR NOT NULL,       -- long | short
+    entry_time  TIMESTAMP NOT NULL,
+    end_time    TIMESTAMP NOT NULL,
+    entry_price DOUBLE NOT NULL,
+    stop_loss   DOUBLE NOT NULL,
+    target      DOUBLE NOT NULL,
+    qty         INTEGER,
+    note        VARCHAR DEFAULT '',
+    created_at  TIMESTAMP DEFAULT now(),
+    updated_at  TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
