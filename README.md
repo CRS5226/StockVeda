@@ -97,6 +97,8 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 - **SMC box** — structure (BOS / ChoCH, HH / HL / LH / LL, zigzag, STH / ITH / LTH), order blocks, FVG types (PFG / BFG / RFG / IFVG), breaker / mitigation / rejection blocks, OB + FVG zones, liquidity
 - **Bar replay** — click a candle to start, play / pause / step back and forward at 0.5x to 2x; SMC is off in replay
 - **Paper trading** on the replay — CE / PE Buy and Sell with netting and partial booking, stop-loss, target and trailing stop-loss; place orders from a "+" on the price axis, drag the stop-loss and target lines on the chart, Close all
+- **Trade plot mode** — plot long / short trade boxes on the chart with a default 1% stop-loss and 2% target; each shows points, percent and risk-reward for the target and the stop-loss. Drag the levels, and the boxes are saved in the database and shown again next time
+- **Sync data** — fetches the newest candles that are missing for the symbol and timeframe on screen
 
 **Analysis**
 - **Markov Chain** — walk-forward state transition matrix + forward projection (computed causally, safe as a backtest signal)

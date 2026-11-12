@@ -25,6 +25,8 @@ export interface ChartData {
   fetching: boolean;
   /** Download the bars the current range is missing. */
   fetchMissing: () => void;
+  /** Fetch the bars newer than the last stored one (the "Sync data" button); says when there is nothing new. */
+  sync: () => void;
 }
 
 /** Date range a timeframe opens with, clamped to what the data source can supply. */
@@ -55,6 +57,8 @@ export function useChartData(symbol: string, tf: string): ChartData {
   const [fetching, setFetching] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const autoTried = useRef("");
+  // what was on screen when a sync started, so the result can say how many bars were added
+  const syncBase = useRef<{ last: string | null } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
@@ -78,6 +82,12 @@ export function useChartData(symbol: string, tf: string): ChartData {
         if (cancelled) return;
         setResult(res);
         setBars(res.bars);
+        const base = syncBase.current;
+        if (base) {
+          syncBase.current = null;
+          const added = base.last ? res.bars.filter((b) => b.date > base.last!).length : res.bars.length;
+          setNotice(added > 0 ? `Fetched ${added.toLocaleString()} new bars.` : "No new bars are available yet.");
+        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -89,10 +99,11 @@ export function useChartData(symbol: string, tf: string): ChartData {
     return () => { cancelled = true; };
   }, [symbol, tf, info, reloadKey]);
 
-  const finish = useCallback((message: string) => {
+  const finish = useCallback((message: string, failed = false) => {
     stopPoll();
     setFetching(false);
     setNotice(message);
+    if (failed) syncBase.current = null; // keep the error message instead of a bar count
     setReloadKey((k) => k + 1);
   }, []);
 
@@ -112,16 +123,23 @@ export function useChartData(symbol: string, tf: string): ChartData {
         try {
           const st = await api.intradayFetchJob(job.job_id);
           if (st.status === "done") finish(`Fetched ${st.inserted.toLocaleString()} ${result.fetch.interval} bars.`);
-          else if (st.status === "empty") finish("Yahoo returned no bars for this range.");
-          else if (st.status === "error") finish(st.error ?? "Fetch failed.");
+          else if (st.status === "empty") finish("Yahoo returned no bars for this range.", true);
+          else if (st.status === "error") finish(st.error ?? "Fetch failed.", true);
         } catch (e) {
-          finish(e instanceof Error ? e.message : "Fetch failed.");
+          finish(e instanceof Error ? e.message : "Fetch failed.", true);
         }
       }, 1500);
     } catch (e) {
-      finish(e instanceof Error ? e.message : "Fetch failed.");
+      finish(e instanceof Error ? e.message : "Fetch failed.", true);
     }
   }, [result, info, symbol, finish]);
+
+  const sync = useCallback(() => {
+    if (!result || fetching || loading) return;
+    if (bars.length > 0 && result.missing.after === 0) { setNotice("Already up to date."); return; }
+    syncBase.current = { last: bars.length ? bars[bars.length - 1].date : null };
+    fetchMissing();
+  }, [result, fetching, loading, bars, fetchMissing]);
 
   // Auto-download once per symbol + timeframe when a daily-based chart has no bars at all.
   useEffect(() => {
@@ -133,5 +151,5 @@ export function useChartData(symbol: string, tf: string): ChartData {
     fetchMissing();
   }, [loading, result, bars.length, fetching, symbol, tf, fetchMissing]);
 
-  return { timeframes, bars, loading, error, notice, fetching, fetchMissing };
+  return { timeframes, bars, loading, error, notice, fetching, fetchMissing, sync };
 }

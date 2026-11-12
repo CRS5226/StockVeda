@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Download, Layers, Moon, Rewind, Sun } from "lucide-react";
+import { AlertCircle, Download, Layers, Moon, PencilRuler, RefreshCw, Rewind, Sun } from "lucide-react";
 import BacktestChart, { NO_SMC, type ChartHandle } from "../components/BacktestChart";
 import OrderCards from "../components/OrderCards";
 import OrderOverlay from "../components/OrderOverlay";
 import ReplayControls from "../components/ReplayControls";
 import TradePanel from "../components/TradePanel";
+import TradePlotOverlay from "../components/TradePlotOverlay";
+import TradePlotPanel from "../components/TradePlotPanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
 import { useReplay } from "../lib/useReplay";
+import { useTradePlots } from "../lib/useTradePlots";
+import { normTime, timeToIndex, type PlotSide } from "../lib/tradePlot";
 import { barKey, toChartTime } from "../lib/barTime";
 import {
   adjustLevels, closeAll, closePosition, closeTradeAtMarket, evaluateTrade, marketDirection, placeOrder, positionOf,
@@ -35,12 +39,17 @@ export default function Charts() {
   const [smc, setSmc] = useState(loadSmcPrefs);
   const [smcOpen, setSmcOpen] = useState(false);
   const [structure, setStructure] = useState(loadStructureSettings);
-  const { timeframes, bars, loading, error, notice, fetching, fetchMissing } = useChartData(symbol, tf);
+  const { timeframes, bars, loading, error, notice, fetching, fetchMissing, sync } = useChartData(symbol, tf);
   const replay = useReplay(bars.length);
   const [picking, setPicking] = useState(false); // waiting for a click on the candle to start from
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const nextTradeId = useRef(1);
   const [handle, setHandle] = useState<ChartHandle | null>(null);
+  // Trade plot mode: long / short trade boxes drawn on the chart and saved in the database
+  const [plotMode, setPlotMode] = useState(false);
+  const [plotTool, setPlotTool] = useState<PlotSide | null>(null);
+  const [selectedPlot, setSelectedPlot] = useState<number | null>(null);
+  const tradePlots = useTradePlots(symbol);
   // card values per instrument, shared by the cards and the "+" menu on the chart
   const [settings, setSettings] = useState<Record<Instrument, CardSettings>>({ CE: DEFAULT_SETTINGS, PE: DEFAULT_SETTINGS });
   // a stop-loss / target line being dragged: shown on the chart and the cards at once, committed when dropped
@@ -52,6 +61,8 @@ export default function Charts() {
     setPicking(false);
     setTrades([]);
     setLive({});
+    setPlotTool(null);
+    setSelectedPlot(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf, bars]);
 
@@ -133,6 +144,18 @@ export default function Charts() {
     replay.start(i);
     setPicking(false);
     setSmcOpen(false);
+    setPlotMode(false);
+    setPlotTool(null);
+  };
+
+  /** Scroll the chart to a saved trade box. */
+  const jumpToPlot = (id: number) => {
+    const plot = tradePlots.plots.find((p) => p.id === id);
+    if (!plot || !handle) return;
+    const index = timeToIndex(bars.map((b) => normTime(barKey(b.date))), normTime(plot.entry_time));
+    if (index < 0) return;
+    setSelectedPlot(id);
+    handle.chart.timeScale().setVisibleLogicalRange({ from: index - 30, to: index + 60 });
   };
 
   const exitReplay = () => {
@@ -231,7 +254,7 @@ export default function Charts() {
         </div>
         )}
         {!replay.active && (
-          <button onClick={() => setPicking((v) => !v)} disabled={bars.length < 10}
+          <button onClick={() => { setPicking((v) => !v); setPlotMode(false); setPlotTool(null); }} disabled={bars.length < 10}
             title="Replay the chart candle by candle and place paper trades"
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
               picking
@@ -251,6 +274,30 @@ export default function Charts() {
           <Layers size={14} /> SMC
           {smcActive && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
         </button>
+        <button onClick={() => { setPlotMode((v) => !v); setPlotTool(null); setPicking(false); }} disabled={replay.active}
+          title={replay.active ? "Trade plot is off during replay" : "Plot long / short trades on the chart and save them"}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
+            plotMode
+              ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+              : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
+          }`}>
+          <PencilRuler size={14} /> Trade plot
+        </button>
+        {plotMode && !replay.active && (
+          <div className="flex items-center gap-1">
+            {(["long", "short"] as const).map((side) => (
+              <button key={side} onClick={() => setPlotTool((t) => (t === side ? null : side))}
+                title={`Place a ${side} trade box: click the chart`}
+                className={`px-2.5 py-1 rounded text-xs font-bold border transition-colors ${
+                  plotTool === side
+                    ? (side === "long" ? "bg-emerald-600 text-white border-emerald-600" : "bg-red-600 text-white border-red-600")
+                    : (side === "long" ? "text-emerald-500 border-emerald-500/50 hover:bg-emerald-500/10" : "text-red-500 border-red-500/50 hover:bg-red-500/10")
+                }`}>
+                {side === "long" ? "Long" : "Short"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={`ml-auto flex items-center gap-3 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
           {(loading || fetching) && (
             <span className="flex items-center gap-1.5">
@@ -259,6 +306,12 @@ export default function Charts() {
             </span>
           )}
           {notice && !fetching && <span>{notice}</span>}
+          <button onClick={sync} disabled={loading || fetching || bars.length === 0} title="Fetch the newest candles that are missing for this symbol and timeframe"
+            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
+              dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-600 hover:bg-slate-100"
+            }`}>
+            <RefreshCw size={13} className={fetching ? "animate-spin" : ""} /> Sync data
+          </button>
           {bars.length > 0 && !replay.active && <span>{bars.length.toLocaleString()} bars</span>}
           <button onClick={toggleTheme} title={dark ? "Switch chart to light mode" : "Switch chart to dark mode"}
             className={`p-1.5 rounded transition-colors ${dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-500 hover:bg-slate-100"}`}>
@@ -278,6 +331,12 @@ export default function Charts() {
           <OrderOverlay chart={handle.chart} series={handle.series} positions={positions} price={price} dark={dark}
             summary={{ CE: orderSummary("CE"), PE: orderSummary("PE") }}
             onDrag={dragLevel} onDrop={dropLevel} onExit={exitFromChart} onBuy={buyFromChart} />
+        )}
+        {handle && !replay.active && (
+          <TradePlotOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} plots={tradePlots.plots}
+            editable={plotMode} tool={plotTool} dark={dark} selectedId={selectedPlot} onSelect={setSelectedPlot}
+            onCreate={tradePlots.create} onChange={tradePlots.update} onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot(null); }}
+            onToolDone={() => setPlotTool(null)} />
         )}
         {picking && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold shadow-lg">
@@ -314,6 +373,13 @@ export default function Charts() {
         </>
       )}
       </div>
+      {plotMode && !replay.active && (
+        <aside className={`w-80 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
+          <TradePlotPanel plots={tradePlots.plots} loading={tradePlots.loading} error={tradePlots.error} selectedId={selectedPlot} dark={dark}
+            onSelect={setSelectedPlot} onJump={jumpToPlot} onChange={tradePlots.update}
+            onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot((cur) => (cur === id ? null : cur)); }} />
+        </aside>
+      )}
       {replay.active && (
         <aside className={`w-96 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
           <TradePanel trades={trades} bars={bars} cursor={replay.cursor} dark={dark} positions={positions} onClose={closeTrade}
