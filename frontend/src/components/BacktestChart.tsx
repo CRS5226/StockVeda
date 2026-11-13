@@ -580,17 +580,17 @@ export default function BacktestChart({
       levelLabels.push({ fromDate, toDate, level, text, color });
     };
 
-    // Structure map (lecture rules): BOS (continuation) / ChoCH (trend change) are solid levels
+    // Structure map (lecture rules): BOS (continuation) / ChoCH (trend change) are levels
     // from the broken swing to the breaking bar; IDM is a dotted level from the inducement swing
-    // to the bar that took it. BOS keeps the semantic green/red of its direction, ChoCH is always
-    // amber, IDM magenta. HH/HL/LH/LL are tagged on the candle that formed the point.
+    // to the bar that took it. BOS and ChoCH both take the green/red of their direction (BOS solid,
+    // ChoCH dashed), IDM is magenta. HH/HL/LH/LL are tagged on the candle that formed the point.
     if (bosOn || chochOn || idmOn || pointsOn) {
       const map = structureMode === "swing" ? mapSwingStructure(ohlcv, { length: swingLength }) : mapStructure(ohlcv);
       map.events.forEach((ev) => {
         if (ev.type === "BOS" && bosOn) {
           addLevel(ev.fromDate, ev.date, ev.level, ev.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Solid, "BOS");
         } else if (ev.type === "ChoCH" && chochOn) {
-          addLevel(ev.fromDate, ev.date, ev.level, "#f59e0b", LineStyle.Solid, "ChoCH");
+          addLevel(ev.fromDate, ev.date, ev.level, ev.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Dashed, "ChoCH");
         } else if (ev.type === "IDM" && idmOn) {
           addLevel(ev.fromDate, ev.date, ev.level, "#d946ef", LineStyle.Dotted, "IDM");
         }
