@@ -14,6 +14,17 @@ IDX_NAME_MAP = {
 }
 
 
+# Yahoo Finance tickers of the indices it has intraday data for. A stock is SYMBOL.NS; an index such as NIFTY
+# has no .NS ticker, so asking for NIFTY.NS finds nothing.
+YAHOO_INDEX_TICKERS = {"NIFTY": "^NSEI", "BANKNIFTY": "^NSEBANK", "NIFTYBANK": "^NSEBANK", "SENSEX": "^BSESN"}
+
+
+def yahoo_ticker(symbol: str) -> str:
+    """The Yahoo Finance ticker for a stock symbol or an index short name."""
+    sym = symbol.strip().upper()
+    return YAHOO_INDEX_TICKERS.get(sym, f"{sym}.NS")
+
+
 def get_spot_ohlcv(sym: str, from_date: str, to_date: str) -> pd.DataFrame:
     """Full OHLC cash/index candles for charting and analysis (date as text)."""
     db = get_db()

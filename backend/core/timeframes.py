@@ -14,6 +14,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from backend.core.spot_prices import IDX_NAME_MAP, INDEX_SYMBOLS
 from backend.data_sync.sync_intraday import MAX_LOOKBACK_DAYS
 
 # NSE cash session is 09:15–15:30. The second 4h bucket starts at 13:15.
@@ -77,6 +78,12 @@ def _load_source(db, symbol: str, tf: Timeframe) -> pd.DataFrame:
             """SELECT datetime AS date, open, high, low, close, volume FROM stock_intraday_ohlcv
                WHERE symbol = ? AND interval = ? ORDER BY datetime""",
             [symbol, tf.base_interval],
+        ).df()
+    elif symbol in INDEX_SYMBOLS:
+        # An index (NIFTY, BANKNIFTY, ...) has daily candles in index_ohlcv, without volume.
+        df = db.execute(
+            "SELECT date, open, high, low, close, 0 AS volume FROM index_ohlcv WHERE index_name = ? ORDER BY date",
+            [IDX_NAME_MAP.get(symbol, symbol)],
         ).df()
     else:
         df = db.execute(
