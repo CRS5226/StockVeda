@@ -413,7 +413,17 @@ export default function BacktestChart({
   // Update candle data — only fitContent() when the underlying symbol/data changes,
   // not when the caller swaps ohlcv references for the same stock data.
   useEffect(() => {
-    if (!candleRef.current || !ohlcv.length) return;
+    if (!candleRef.current) return;
+    if (!ohlcv.length) {
+      // No data (a symbol that has none yet): empty the chart instead of leaving the previous symbol's candles.
+      candleRef.current.setData([]);
+      volumeRef.current?.setData([]);
+      lastReadout.current = null;
+      setReadout(null);
+      loadedSymRef.current = "";
+      scheduleRecompute();
+      return;
+    }
     // In replay the bars grow one at a time, so only the first bar (and the replay switch) names the data set.
     const identity = stableView
       ? "replay|" + ohlcv[0]?.date
@@ -462,11 +472,17 @@ export default function BacktestChart({
 
   // Draw trade markers and h-lines
   useEffect(() => {
-    if (!chartRef.current || !ohlcv.length) return;
+    if (!chartRef.current) return;
 
     // Remove old lines
     tradeLines.current.forEach((s) => chartRef.current?.removeSeries(s));
     tradeLines.current = [];
+    if (!ohlcv.length) {
+      lineLabelsRef.current = [];
+      candleRef.current?.setMarkers([]);
+      scheduleRecompute();
+      return;
+    }
 
     const allDates = ohlcv.map((r) => barKey(r.date));
     const dateSet  = new Set(allDates);
