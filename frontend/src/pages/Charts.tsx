@@ -39,7 +39,7 @@ export default function Charts() {
   const [smc, setSmc] = useState(loadSmcPrefs);
   const [smcOpen, setSmcOpen] = useState(false);
   const [structure, setStructure] = useState(loadStructureSettings);
-  const { timeframes, bars, loading, error, notice, fetching, fetchMissing, sync } = useChartData(symbol, tf);
+  const { timeframes, bars, loading, busy, error, notice, fetching, fetchMissing, sync } = useChartData(symbol, tf);
   const replay = useReplay(bars.length);
   const [picking, setPicking] = useState(false); // waiting for a click on the candle to start from
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -224,7 +224,7 @@ export default function Charts() {
     setTrades((prev) => closeTradeAtMarket(prev, id, bars, replay.cursor));
   };
 
-  const empty = !loading && !fetching && !error && bars.length === 0;
+  const empty = !busy && !error && bars.length === 0;
 
   return (
     <div className={`h-full flex flex-col ${dark ? "bg-[#131722]" : "bg-white"}`}>
@@ -299,7 +299,7 @@ export default function Charts() {
           </div>
         )}
         <div className={`ml-auto flex items-center gap-3 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          {(loading || fetching) && (
+          {busy && (
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
               {fetching ? "Downloading data…" : "Loading…"}
@@ -345,6 +345,20 @@ export default function Charts() {
         )}
         {smcOpen && !replay.active && <SmcFloatingBox smc={smc} onChange={changeSmc} onClose={() => setSmcOpen(false)} dark={dark}
           structure={structure} onStructureChange={changeStructure} />}
+        {bars.length === 0 && busy && !error && (
+          <div className={`absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 text-sm ${dark ? "bg-[#131722]/90 text-slate-300" : "bg-white/90 text-slate-600"}`}>
+            <span className="w-9 h-9 border-4 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
+            <span className="font-medium">
+              {fetching ? `Downloading the missing ${tf} candles for ${symbol}…` : `Loading ${symbol} ${tf}…`}
+            </span>
+            <span className="text-xs opacity-70">The chart appears as soon as the candles are ready.</span>
+          </div>
+        )}
+        {bars.length > 0 && fetching && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold shadow-lg">
+            <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Fetching new candles…
+          </div>
+        )}
         {error && (
           <div className={`absolute inset-0 flex items-center justify-center ${dark ? "bg-[#131722]/80" : "bg-white/80"}`}>
             <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">

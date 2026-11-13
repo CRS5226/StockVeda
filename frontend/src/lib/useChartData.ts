@@ -19,6 +19,8 @@ export interface ChartData {
   timeframes: TimeframeInfo[];
   bars: Candle[];
   loading: boolean;
+  /** Loading, downloading, or about to download the missing candles of a symbol that has none stored. */
+  busy: boolean;
   error: string;
   /** Message from the last data download (auto or manual), if any. */
   notice: string;
@@ -57,6 +59,7 @@ export function useChartData(symbol: string, tf: string): ChartData {
   const [fetching, setFetching] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const autoTried = useRef("");
+  const loadedKey = useRef("");
   // what was on screen when a sync started, so the result can say how many bars were added
   const syncBase = useRef<{ last: string | null } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -75,6 +78,14 @@ export function useChartData(symbol: string, tf: string): ChartData {
     if (!symbol || !info) return;
     let cancelled = false;
     const { from, to } = defaultRange(info);
+    // A different symbol or timeframe: drop the old candles at once, so the chart never shows another stock while this one loads.
+    const key = `${symbol}|${tf}`;
+    if (loadedKey.current !== key) {
+      loadedKey.current = key;
+      setBars([]);
+      setResult(null);
+      setNotice("");
+    }
     setLoading(true);
     setError("");
     api.getTimeframeCandles(symbol, tf, { from, to })
@@ -141,15 +152,18 @@ export function useChartData(symbol: string, tf: string): ChartData {
     fetchMissing();
   }, [result, fetching, loading, bars, fetchMissing]);
 
-  // Auto-download once per symbol + timeframe when a daily-based chart has no bars at all.
+  // Auto-download once per symbol + timeframe when the chart has no bars at all (daily or intraday).
   useEffect(() => {
     if (loading || !result || bars.length > 0 || fetching) return;
-    if (result.fetch.kind !== "daily") return;
     const key = `${symbol}|${tf}`;
     if (autoTried.current === key) return;
     autoTried.current = key;
     fetchMissing();
   }, [loading, result, bars.length, fetching, symbol, tf, fetchMissing]);
 
-  return { timeframes, bars, loading, error, notice, fetching, fetchMissing, sync };
+  // True from the moment a symbol is picked until its candles are on screen, including the gap before the download starts.
+  const awaitingDownload = !loading && !fetching && !!result && bars.length === 0 && autoTried.current !== `${symbol}|${tf}`;
+  const busy = loading || fetching || awaitingDownload;
+
+  return { timeframes, bars, loading, busy, error, notice, fetching, fetchMissing, sync };
 }
