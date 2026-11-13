@@ -101,6 +101,23 @@ export default function TradePlotOverlay(props: Props) {
   );
   const { boxes, paneWidth } = useFrame(chart, series, shown, barTimes);
 
+  // A click on a box selects it (its labels and handles show); a click anywhere else on the chart hides them again.
+  const boxesRef = useRef(boxes);
+  boxesRef.current = boxes;
+  useEffect(() => {
+    if (tool) return;
+    const onClick = (p: MouseEventParams) => {
+      const { onSelect } = latest.current;
+      if (!p.point) return;
+      const { x, y } = p.point;
+      const hit = [...boxesRef.current].reverse().find((b) =>
+        x >= Math.min(b.x0, b.x1) && x <= Math.max(b.x0, b.x1) && y >= Math.min(b.yTarget, b.yStop, b.yEntry) && y <= Math.max(b.yTarget, b.yStop, b.yEntry));
+      onSelect(hit ? hit.id : null);
+    };
+    chart.subscribeClick(onClick);
+    return () => chart.unsubscribeClick(onClick);
+  }, [chart, tool]);
+
   // Armed tool: the next click on the chart places a box at that bar and price.
   useEffect(() => {
     if (!editable || !tool) return;
@@ -204,9 +221,11 @@ export default function TradePlotOverlay(props: Props) {
             {zone(b.yTarget, "rgba(8,153,129,0.22)")}
             {zone(b.yStop, "rgba(242,54,69,0.22)")}
             <div className="absolute pointer-events-none" style={{ left, width, top: b.yEntry, borderTop: `${selected ? 2 : 1}px solid ${selected ? BLUE : "#9ca3af"}` }} />
+            {selected && <>
             <div className={label} style={{ left: cx, top: targetUp ? b.yTarget - 26 : b.yTarget + 4, background: TEAL }}>{levelText("Target", m.target)}</div>
             <div className={label} style={{ left: cx, top: stopUp ? b.yStop - 26 : b.yStop + 4, background: CORAL }}>{levelText("Stop", m.stop)}</div>
-            <div className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-center leading-tight tabular-nums shadow"
+            </>}
+            {selected && <div className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-center leading-tight tabular-nums shadow"
               style={{ left: cx, top: b.yEntry + (targetUp ? 14 : -14), background: dark ? "#1e222d" : "#fff", color: dark ? "#e2e8f0" : "#0f172a", border: `1.5px solid ${tint}` }}
               onPointerDown={(e) => { e.stopPropagation(); props.onSelect(plot.id); }}>
               <div>
@@ -218,7 +237,7 @@ export default function TradePlotOverlay(props: Props) {
                 <button title="Delete this trade box" onPointerDown={(e) => e.stopPropagation()} onClick={() => props.onDelete(plot.id)}
                   className="absolute -top-2 -right-2 p-0.5 rounded-full bg-slate-600 text-white"><X size={10} /></button>
               )}
-            </div>
+            </div>}
             {editable && (
               <>
                 {strip(b.yTarget, "target", "ns-resize")}
