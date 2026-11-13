@@ -3,7 +3,6 @@ import type { IChartApi, ISeriesApi, Logical, MouseEventParams } from "lightweig
 import { X } from "lucide-react";
 import type { PlotDraft, PlottedTrade } from "../lib/api";
 import { barKey } from "../lib/barTime";
-import { money, percent, points, price as fmt } from "../lib/formatTrade";
 import {
   barIndexAtOrBefore, chartTimeToNorm, clampLevel, indexToTime, newPlotDraft, normTime, plotMetrics, timeToIndex, toApiTime,
   toDraft, type PlotSide,
@@ -15,7 +14,7 @@ interface Props {
   chart: IChartApi;
   series: ISeriesApi<"Candlestick">;
   /** The bars on the chart; a box is anchored to a bar by its time. */
-  bars: { date: string }[];
+  bars: { date: string; close: number }[];
   symbol: string;
   plots: PlottedTrade[];
   /** Trade plot mode is on: boxes can be placed, dragged and deleted. Off: they are only drawn. */
@@ -34,7 +33,9 @@ interface Props {
 interface Box { id: number; x0: number; x1: number; yEntry: number; yStop: number; yTarget: number }
 interface Frame { boxes: Box[]; paneWidth: number }
 
-const BLUE = "#3b82f6", GREEN = "#22c55e", RED = "#ef4444";
+const BLUE = "#3b82f6", TEAL = "#089981", CORAL = "#f23645";
+const num = (n: number, digits = 2, signed = false) =>
+  `${signed && n > 0 ? "+" : n < 0 ? "-" : ""}${Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Screen positions of every box, refreshed each frame so they follow zoom, scroll and price-axis changes. */
@@ -160,10 +161,6 @@ export default function TradePlotOverlay(props: Props) {
     if (d?.patch) props.onChange(d.base.id, toDraft({ ...d.base, ...d.patch }));
   };
 
-  const chip = `absolute pointer-events-none select-none whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums shadow-sm ${
-    dark ? "bg-[#1e222d]/90 text-slate-200" : "bg-white/90 text-slate-700"
-  }`;
-
   return (
     <div ref={rootRef} className="absolute inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 9 }}>
       {tool && editable && (
@@ -180,35 +177,46 @@ export default function TradePlotOverlay(props: Props) {
         const m = plotMetrics(plot);
         const selected = plot.id === selectedId;
         const targetUp = b.yTarget < b.yEntry, stopUp = b.yStop < b.yEntry;
-        const zone = (y: number, color: string, fill: string) => (
+        const zone = (y: number, fill: string) => (
           <div className="absolute pointer-events-none"
-            style={{ left, width, top: Math.min(y, b.yEntry), height: Math.abs(y - b.yEntry), background: fill, borderTop: `1px solid ${color}`, borderBottom: `1px solid ${color}` }} />
+            style={{ left, width, top: Math.min(y, b.yEntry), height: Math.abs(y - b.yEntry), background: fill }} />
         );
         const strip = (y: number, handle: Handle, cursor: string) => (
           <div className="absolute pointer-events-auto" style={{ left, width, top: y - 6, height: 12, cursor }}
             onPointerDown={(e) => startDrag(e, plot as PlottedTrade, handle)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} />
         );
-        const rr = m.rr === null ? "" : ` · RR ${m.rr.toFixed(2)}`;
-        const amount = (v: number | null) => (v === null ? "" : ` · ${money(v)}`);
+        const cx = (left + right) / 2;
+        const last = bars.length ? bars[bars.length - 1].close : null;
+        const openPts = last === null ? null : (last - plot.entry_price) * (plot.side === "long" ? 1 : -1);
+        const openPnl = openPts === null ? null : plot.qty ? openPts * plot.qty : openPts;
+        const gain = (openPts ?? 0) >= 0;
+        const tint = gain ? TEAL : CORAL;
+        const levelText = (name: string, l: { points: number; pct: number; money: number | null }) =>
+          `${name}: ${num(Math.abs(l.points))} (${num(Math.abs(l.pct), 3)}%) ${Math.round(Math.abs(l.points) * 100).toLocaleString("en-IN")}`
+          + (l.money === null ? "" : `, Amount: ${num(Math.abs(l.money))}`);
+        const label = "absolute pointer-events-none select-none whitespace-nowrap rounded px-2 py-1 text-xs font-medium tabular-nums text-white -translate-x-1/2";
+        const knob = (x: number, y: number, round: boolean) => (
+          <div className="absolute pointer-events-none"
+            style={{ left: x - 5, top: y - 5, width: 10, height: 10, borderRadius: round ? 5 : 2, background: dark ? "#131722" : "#fff", border: `2px solid ${BLUE}` }} />
+        );
         return (
           <div key={plot.id}>
-            {zone(b.yTarget, GREEN, "rgba(34,197,94,0.14)")}
-            {zone(b.yStop, RED, "rgba(239,68,68,0.14)")}
-            <div className="absolute pointer-events-none" style={{ left, width, top: b.yEntry, borderTop: `${selected ? 2 : 1}px solid ${BLUE}` }} />
-            <div className={chip} style={{ left: left + 6, top: targetUp ? b.yTarget + 3 : b.yTarget - 21, color: GREEN }}>
-              Target {fmt(m.target.price)} · {points(m.target.points)} · {percent(m.target.pct)}{rr}{amount(m.target.money)}
-            </div>
-            <div className={chip} style={{ left: left + 6, top: stopUp ? b.yStop + 3 : b.yStop - 21, color: RED }}>
-              Stop {fmt(m.stop.price)} · {points(m.stop.points)} · {percent(m.stop.pct)}{amount(m.stop.money)}
-            </div>
-            <div className={`${chip} pointer-events-auto flex items-center gap-1.5`} style={{ left: left + 6, top: b.yEntry - 11, borderLeft: `3px solid ${BLUE}` }}
+            {zone(b.yTarget, "rgba(8,153,129,0.22)")}
+            {zone(b.yStop, "rgba(242,54,69,0.22)")}
+            <div className="absolute pointer-events-none" style={{ left, width, top: b.yEntry, borderTop: `${selected ? 2 : 1}px solid ${selected ? BLUE : "#9ca3af"}` }} />
+            <div className={label} style={{ left: cx, top: targetUp ? b.yTarget - 26 : b.yTarget + 4, background: TEAL }}>{levelText("Target", m.target)}</div>
+            <div className={label} style={{ left: cx, top: stopUp ? b.yStop - 26 : b.yStop + 4, background: CORAL }}>{levelText("Stop", m.stop)}</div>
+            <div className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-center leading-tight tabular-nums shadow"
+              style={{ left: cx, top: b.yEntry + (targetUp ? 14 : -14), background: dark ? "#1e222d" : "#fff", color: dark ? "#e2e8f0" : "#0f172a", border: `1.5px solid ${tint}` }}
               onPointerDown={(e) => { e.stopPropagation(); props.onSelect(plot.id); }}>
-              <span className={`font-bold ${plot.side === "long" ? "text-emerald-500" : "text-red-500"}`}>{plot.side === "long" ? "LONG" : "SHORT"}</span>
-              <span>{fmt(plot.entry_price)}</span>
-              {m.rr !== null && <span>RR {m.rr.toFixed(2)}</span>}
+              <div>
+                <span className={plot.side === "long" ? "text-emerald-500 font-bold" : "text-red-500 font-bold"}>{plot.side === "long" ? "LONG" : "SHORT"}</span>
+                {openPnl !== null && <> · Open P&amp;L: {num(openPnl, 2, true)}{plot.qty ? `, Qty: ${plot.qty}` : ""}</>}
+              </div>
+              {m.rr !== null && <div>Risk/Reward Ratio: {m.rr.toFixed(2)}</div>}
               {editable && selected && (
                 <button title="Delete this trade box" onPointerDown={(e) => e.stopPropagation()} onClick={() => props.onDelete(plot.id)}
-                  className="p-0.5 rounded hover:bg-slate-500/20"><X size={12} /></button>
+                  className="absolute -top-2 -right-2 p-0.5 rounded-full bg-slate-600 text-white"><X size={10} /></button>
               )}
             </div>
             {editable && (
@@ -219,6 +227,14 @@ export default function TradePlotOverlay(props: Props) {
                 <div className="absolute pointer-events-auto"
                   style={{ left: right - 6, width: 12, top: Math.min(b.yTarget, b.yStop, b.yEntry), height: Math.max(Math.abs(b.yTarget - b.yStop), 12), cursor: "ew-resize" }}
                   onPointerDown={(e) => startDrag(e, plot as PlottedTrade, "end")} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} />
+                {selected && (
+                  <>
+                    {knob(left, b.yTarget, false)}
+                    {knob(left, b.yStop, true)}
+                    {knob(left, b.yEntry, true)}
+                    {knob(right, b.yEntry, false)}
+                  </>
+                )}
               </>
             )}
           </div>
