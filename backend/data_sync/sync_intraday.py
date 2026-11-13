@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import yfinance as yf
 
+from backend.core.spot_prices import yahoo_ticker
 from backend.data_sync.base import upsert_df
 from backend.db.connection import get_db
 
@@ -32,7 +33,7 @@ def fetch_intraday_symbol(symbol: str, interval: str, days: int) -> pd.DataFrame
     max_days = MAX_LOOKBACK_DAYS.get(interval, 60)
     days = min(days, max_days)
     period = f"{days}d"
-    t = yf.Ticker(f"{sym}.NS")
+    t = yf.Ticker(yahoo_ticker(sym))
     hist = t.history(period=period, interval=interval)
     if hist.empty:
         return pd.DataFrame()

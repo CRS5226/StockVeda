@@ -43,3 +43,29 @@ def test_risk_free_rate_is_the_latest_repo_rate_on_or_before_the_date(db):
 
 def test_risk_free_rate_falls_back_when_there_is_no_data(db):
     assert rates.get_risk_free_rate("2026-01-01") == rates.DEFAULT_RISK_FREE_RATE
+
+
+def test_yahoo_tickers_for_stocks_and_indices():
+    assert spot_prices.yahoo_ticker("tcs") == "TCS.NS"
+    assert spot_prices.yahoo_ticker(" nifty ") == "^NSEI"
+    assert spot_prices.yahoo_ticker("BANKNIFTY") == "^NSEBANK"
+    assert spot_prices.yahoo_ticker("SENSEX") == "^BSESN"
+
+
+def test_the_intraday_fetch_asks_yahoo_for_the_index_ticker(monkeypatch):
+    from backend.data_sync import sync_intraday
+    import pandas as pd
+
+    asked = []
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            asked.append(ticker)
+
+        def history(self, period, interval):
+            return pd.DataFrame()
+
+    monkeypatch.setattr(sync_intraday.yf, "Ticker", FakeTicker)
+    sync_intraday.fetch_intraday_symbol("NIFTY", "5m", 10)
+    sync_intraday.fetch_intraday_symbol("TCS", "5m", 10)
+    assert asked == ["^NSEI", "TCS.NS"]

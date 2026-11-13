@@ -92,3 +92,19 @@ def test_stored_history_that_covers_the_range_is_not_missing(db):
         db.execute("INSERT INTO stock_ohlcv VALUES (?, 'TCS', 1, 2, 1, 2, 10)", [d])
     res = load_candles(db, "TCS", "1D", date.today() - timedelta(days=28), date.today(), None)
     assert res["missing"]["total"] == 0
+
+
+def test_an_index_reads_its_daily_candles_from_index_ohlcv(db):
+    db.execute("INSERT INTO index_ohlcv (date, index_name, open, high, low, close) VALUES "
+               "('2026-11-10', 'NIFTY 50', 100, 110, 95, 105), ('2026-11-11', 'NIFTY 50', 105, 112, 101, 108)")
+    res = load_candles(db, "NIFTY", "1D", date(2026, 11, 1), date(2026, 11, 30), None)
+    assert [b["close"] for b in res["bars"]] == [105.0, 108.0]
+    assert res["bars"][0]["volume"] == 0
+    # weekly and monthly are built from the same daily candles
+    assert len(load_candles(db, "NIFTY", "1W", date(2026, 11, 1), date(2026, 11, 30), None)["bars"]) == 1
+
+
+def test_a_stock_still_reads_stock_ohlcv(db):
+    db.execute("INSERT INTO stock_ohlcv (date, symbol, open, high, low, close, volume) VALUES ('2026-11-10', 'TCS', 1, 3, 1, 2, 50)")
+    res = load_candles(db, "TCS", "1D", date(2026, 11, 1), date(2026, 11, 30), None)
+    assert [b["volume"] for b in res["bars"]] == [50]
