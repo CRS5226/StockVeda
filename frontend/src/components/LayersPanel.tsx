@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { Minus, Slash, Square, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
+import { Minus, Redo2, Slash, Square, Trash2, Undo2, TrendingDown, TrendingUp, X } from "lucide-react";
 import type { ChartDrawing, PlottedTrade } from "../lib/api";
 import { price } from "../lib/formatTrade";
 
-export type LayerRef = { type: "trade" | "drawing"; id: number };
+export type { LayerRef } from "../lib/useLayerHistory";
+import type { LayerRef } from "../lib/useLayerHistory";
 
 interface Props {
   symbol: string;
@@ -14,6 +15,10 @@ interface Props {
   onSelect: (layer: LayerRef) => void;
   onDelete: (layer: LayerRef) => void;
   onDeleteAll: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   onClose: () => void;
 }
 
@@ -40,7 +45,7 @@ function rows(plots: PlottedTrade[], drawings: ChartDrawing[]): Row[] {
 }
 
 /** Everything plotted on the chart for this symbol, in one list: select an item to find it, delete the ones you no longer want. */
-export default function LayersPanel({ symbol, plots, drawings, selected, dark, onSelect, onDelete, onDeleteAll, onClose }: Props) {
+export default function LayersPanel({ symbol, plots, drawings, selected, dark, onSelect, onDelete, onDeleteAll, canUndo, canRedo, onUndo, onRedo, onClose }: Props) {
   const list = rows(plots, drawings);
   const muted = dark ? "text-slate-400" : "text-slate-500";
   return (
@@ -48,7 +53,13 @@ export default function LayersPanel({ symbol, plots, drawings, selected, dark, o
       <div className={`h-10 shrink-0 flex items-center px-3 border-b ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
         <span className="text-sm font-semibold">Layers</span>
         <span className={`ml-2 text-xs ${muted}`}>{symbol} · {list.length}</span>
-        <button onClick={onClose} title="Close" className={`ml-auto p-1 rounded ${dark ? "hover:bg-[#1e222d]" : "hover:bg-slate-100"}`}><X size={14} /></button>
+        <div className="ml-auto flex items-center">
+          {([["Undo delete", canUndo, onUndo, <Undo2 key="u" size={14} />], ["Redo delete", canRedo, onRedo, <Redo2 key="r" size={14} />]] as const).map(([name, ok, fn, icon]) => (
+            <button key={name} onClick={fn} disabled={!ok} title={name}
+              className={`p-1 rounded disabled:opacity-30 ${dark ? "hover:bg-[#1e222d]" : "hover:bg-slate-100"}`}>{icon}</button>
+          ))}
+        </div>
+        <button onClick={onClose} title="Close" className={`ml-1 p-1 rounded ${dark ? "hover:bg-[#1e222d]" : "hover:bg-slate-100"}`}><X size={14} /></button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
         {list.length === 0 && <p className={`p-4 text-xs ${muted}`}>Nothing is plotted on {symbol} yet. Trade boxes, lines and rectangles you draw will be listed here.</p>}

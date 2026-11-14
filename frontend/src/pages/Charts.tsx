@@ -19,6 +19,7 @@ import { useChartData } from "../lib/useChartData";
 import { useReplay } from "../lib/useReplay";
 import { useTradePlots } from "../lib/useTradePlots";
 import { useDrawings } from "../lib/useDrawings";
+import { useLayerHistory } from "../lib/useLayerHistory";
 import type { DrawKind } from "../lib/drawings";
 import { normTime, timeToIndex, type PlotSide } from "../lib/tradePlot";
 import { barKey, toChartTime } from "../lib/barTime";
@@ -58,6 +59,9 @@ export default function Charts() {
   const [selectedPlot, setSelectedPlot] = useState<number | null>(null);
   const tradePlots = useTradePlots(symbol);
   const drawings = useDrawings(symbol);
+  const history = useLayerHistory(symbol,
+    { items: tradePlots.plots, create: tradePlots.create, remove: tradePlots.remove },
+    { items: drawings.drawings, create: drawings.create, remove: drawings.remove });
   const [layersOpen, setLayersOpen] = useState(false);
   const [selectedDrawing, setSelectedDrawing] = useState<number | null>(null);
   const [drawTool, setDrawTool] = useState<DrawKind | null>(null); // armed line / rectangle tool
@@ -182,14 +186,17 @@ export default function Charts() {
     if (index >= 0) handle.chart.timeScale().setVisibleLogicalRange({ from: index - 30, to: index + 60 });
   };
   const deleteLayer = (layer: LayerRef) => {
-    if (layer.type === "trade") { void tradePlots.remove(layer.id); setSelectedPlot((c) => (c === layer.id ? null : c)); }
-    else { void drawings.remove(layer.id); setSelectedDrawing((c) => (c === layer.id ? null : c)); }
+    history.deleteLayers([layer]);
+    if (layer.type === "trade") setSelectedPlot((c) => (c === layer.id ? null : c));
+    else setSelectedDrawing((c) => (c === layer.id ? null : c));
   };
   const deleteAllLayers = () => {
     const n = tradePlots.plots.length + drawings.drawings.length;
-    if (!window.confirm(`Delete all ${n} plotted items on ${symbol}? This cannot be undone.`)) return;
-    tradePlots.plots.forEach((p) => void tradePlots.remove(p.id));
-    drawings.drawings.forEach((d) => void drawings.remove(d.id));
+    if (!window.confirm(`Delete all ${n} plotted items on ${symbol}? You can undo this from the Layers panel.`)) return;
+    history.deleteLayers([
+      ...tradePlots.plots.map((p): LayerRef => ({ type: "trade", id: p.id })),
+      ...drawings.drawings.map((d): LayerRef => ({ type: "drawing", id: d.id })),
+    ]);
     setSelectedPlot(null);
     setSelectedDrawing(null);
   };
@@ -378,12 +385,12 @@ export default function Charts() {
         {handle && !replay.active && (
           <TradePlotOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} plots={tradePlots.plots}
             editable={plotMode} tool={plotTool} dark={dark} selectedId={selectedPlot} onSelect={setSelectedPlot}
-            onCreate={tradePlots.create} onChange={tradePlots.update} onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot(null); }}
+            onCreate={tradePlots.create} onChange={tradePlots.update} onDelete={(id) => deleteLayer({ type: "trade", id })}
             onToolDone={() => setPlotTool(null)} />
         )}
         {handle && !replay.active && (
           <DrawingsOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} drawings={drawings.drawings}
-            tool={drawTool} dark={dark} selectedId={selectedDrawing} onSelect={setSelectedDrawing} onCreate={drawings.create} onChange={drawings.update} onDelete={(id) => { void drawings.remove(id); }}
+            tool={drawTool} dark={dark} selectedId={selectedDrawing} onSelect={setSelectedDrawing} onCreate={drawings.create} onChange={drawings.update} onDelete={(id) => deleteLayer({ type: "drawing", id })}
             onToolDone={() => setDrawTool(null)} />
         )}
         {picking && (
@@ -439,14 +446,15 @@ export default function Charts() {
         <aside className={`w-80 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
           <TradePlotPanel plots={tradePlots.plots} loading={tradePlots.loading} error={tradePlots.error} selectedId={selectedPlot} dark={dark}
             onSelect={setSelectedPlot} onJump={jumpToPlot} onChange={tradePlots.update}
-            onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot((cur) => (cur === id ? null : cur)); }} />
+            onDelete={(id) => deleteLayer({ type: "trade", id })} />
         </aside>
       )}
       {layersOpen && !replay.active && (
         <aside className={`w-72 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
           <LayersPanel symbol={symbol} plots={tradePlots.plots} drawings={drawings.drawings} dark={dark}
             selected={selectedPlot !== null ? { type: "trade", id: selectedPlot } : selectedDrawing !== null ? { type: "drawing", id: selectedDrawing } : null}
-            onSelect={selectLayer} onDelete={deleteLayer} onDeleteAll={deleteAllLayers} onClose={() => setLayersOpen(false)} />
+            onSelect={selectLayer} onDelete={deleteLayer} onDeleteAll={deleteAllLayers}
+            canUndo={history.canUndo} canRedo={history.canRedo} onUndo={() => void history.undo()} onRedo={() => void history.redo()} onClose={() => setLayersOpen(false)} />
         </aside>
       )}
       {replay.active && (
