@@ -6,6 +6,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+from backend.core.data_reset import reset_market_data
 from backend.core.screener_engine import Condition, run_screen
 from backend.core.screener_universe import (
     PRESETS, resolve_preset, smart_sync, get_job, new_job_id,
@@ -198,8 +199,6 @@ def delete_saved_screener(sid: int):
 
 @router.delete("/stock-data")
 def delete_all_stock_data():
-    """Wipe all fetched OHLCV and technical cache data. Watchlists are preserved."""
-    db = get_db()
-    db.execute("DELETE FROM stock_ohlcv")
-    db.execute("DELETE FROM stock_technical_cache")
-    return {"ok": True, "message": "All stock OHLCV and indicator data deleted. Watchlists intact."}
+    """Reset Data: wipe all candles (daily, intraday, index), bhavcopy delivery data and the indicator cache."""
+    removed = reset_market_data(get_db())
+    return {"ok": True, "removed": removed, "message": "All candle and bhavcopy data deleted. Watchlists and plots are intact."}
