@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Trash2 } from "lucide-react";
-import type { HoldingDraft, PortfolioHolding } from "../../lib/api";
+import type { HoldingDraft, HoldingKind, PortfolioHolding } from "../../lib/api";
+import { KIND_LABELS, KIND_ORDER, KIND_STYLE } from "../../lib/holdingKinds";
 import { nextSort, sortRows, type SortState } from "../../lib/sortRows";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 
@@ -24,13 +25,25 @@ function Row({ h, onUpdate, onDelete }: { h: PortfolioHolding } & Pick<Props, "o
     if ((q !== null && !(q > 0)) || (p !== null && !(p > 0))) return; // ignore an invalid number; the field keeps what was typed
     const d = date || null;
     if (q === h.qty && p === h.buy_price && d === h.buy_date) return;
-    onUpdate(h.id, { symbol: h.symbol, qty: q, buy_price: p, buy_date: d });
+    onUpdate(h.id, { symbol: h.symbol, qty: q, buy_price: p, buy_date: d, kind: h.kind_override });
   };
 
   const num = (n: number | null, f: (x: number) => string) => (n === null ? <span className="text-slate-300">—</span> : f(n));
   return (
     <tr className="border-t border-slate-100">
       <td className="px-3 py-2 font-semibold"><Link to={`/stock/${h.symbol}`} className="text-blue-600 hover:underline">{h.symbol}</Link></td>
+      <td className="px-2 py-1.5">
+        <select aria-label={`Type of ${h.symbol}`} value={h.kind} title={h.kind_override ? "Set by you" : "Worked out from the symbol; change it if it is wrong"}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "auto") onUpdate(h.id, { symbol: h.symbol, qty: h.qty, buy_price: h.buy_price, buy_date: h.buy_date, kind: null });
+            else if (v !== h.kind) onUpdate(h.id, { symbol: h.symbol, qty: h.qty, buy_price: h.buy_price, buy_date: h.buy_date, kind: v as HoldingKind });
+          }}
+          className={`text-[11px] font-semibold px-1.5 py-1 rounded border-0 cursor-pointer ${KIND_STYLE[h.kind]}`}>
+          {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
+          {h.kind_override && <option value="auto">↺ Automatic</option>}
+        </select>
+      </td>
       <td className="px-2 py-1.5 w-28"><input className={field} type="number" min={0} step="any" placeholder="Qty" value={qty} onChange={(e) => setQty(e.target.value)} onBlur={save} /></td>
       <td className="px-2 py-1.5 w-32"><input className={field} type="number" min={0} step="any" placeholder="Buy price" value={price} onChange={(e) => setPrice(e.target.value)} onBlur={save} /></td>
       <td className="px-2 py-1.5 w-36"><input className={field} type="date" value={date} onChange={(e) => setDate(e.target.value)} onBlur={save} /></td>
@@ -49,9 +62,9 @@ function Row({ h, onUpdate, onDelete }: { h: PortfolioHolding } & Pick<Props, "o
   );
 }
 
-type SortKey = "symbol" | "qty" | "buy_price" | "buy_date" | "last_price" | "invested" | "value" | "pnl" | "pnl_pct";
+type SortKey = "symbol" | "kind" | "qty" | "buy_price" | "buy_date" | "last_price" | "invested" | "value" | "pnl" | "pnl_pct";
 const COLUMNS: { key: SortKey; label: string; right?: boolean }[] = [
-  { key: "symbol", label: "Stock" }, { key: "qty", label: "Quantity" }, { key: "buy_price", label: "Buy price" }, { key: "buy_date", label: "Buy date" },
+  { key: "symbol", label: "Stock" }, { key: "kind", label: "Type" }, { key: "qty", label: "Quantity" }, { key: "buy_price", label: "Buy price" }, { key: "buy_date", label: "Buy date" },
   { key: "last_price", label: "Last close", right: true }, { key: "invested", label: "Invested", right: true }, { key: "value", label: "Value", right: true },
   { key: "pnl", label: "P&L", right: true }, { key: "pnl_pct", label: "P&L %", right: true },
 ];
@@ -78,7 +91,7 @@ export default function HoldingsTable({ holdings, onUpdate, onDelete }: Props) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] text-sm">
+      <table className="w-full min-w-[980px] text-sm">
         <thead>
           <tr className="text-xs text-slate-500 text-left">
             {COLUMNS.map((c) => <SortHeader key={c.key} col={c} sort={sort} onSort={(k) => setSort((cur) => nextSort(cur, k))} />)}

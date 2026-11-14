@@ -474,3 +474,6 @@ CREATE TABLE IF NOT EXISTS portfolio_dividends (
     created_at   TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- The type a user set by hand for a holding (stock | etf | reit | invit); empty means it is worked out from the symbol and name.
+ALTER TABLE portfolio_holdings ADD COLUMN IF NOT EXISTS kind VARCHAR;
