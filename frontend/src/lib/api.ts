@@ -386,6 +386,21 @@ export interface PlottedTrade {
 }
 export type PlotDraft = Omit<PlottedTrade, "id" | "created_at" | "updated_at">;
 
+/** A line or rectangle drawn on a chart. Two anchors (time + price); a horizontal line repeats its first as the second. */
+export interface ChartDrawing {
+  id: number;
+  symbol: string;
+  kind: "line" | "hline" | "rect";
+  time1: string;
+  price1: number;
+  time2: string;
+  price2: number;
+  color: string;
+  created_at: string;
+  updated_at: string;
+}
+export type DrawingDraft = Omit<ChartDrawing, "id" | "created_at" | "updated_at">;
+
 export interface TimeframeCandles {
   interval: string;
   bars: (Candle)[];
@@ -625,6 +640,17 @@ export const api = {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }),
   deleteTradePlot: (id: number) => apiFetch<{ ok: boolean }>(`/trade-plots/${id}`, { method: "DELETE" }),
+
+  getDrawings: (symbol: string) => apiFetch<ChartDrawing[]>(`/drawings?symbol=${encodeURIComponent(symbol)}`),
+  createDrawing: (body: DrawingDraft) =>
+    apiFetch<ChartDrawing>("/drawings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }),
+  updateDrawing: (id: number, body: DrawingDraft) =>
+    apiFetch<ChartDrawing>(`/drawings/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }),
+  deleteDrawing: (id: number) => apiFetch<{ ok: boolean }>(`/drawings/${id}`, { method: "DELETE" }),
 
   getTimeframes: () => apiFetch<TimeframeInfo[]>("/intraday/timeframes"),
   getTimeframeCandles: (symbol: string, interval: string, range: { from?: string; to?: string; limit?: number } = {}) => {

@@ -10,12 +10,15 @@ import TradePanel from "../components/TradePanel";
 import TradePlotOverlay from "../components/TradePlotOverlay";
 import TradePlotPanel from "../components/TradePlotPanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
+import DrawingsOverlay from "../components/DrawingsOverlay";
 import DrawingToolbar from "../components/DrawingToolbar";
 import SplitCharts from "../components/SplitCharts";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
 import { useReplay } from "../lib/useReplay";
 import { useTradePlots } from "../lib/useTradePlots";
+import { useDrawings } from "../lib/useDrawings";
+import type { DrawKind } from "../lib/drawings";
 import { normTime, timeToIndex, type PlotSide } from "../lib/tradePlot";
 import { barKey, toChartTime } from "../lib/barTime";
 import {
@@ -53,6 +56,8 @@ export default function Charts() {
   const [plotTool, setPlotTool] = useState<PlotSide | null>(null);
   const [selectedPlot, setSelectedPlot] = useState<number | null>(null);
   const tradePlots = useTradePlots(symbol);
+  const drawings = useDrawings(symbol);
+  const [drawTool, setDrawTool] = useState<DrawKind | null>(null); // armed line / rectangle tool
   // card values per instrument, shared by the cards and the "+" menu on the chart
   const [settings, setSettings] = useState<Record<Instrument, CardSettings>>({ CE: DEFAULT_SETTINGS, PE: DEFAULT_SETTINGS });
   // a stop-loss / target line being dragged: shown on the chart and the cards at once, committed when dropped
@@ -65,6 +70,7 @@ export default function Charts() {
     setTrades([]);
     setLive({});
     setPlotTool(null);
+    setDrawTool(null);
     setSelectedPlot(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf, bars]);
@@ -149,6 +155,7 @@ export default function Charts() {
     setSmcOpen(false);
     setPlotMode(false);
     setPlotTool(null);
+    setDrawTool(null);
   };
 
   /** Scroll the chart to a saved trade box. */
@@ -319,7 +326,8 @@ export default function Charts() {
       ) : (
       <div className="flex flex-1 min-h-0">
       {!replay.active && (
-        <DrawingToolbar dark={dark} plotMode={plotMode} tool={plotTool} onTool={setPlotTool}
+        <DrawingToolbar dark={dark} plotMode={plotMode} tool={plotTool} onTool={(t) => { setPlotTool(t); if (t) setDrawTool(null); }}
+          drawTool={drawTool} onDrawTool={(k) => { setDrawTool(k); if (k) setPlotTool(null); }}
           onTogglePlot={() => { setPlotMode((v) => !v); setPlotTool(null); setPicking(false); }} />
       )}
       <div className="flex flex-col flex-1 min-w-0">
@@ -337,6 +345,11 @@ export default function Charts() {
             editable={plotMode} tool={plotTool} dark={dark} selectedId={selectedPlot} onSelect={setSelectedPlot}
             onCreate={tradePlots.create} onChange={tradePlots.update} onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot(null); }}
             onToolDone={() => setPlotTool(null)} />
+        )}
+        {handle && !replay.active && (
+          <DrawingsOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} drawings={drawings.drawings}
+            tool={drawTool} dark={dark} onCreate={drawings.create} onChange={drawings.update} onDelete={(id) => { void drawings.remove(id); }}
+            onToolDone={() => setDrawTool(null)} />
         )}
         {picking && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold shadow-lg">

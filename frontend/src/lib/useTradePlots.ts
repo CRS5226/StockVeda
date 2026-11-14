@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type PlotDraft, type PlottedTrade } from "./api";
 
 /** The message of an API error: the server's `detail` when it sent one. */
-function errorText(e: unknown): string {
+export function errorText(e: unknown): string {
   const raw = e instanceof Error ? e.message : "Something went wrong.";
   const body = raw.replace(/^\d+:\s*/, "");
   try {
