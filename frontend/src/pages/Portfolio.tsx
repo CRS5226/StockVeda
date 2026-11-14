@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Briefcase, Plus, Trash2 } from "lucide-react";
+import FdSection from "../components/portfolio/FdSection";
 import HoldingsTable from "../components/portfolio/HoldingsTable";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { api, type Watchlist } from "../lib/api";
@@ -102,6 +103,7 @@ export default function Portfolio() {
                 </div>
                 <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
               </div>
+              <FdSection key={p.detail.id} portfolioId={p.detail.id} />
               <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>
             </>
           )}

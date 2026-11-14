@@ -119,6 +119,20 @@ export interface PortfolioHolding {
 export interface PortfolioTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; incomplete: number }
 export interface PortfolioDetail { id: number; name: string; holdings: PortfolioHolding[]; totals: PortfolioTotals }
 export type HoldingDraft = Pick<PortfolioHolding, "symbol" | "qty" | "buy_price" | "buy_date">;
+export type FdFrequency = "monthly" | "quarterly" | "half_yearly" | "yearly";
+export type FdPayout = "cumulative" | FdFrequency;
+/** What the user types in for a fixed deposit. */
+export interface FdDraft {
+  name: string; principal: number; annual_rate: number; start_date: string; maturity_date: string;
+  compounding: FdFrequency; payout: FdPayout;
+}
+/** A saved FD with its value worked out by the server for today. */
+export interface PortfolioFd extends FdDraft {
+  id: number; status: "not_started" | "active" | "matured"; days_left: number;
+  interest_earned: number; interest_received: number; current_value: number; maturity_value: number; maturity_interest: number;
+}
+export interface FdTotals { principal: number; current_value: number; interest_earned: number; interest_received: number; maturity_value: number }
+export interface FdListing { fds: PortfolioFd[]; totals: FdTotals }
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -595,6 +609,13 @@ export const api = {
     apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings/${holdingId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   deleteHolding: (id: number, holdingId: number) =>
     apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings/${holdingId}`, { method: "DELETE" }),
+
+  getFds: (portfolioId: number) => apiFetch<FdListing>(`/portfolios/${portfolioId}/fds`),
+  addFd: (portfolioId: number, body: FdDraft) =>
+    apiFetch<FdListing>(`/portfolios/${portfolioId}/fds`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateFd: (portfolioId: number, id: number, body: FdDraft) =>
+    apiFetch<FdListing>(`/portfolios/${portfolioId}/fds/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteFd: (portfolioId: number, id: number) => apiFetch<FdListing>(`/portfolios/${portfolioId}/fds/${id}`, { method: "DELETE" }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

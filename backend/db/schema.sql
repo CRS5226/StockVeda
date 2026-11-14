@@ -416,3 +416,18 @@ CREATE TABLE IF NOT EXISTS portfolio_holdings (
     created_at   TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- A fixed deposit inside a portfolio. Its current value is worked out from these terms on the day it is viewed.
+CREATE TABLE IF NOT EXISTS portfolio_fds (
+    id            INTEGER,
+    portfolio_id  INTEGER NOT NULL,
+    name          VARCHAR NOT NULL,
+    principal     DOUBLE NOT NULL,
+    annual_rate   DOUBLE NOT NULL,      -- percent
+    start_date    DATE NOT NULL,
+    maturity_date DATE NOT NULL,
+    compounding   VARCHAR NOT NULL,     -- monthly | quarterly | half_yearly | yearly
+    payout        VARCHAR NOT NULL,     -- cumulative | monthly | quarterly | half_yearly | yearly
+    created_at    TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
