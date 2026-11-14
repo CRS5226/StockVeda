@@ -20,6 +20,9 @@ interface Props {
   onCreate: (draft: DrawingDraft) => Promise<ChartDrawing | null>;
   onChange: (id: number, draft: DrawingDraft) => void;
   onDelete: (id: number) => void;
+  /** The selected drawing; owned by the page so the Layers panel can select one too. */
+  selectedId: number | null;
+  onSelect: (id: number | null) => void;
   onToolDone: () => void;
 }
 
@@ -76,7 +79,7 @@ export default function DrawingsOverlay(props: Props) {
   const { chart, series, bars, symbol, drawings, tool, dark } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const barTimes = useMemo(() => bars.map((b) => normTime(barKey(b.date))), [bars]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const { selectedId, onSelect: setSelectedId } = props;
   const [pending, setPending] = useState<Point | null>(null); // first click of a line / rectangle
   const [hover, setHover] = useState<Point | null>(null);
   const [drag, setDrag] = useState<{ id: number; patch: DrawingDraft } | null>(null);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Columns2, Download, Layers, Moon, RefreshCw, Rewind, Sun } from "lucide-react";
+import { AlertCircle, Columns2, Download, Layers, Moon, PanelRight, RefreshCw, Rewind, Sun } from "lucide-react";
 import BacktestChart, { NO_SMC, type ChartHandle } from "../components/BacktestChart";
 import OrderCards from "../components/OrderCards";
 import OrderOverlay from "../components/OrderOverlay";
@@ -10,6 +10,7 @@ import TradePanel from "../components/TradePanel";
 import TradePlotOverlay from "../components/TradePlotOverlay";
 import TradePlotPanel from "../components/TradePlotPanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
+import LayersPanel, { type LayerRef } from "../components/LayersPanel";
 import DrawingsOverlay from "../components/DrawingsOverlay";
 import DrawingToolbar from "../components/DrawingToolbar";
 import SplitCharts from "../components/SplitCharts";
@@ -57,6 +58,8 @@ export default function Charts() {
   const [selectedPlot, setSelectedPlot] = useState<number | null>(null);
   const tradePlots = useTradePlots(symbol);
   const drawings = useDrawings(symbol);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [selectedDrawing, setSelectedDrawing] = useState<number | null>(null);
   const [drawTool, setDrawTool] = useState<DrawKind | null>(null); // armed line / rectangle tool
   // card values per instrument, shared by the cards and the "+" menu on the chart
   const [settings, setSettings] = useState<Record<Instrument, CardSettings>>({ CE: DEFAULT_SETTINGS, PE: DEFAULT_SETTINGS });
@@ -72,6 +75,7 @@ export default function Charts() {
     setPlotTool(null);
     setDrawTool(null);
     setSelectedPlot(null);
+    setSelectedDrawing(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf, bars]);
 
@@ -166,6 +170,28 @@ export default function Charts() {
     if (index < 0) return;
     setSelectedPlot(id);
     handle.chart.timeScale().setVisibleLogicalRange({ from: index - 30, to: index + 60 });
+  };
+
+  const selectLayer = (layer: LayerRef) => {
+    if (layer.type === "trade") { setSelectedDrawing(null); jumpToPlot(layer.id); return; }
+    const d = drawings.drawings.find((x) => x.id === layer.id);
+    setSelectedPlot(null);
+    setSelectedDrawing(layer.id);
+    if (!d || !handle) return;
+    const index = timeToIndex(bars.map((b) => normTime(barKey(b.date))), normTime(d.time1));
+    if (index >= 0) handle.chart.timeScale().setVisibleLogicalRange({ from: index - 30, to: index + 60 });
+  };
+  const deleteLayer = (layer: LayerRef) => {
+    if (layer.type === "trade") { void tradePlots.remove(layer.id); setSelectedPlot((c) => (c === layer.id ? null : c)); }
+    else { void drawings.remove(layer.id); setSelectedDrawing((c) => (c === layer.id ? null : c)); }
+  };
+  const deleteAllLayers = () => {
+    const n = tradePlots.plots.length + drawings.drawings.length;
+    if (!window.confirm(`Delete all ${n} plotted items on ${symbol}? This cannot be undone.`)) return;
+    tradePlots.plots.forEach((p) => void tradePlots.remove(p.id));
+    drawings.drawings.forEach((d) => void drawings.remove(d.id));
+    setSelectedPlot(null);
+    setSelectedDrawing(null);
   };
 
   const exitReplay = () => {
@@ -312,6 +338,15 @@ export default function Charts() {
           </button>
           {bars.length > 0 && !replay.active && <span>{bars.length.toLocaleString()} bars</span>}
           </>)}
+          {!split && !replay.active && (
+            <button onClick={() => setLayersOpen((v) => !v)} title="Everything plotted on this chart"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                layersOpen ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+                  : (dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-600 hover:bg-slate-100")}`}>
+              <PanelRight size={14} /> Layers
+              {tradePlots.plots.length + drawings.drawings.length > 0 && <span className="opacity-70">{tradePlots.plots.length + drawings.drawings.length}</span>}
+            </button>
+          )}
           <button onClick={toggleTheme} title={dark ? "Switch chart to light mode" : "Switch chart to dark mode"}
             className={`p-1.5 rounded transition-colors ${dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-500 hover:bg-slate-100"}`}>
             {dark ? <Sun size={15} /> : <Moon size={15} />}
@@ -348,7 +383,7 @@ export default function Charts() {
         )}
         {handle && !replay.active && (
           <DrawingsOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} drawings={drawings.drawings}
-            tool={drawTool} dark={dark} onCreate={drawings.create} onChange={drawings.update} onDelete={(id) => { void drawings.remove(id); }}
+            tool={drawTool} dark={dark} selectedId={selectedDrawing} onSelect={setSelectedDrawing} onCreate={drawings.create} onChange={drawings.update} onDelete={(id) => { void drawings.remove(id); }}
             onToolDone={() => setDrawTool(null)} />
         )}
         {picking && (
@@ -405,6 +440,13 @@ export default function Charts() {
           <TradePlotPanel plots={tradePlots.plots} loading={tradePlots.loading} error={tradePlots.error} selectedId={selectedPlot} dark={dark}
             onSelect={setSelectedPlot} onJump={jumpToPlot} onChange={tradePlots.update}
             onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot((cur) => (cur === id ? null : cur)); }} />
+        </aside>
+      )}
+      {layersOpen && !replay.active && (
+        <aside className={`w-72 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
+          <LayersPanel symbol={symbol} plots={tradePlots.plots} drawings={drawings.drawings} dark={dark}
+            selected={selectedPlot !== null ? { type: "trade", id: selectedPlot } : selectedDrawing !== null ? { type: "drawing", id: selectedDrawing } : null}
+            onSelect={selectLayer} onDelete={deleteLayer} onDeleteAll={deleteAllLayers} onClose={() => setLayersOpen(false)} />
         </aside>
       )}
       {replay.active && (
