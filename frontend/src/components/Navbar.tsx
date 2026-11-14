@@ -74,7 +74,7 @@ export default function Navbar() {
   const resetStockData = async () => {
     setResetting(true);
     try {
-      await fetch("/api/screener/stock-data", { method: "DELETE" });
+      await api.deleteAllStockData();
     } finally {
       setResetting(false);
       setShowResetConfirm(false);
@@ -150,7 +150,7 @@ export default function Navbar() {
       {/* Reset stock data */}
       <button
         onClick={() => setShowResetConfirm(true)}
-        title="Delete all fetched stock OHLCV data (watchlists kept)"
+        title="Delete all candles and bhavcopy data (watchlists and plots kept)"
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all whitespace-nowrap">
         <Trash2 size={13} />
         <span className="hidden sm:inline">Reset Data</span>
@@ -165,9 +165,9 @@ export default function Navbar() {
                 <AlertTriangle size={18} className="text-red-500" />
               </div>
               <div>
-                <div className="font-semibold text-slate-800 text-sm">Delete all stock data?</div>
+                <div className="font-semibold text-slate-800 text-sm">Delete all market data?</div>
                 <div className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  This removes all downloaded OHLCV candles and indicator cache. Your watchlists are not affected.
+                  This deletes every stored candle (daily, intraday and index), the bhavcopy delivery data and the indicator cache. Press Sync afterwards to download the history again. Watchlists, saved screeners, trade boxes and drawings are kept.
                 </div>
               </div>
             </div>
