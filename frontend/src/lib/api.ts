@@ -386,7 +386,7 @@ export interface PlottedTrade {
 }
 export type PlotDraft = Omit<PlottedTrade, "id" | "created_at" | "updated_at">;
 
-/** A line or rectangle drawn on a chart. Two anchors (time + price); a horizontal line repeats its first as the second. */
+/** A line or rectangle drawn on a chart. Two anchors (time + price); a horizontal line keeps the first price at both ends. */
 export interface ChartDrawing {
   id: number;
   symbol: string;

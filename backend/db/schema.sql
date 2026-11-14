@@ -381,7 +381,7 @@ CREATE TABLE IF NOT EXISTS plotted_trades (
 );
 
 -- A line or rectangle drawn on a chart. Two anchors, each a time (the exchange's wall clock) and a price;
--- a horizontal line uses only the first and repeats it as the second.
+-- a horizontal line runs between the two times at the first price (price2 repeats it).
 CREATE TABLE IF NOT EXISTS chart_drawings (
     id         INTEGER,
     symbol     VARCHAR NOT NULL,

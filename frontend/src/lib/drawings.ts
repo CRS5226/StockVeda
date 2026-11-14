@@ -19,7 +19,7 @@ export function toDrawingDraft(d: ChartDrawing): DrawingDraft {
   return draft;
 }
 
-/** A finished drawing from two clicks (a horizontal line needs only the first). */
+/** A finished drawing from two clicks. A horizontal line keeps the first click's price and runs to the second click's time. */
 export function newDrawing(
   symbol: string, kind: DrawKind, a: { time: string; price: number }, b: { time: string; price: number } = a,
 ): DrawingDraft {
@@ -27,7 +27,7 @@ export function newDrawing(
   return {
     symbol, kind, color: DEFAULT_DRAW_COLOR,
     time1: toApiTime(a.time), price1,
-    time2: toApiTime(kind === "hline" ? a.time : b.time), price2: kind === "hline" ? price1 : round2(b.price),
+    time2: toApiTime(b.time), price2: kind === "hline" ? price1 : round2(b.price),
   };
 }
 
@@ -43,9 +43,9 @@ export function applyHandle(d: DrawingDraft, h: Handle, time: string, price: num
   return next;
 }
 
-/** The whole drawing shifted by whole bars and a price; a horizontal line only moves up and down. Null if a price would go to 0 or below. */
+/** The whole drawing shifted by whole bars and a price. Null if a price would go to 0 or below. */
 export function translate(d: DrawingDraft, barTimes: string[], dIndex: number, dPrice: number): DrawingDraft | null {
-  const shift = (t: string) => (d.kind === "hline" || dIndex === 0
+  const shift = (t: string) => (dIndex === 0
     ? t
     : toApiTime(indexToTime(barTimes, Math.max(0, timeToIndex(barTimes, normTime(t)) + dIndex))));
   const price1 = round2(d.price1 + dPrice), price2 = round2(d.price2 + dPrice);

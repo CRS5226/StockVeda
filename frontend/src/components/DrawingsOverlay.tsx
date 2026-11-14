@@ -90,7 +90,7 @@ export default function DrawingsOverlay(props: Props) {
 
   const shown = useMemo(() => {
     const list = drawings.map((d) => (drag && drag.id === d.id ? { ...d, ...drag.patch } : d));
-    if (tool && tool !== "hline" && pending && hover) {
+    if (tool && pending && hover) {
       list.push({ ...newDrawing(symbol, tool, pending, hover), id: PREVIEW_ID, created_at: "", updated_at: "" });
     }
     return list;
@@ -107,8 +107,8 @@ export default function DrawingsOverlay(props: Props) {
       const index = barIndexAtOrBefore(barTimes, chartTimeToNorm(p.time as Parameters<typeof chartTimeToNorm>[0]));
       if (price === null || index < 0) return;
       const here: Point = { time: barTimes[index], price };
-      if (tool !== "hline" && !pending) { setPending(here); return; }
-      const draft = newDrawing(symbol, tool, pending ?? here, here);
+      if (!pending) { setPending(here); return; }
+      const draft = newDrawing(symbol, tool, pending, here);
       setPending(null); setHover(null);
       onToolDone();
       void onCreate(draft).then((saved) => { if (saved) setSelectedId(saved.id); });
@@ -182,8 +182,7 @@ export default function DrawingsOverlay(props: Props) {
 
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
   const handlers = { onPointerMove: moveDrag, onPointerUp: endDrag, onPointerCancel: endDrag };
-  const hint = tool === "hline" ? "Click the chart to place a horizontal line"
-    : tool ? (pending ? "Click again to finish" : `Click the chart to start the ${tool === "rect" ? "rectangle" : "line"}`) : "";
+  const hint = tool ? (pending ? "Click again to finish" : `Click the chart to start the ${tool === "rect" ? "rectangle" : tool === "hline" ? "horizontal line" : "trend line"}`) : "";
 
   return (
     <div ref={rootRef} className="absolute inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 8 }}>
@@ -200,7 +199,7 @@ export default function DrawingsOverlay(props: Props) {
           const knobs: { x: number; y: number; handle: Handle }[] = preview || !isSel ? [] : d.kind === "line"
             ? [{ x: s.x1, y: s.y1, handle: { t: 1, p: 1 } }, { x: s.x2, y: s.y2, handle: { t: 2, p: 2 } }]
             : d.kind === "hline"
-              ? [{ x: Math.max(20, Math.min(s.x1, width - 20)), y: s.y1, handle: { p: 1 } }]
+              ? [{ x: s.x1, y: s.y1, handle: { t: 1, p: 1 } }, { x: s.x2, y: s.y1, handle: { t: 2, p: 2 } }]
               : [{ x: s.x1, y: s.y1, handle: { t: 1, p: 1 } }, { x: s.x2, y: s.y1, handle: { t: 2, p: 1 } },
                  { x: s.x1, y: s.y2, handle: { t: 1, p: 2 } }, { x: s.x2, y: s.y2, handle: { t: 2, p: 2 } }];
           return (
@@ -220,14 +219,14 @@ export default function DrawingsOverlay(props: Props) {
               )}
               {d.kind === "hline" && (
                 <>
-                  <line x1={0} y1={s.y1} x2={width} y2={s.y1} stroke={s.color} strokeWidth={isSel ? 2 : 1} pointerEvents="none" />
-                  <line x1={0} y1={s.y1} x2={width} y2={s.y1} {...grab} {...hit} />
-                  <text x={width - 6} y={s.y1 - 5} textAnchor="end" fontSize={11} fontWeight={600} fill={s.color} pointerEvents="none">{s.price.toFixed(2)}</text>
+                  <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y1} stroke={s.color} strokeWidth={isSel ? 3 : 2} strokeDasharray={dash} pointerEvents="none" />
+                  <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y1} {...grab} {...hit} />
+                  <text x={Math.max(s.x1, s.x2)} y={s.y1 - 6} textAnchor="end" fontSize={11} fontWeight={600} fill={s.color} pointerEvents="none">{s.price.toFixed(2)}</text>
                 </>
               )}
               {knobs.map((k, i) => (
                 <rect key={i} x={k.x - 5} y={k.y - 5} width={10} height={10} rx={2} strokeWidth={2} stroke={BLUE}
-                  fill={dark ? "#131722" : "#fff"} pointerEvents="all" style={{ cursor: d.kind === "hline" ? "ns-resize" : "move" }}
+                  fill={dark ? "#131722" : "#fff"} pointerEvents="all" style={{ cursor: "move" }}
                   onPointerDown={(e) => startDrag(e, base, { handle: k.handle })} {...handlers} />
               ))}
             </g>
