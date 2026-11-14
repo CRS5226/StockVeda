@@ -32,23 +32,6 @@ interface StrategyV2 {
   timeframe: "1D" | "1W";
 }
 
-// ── Opening Range Breakout (ORB) mode ───────────────────────────────────────
-
-export interface ORBConfig {
-  symbol: string;
-  interval: "1m" | "5m" | "15m" | "30m" | "60m";
-  from_date: string;
-  to_date: string;
-  or_minutes: number;
-  direction: "long_only" | "short_only" | "both";
-  target_pct: number;
-  sl_pct: number;
-  force_exit_time: string;
-  capital_per_trade: number;
-}
-
-export type ORBResult = Awaited<ReturnType<typeof api.runOrbBacktest>>;
-
 // ── Grid Search mode ─────────────────────────────────────────────────────────
 
 export interface GridConfig {
@@ -131,19 +114,6 @@ export interface SavedRun {
 
 const TWO_YEARS_AGO = new Date(Date.now() - 2 * 365 * 86400_000).toISOString().slice(0, 10);
 const TODAY = new Date().toISOString().slice(0, 10);
-
-const DEFAULT_ORB: ORBConfig = {
-  symbol: "RELIANCE",
-  interval: "5m",
-  from_date: new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10),
-  to_date: TODAY,
-  or_minutes: 15,
-  direction: "long_only",
-  target_pct: 1.0,
-  sl_pct: 0.5,
-  force_exit_time: "15:20",
-  capital_per_trade: 50000,
-};
 
 const DEFAULT_STRATEGY: StrategyV2 = {
   entry_conditions: [{ left: "macd", operator: "crosses_above", right: "macd_signal" }],
@@ -236,11 +206,11 @@ interface BacktestState {
   savedRuns: SavedRun[];
 
   // multi-algo mode
-  mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "analysis";
+  mode: "multi_stock" | "multi_algo" | "matrix" | "grid" | "ml" | "analysis";
   algoSlots: AlgoSlot[];
   multiAlgoSymbol: string;
   activeAlgoId: string | null;
-  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "orb" | "grid" | "ml" | "analysis") => void;
+  setMode: (mode: "multi_stock" | "multi_algo" | "matrix" | "grid" | "ml" | "analysis") => void;
   addAlgoSlot: () => void;
   addCustomAlgoSlot: () => void;
   removeAlgoSlot: (id: string) => void;
@@ -259,14 +229,6 @@ interface BacktestState {
   removeMatrixAlgo: (id: string) => void;
   updateMatrixAlgo: (id: string, patch: Partial<Pick<AlgoSlot, "label" | "strategy">>) => void;
   runMatrix: () => Promise<void>;
-
-  // ORB mode
-  orb: ORBConfig;
-  orbResults: ORBResult | null;
-  orbLoading: boolean;
-  orbError: string | null;
-  setOrb: (p: Partial<ORBConfig>) => void;
-  runOrb: () => Promise<void>;
 
   // Grid Search mode
   grid: GridConfig;
@@ -326,7 +288,7 @@ interface BacktestState {
   clusterFeatureGroups: { trend: string[]; value_quality: string[] } | null;
   loadClusterFeatures: () => Promise<void>;
 
-  // Intraday data check/sync for the ML wizard (multi-symbol, unlike ORB's single-symbol flow)
+  // Intraday data check/sync for the ML wizard (multi-symbol)
   mlDataStatus: Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }> | null;
   mlDataStatusLoading: boolean;
   mlSyncJobId: string | null;
@@ -588,26 +550,6 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       }
     } catch (e) {
       set({ matrixLoading: false, matrixError: String(e), matrixProgress: null });
-    }
-  },
-
-  // ── ORB mode ───────────────────────────────────────────────────────────────
-  orb: DEFAULT_ORB,
-  orbResults: null,
-  orbLoading: false,
-  orbError: null,
-
-  setOrb: (p) => set((s) => ({ orb: { ...s.orb, ...p } })),
-
-  runOrb: async () => {
-    const { orb } = get();
-    if (!orb.symbol) return;
-    set({ orbLoading: true, orbError: null, orbResults: null });
-    try {
-      const res = await api.runOrbBacktest(orb);
-      set({ orbResults: res, orbLoading: false });
-    } catch (e) {
-      set({ orbLoading: false, orbError: String(e) });
     }
   },
 

@@ -8,7 +8,7 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub stars](https://img.shields.io/github/stars/CRS5226/StockVeda?style=social)](https://github.com/CRS5226/StockVeda/stargazers)
 
-Self-hosted Indian stock market research platform — screening, charting (SMC overlays, bar replay and paper trading), fundamentals, backtesting (rule-based, ORB, and ML), and macro data in one tool.
+Self-hosted Indian stock market research platform — screening, charting (SMC overlays, bar replay and paper trading), fundamentals, backtesting (rule-based and ML), and macro data in one tool.
 
 Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the frontend. All data is fetched from free public sources (NSE bhavcopy, yfinance, FRED, RBI) and stored locally in a single DuckDB file — no subscriptions, no external databases.
 
@@ -70,7 +70,6 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 | **Multi-Stock** | 1 strategy tested across N stocks |
 | **Multi-Algo** | N strategies overlaid on 1 stock with colored trade markers |
 | **Matrix** | M algos × N stocks, heatmap + ranked table (SSE streamed) |
-| **ORB** | Opening-range breakout on intraday bars, per-trade candle charts |
 | **Grid Search** | Sweep indicator thresholds *and* periods; train/test split with overfit-gap column and a 2-D heatmap |
 | **ML Models** | Triple-barrier meta-labeling — logistic regression, decision tree, random forest, SVM, XGBoost |
 
@@ -115,7 +114,7 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 **Data Sync**
 - One-click sync from the app's Sync panel (top right)
 - NSE bhavcopy — daily OHLCV + delivery for all NSE equity
-- Intraday bars (1m/5m/15m/30m/60m) for ORB backtests
+- Intraday bars (1m/5m/15m/30m/60m) for charts and ML backtests
 - yfinance fallback for any symbol not yet in DB — auto-fetched and cached on first page visit
 - Background sync via pm2 scheduler
 
@@ -259,7 +258,6 @@ Base URL: `http://localhost:8007/api`
 | `GET /backtest/indicators` · `/entry-conditions` · `/strategies` | Builder metadata |
 | `POST /backtest/run-v2` | Multi-stock condition backtest |
 | `POST /backtest/run-matrix` · `/run-matrix-stream` | M algos × N stocks (SSE) |
-| `POST /backtest/run-orb` | Opening-range breakout |
 | `GET /backtest/grid-sweepables` | Sweepable period columns + caps |
 | `POST /backtest/run-grid-search` | Hyperparameter sweep, train/test split (SSE) |
 | `GET /backtest/ml-models` | Available ML models + install status |
