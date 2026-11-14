@@ -13,7 +13,7 @@ interface Category {
 
 // Left-hand categories of the box; each key is a concept defined in lib/smcConcepts.ts.
 const CATEGORIES: Category[] = [
-  { id: "structure", title: "Structure", keys: ["bos", "choch", "points", "swingLines", "swingLevels"] },
+  { id: "structure", title: "Structure", keys: ["bos", "choch", "cisd", "points", "swingLines", "swingLevels"] },
   {
     id: "ob", title: "Order blocks",
     keys: ["orderBlocks", "obFvg", "rejection", "breaker", "mitigation", "showMitigated"],

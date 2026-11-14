@@ -1,3 +1,4 @@
+import { detectCisd } from "../lib/smcCisd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, type IChartApi, type ISeriesApi,
@@ -44,6 +45,7 @@ export interface BoxZone {
 export interface SmcToggles {
   bos: boolean;
   choch: boolean;
+  cisd: boolean;         // change in state of delivery (no swing needed)
   idm: boolean;          // inducement
   points: boolean;       // confirmed HH / HL / LH / LL
   orderBlocks: boolean;       // structure-aware blocks with an FVG on the far side
@@ -66,7 +68,7 @@ export interface SmcToggles {
 }
 
 export const NO_SMC: SmcToggles = {
-  bos: false, choch: false, idm: false, points: false,
+  bos: false, choch: false, cisd: false, idm: false, points: false,
   orderBlocks: false, advancedBlocks: false, fourCandle: false, showMitigated: false, fvg: false, pfg: false, bfg: false, rfg: false, ifvg: false, liquidity: false,
   breaker: false, reclaimed: false, mitigation: false, swingLevels: false, swingLines: false, rejection: false, obFvg: false,
 };
@@ -208,7 +210,7 @@ export default function BacktestChart({
   const lineLabelsRef = useRef<LineLabel[]>([]);
   const [labelPos, setLabelPos] = useState<LabelPos[]>([]);
   // SMC overlays (issue #79) are driven by the SMC tab; every other chart usage leaves them off.
-  const { bos: bosOn, choch: chochOn, idm: idmRaw, points: pointsOn,
+  const { bos: bosOn, choch: chochOn, cisd: cisdOn, idm: idmRaw, points: pointsOn,
           orderBlocks: obOn, advancedBlocks: advRaw, fourCandle: fourOn, showMitigated: showMitOn,
           fvg: fvgOn, pfg: pfgOn, bfg: bfgOn, rfg: rfgOn, ifvg: ifvgOn, liquidity: liqOn,
           breaker: brkRaw, reclaimed: rclRaw, mitigation: mitRaw, swingLevels: slvRaw, swingLines: slnRaw, rejection: rejRaw, obFvg: obFvgRaw } = smc;
@@ -580,17 +582,21 @@ export default function BacktestChart({
       levelLabels.push({ fromDate, toDate, level, text, color });
     };
 
-    // Structure map (lecture rules): BOS (continuation) / ChoCH (trend change) are solid levels
+    // Structure map (lecture rules): BOS (continuation) / ChoCH (trend change) are levels
     // from the broken swing to the breaking bar; IDM is a dotted level from the inducement swing
-    // to the bar that took it. BOS keeps the semantic green/red of its direction, ChoCH is always
-    // amber, IDM magenta. HH/HL/LH/LL are tagged on the candle that formed the point.
+    // to the bar that took it. BOS and ChoCH both take the green/red of their direction (BOS solid,
+    // ChoCH dashed), IDM is magenta. HH/HL/LH/LL are tagged on the candle that formed the point.
+    if (cisdOn) {
+      detectCisd(ohlcv).forEach((c) =>
+        addLevel(c.fromDate, c.date, c.level, c.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Dotted, "CISD"));
+    }
     if (bosOn || chochOn || idmOn || pointsOn) {
       const map = structureMode === "swing" ? mapSwingStructure(ohlcv, { length: swingLength }) : mapStructure(ohlcv);
       map.events.forEach((ev) => {
         if (ev.type === "BOS" && bosOn) {
           addLevel(ev.fromDate, ev.date, ev.level, ev.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Solid, "BOS");
         } else if (ev.type === "ChoCH" && chochOn) {
-          addLevel(ev.fromDate, ev.date, ev.level, "#f59e0b", LineStyle.Solid, "ChoCH");
+          addLevel(ev.fromDate, ev.date, ev.level, ev.direction === "bullish" ? "#16a34a" : "#dc2626", LineStyle.Dashed, "ChoCH");
         } else if (ev.type === "IDM" && idmOn) {
           addLevel(ev.fromDate, ev.date, ev.level, "#d946ef", LineStyle.Dotted, "IDM");
         }
@@ -680,7 +686,7 @@ export default function BacktestChart({
     markers.push(...extraMarkers);
     markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
     candleRef.current?.setMarkers(markers);
-  }, [ohlcv, trades, algoTrades, patternHits, bosOn, chochOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, combinedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
+  }, [ohlcv, trades, algoTrades, patternHits, bosOn, chochOn, cisdOn, idmOn, pointsOn, liqOn, brkOn, rclOn, mitOn, slvOn, slnOn, orderBlocks, advancedBlocks, typedBlocks, combinedBlocks, fvgs, structureMode, swingLength, swingMode, extraMarkers]);
 
   const isMultiAlgo = algoTrades && algoTrades.length > 0;
 

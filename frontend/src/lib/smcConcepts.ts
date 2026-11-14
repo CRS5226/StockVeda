@@ -23,7 +23,17 @@ export const GROUPS: { title: string; concepts: Concept[] }[] = [
       },
       {
         key: "choch", label: "ChoCH", hint: "change of character — body close beyond the protected HL / LH",
-        legend: [{ color: "bg-amber-500", text: "ChoCH — closes through the protected HL / LH, the trend flips" }],
+        legend: [
+          { color: "bg-emerald-600", text: "ChoCH · bullish — dashed, closes through the protected LH, trend turns up" },
+          { color: "bg-red-600", text: "ChoCH · bearish — dashed, closes through the protected HL, trend turns down" },
+        ],
+      },
+      {
+        key: "cisd", label: "CISD", hint: "change in state of delivery — body close back through the open of the last run's first candle; no swing break needed",
+        legend: [
+          { color: "bg-emerald-600", text: "CISD · bullish — dotted, closes above the open of the last down run" },
+          { color: "bg-red-600", text: "CISD · bearish — dotted, closes below the open of the last up run" },
+        ],
       },
       {
         key: "idm", label: "IDM", hint: "inducement — nearest swing left of a high/low; taking it confirms the HH / LL",
