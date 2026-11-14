@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import type { PlotDraft, PlottedTrade } from "../lib/api";
 import { money, percent, price } from "../lib/formatTrade";
 import { plotMetrics, toDraft } from "../lib/tradePlot";
@@ -15,6 +15,8 @@ interface Props {
   onJump: (id: number) => void;
   onChange: (id: number, draft: PlotDraft) => void;
   onDelete: (id: number) => void;
+  /** Close the panel (turns Trade plot mode off). */
+  onClose: () => void;
 }
 
 const shortTime = (iso: string) => iso.replace("T", " ").slice(0, 16).replace(/ 00:00$/, "");
@@ -65,11 +67,12 @@ function Row({ plot, selected, dark, onSelect, onJump, onChange, onDelete }: { p
 }
 
 /** The symbol's saved trade boxes, newest entry last, shown while Trade plot mode is on. */
-export default function TradePlotPanel({ plots, loading, error, selectedId, dark, onSelect, onJump, onChange, onDelete }: Props) {
+export default function TradePlotPanel({ plots, loading, error, selectedId, dark, onSelect, onJump, onChange, onDelete, onClose }: Props) {
   const muted = dark ? "text-slate-400" : "text-slate-500";
   return (
     <div className={`h-full flex flex-col text-xs ${dark ? "bg-[#131722] text-slate-300" : "bg-white text-slate-700"}`}>
-      <div className={`px-3 py-2 border-b ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
+      <div className={`relative px-3 py-2 border-b ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
+        <button onClick={onClose} title="Close" className={`absolute top-2 right-2 p-1 rounded ${dark ? "hover:bg-[#1e222d]" : "hover:bg-slate-100"}`}><X size={14} /></button>
         <div className={`font-semibold text-sm ${dark ? "text-slate-100" : "text-slate-800"}`}>Plotted trades</div>
         <div className={muted}>{plots.length} saved for this symbol</div>
         {error && <div className="mt-1 text-red-500">{error}</div>}

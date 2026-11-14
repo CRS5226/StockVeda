@@ -379,3 +379,19 @@ CREATE TABLE IF NOT EXISTS plotted_trades (
     updated_at  TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- A line or rectangle drawn on a chart. Two anchors, each a time (the exchange's wall clock) and a price;
+-- a horizontal line runs between the two times at the first price (price2 repeats it).
+CREATE TABLE IF NOT EXISTS chart_drawings (
+    id         INTEGER,
+    symbol     VARCHAR NOT NULL,
+    kind       VARCHAR NOT NULL,        -- line | hline | rect
+    time1      TIMESTAMP NOT NULL,
+    price1     DOUBLE NOT NULL,
+    time2      TIMESTAMP NOT NULL,
+    price2     DOUBLE NOT NULL,
+    color      VARCHAR DEFAULT '#3b82f6',
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);

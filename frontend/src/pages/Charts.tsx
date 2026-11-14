@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Download, Layers, Moon, PencilRuler, RefreshCw, Rewind, Sun } from "lucide-react";
+import { AlertCircle, Columns2, Download, Layers, Moon, PanelRight, RefreshCw, Rewind, Sun } from "lucide-react";
 import BacktestChart, { NO_SMC, type ChartHandle } from "../components/BacktestChart";
 import OrderCards from "../components/OrderCards";
 import OrderOverlay from "../components/OrderOverlay";
@@ -10,10 +10,17 @@ import TradePanel from "../components/TradePanel";
 import TradePlotOverlay from "../components/TradePlotOverlay";
 import TradePlotPanel from "../components/TradePlotPanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
+import LayersPanel, { type LayerRef } from "../components/LayersPanel";
+import DrawingsOverlay from "../components/DrawingsOverlay";
+import DrawingToolbar from "../components/DrawingToolbar";
+import SplitCharts from "../components/SplitCharts";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
 import { useReplay } from "../lib/useReplay";
 import { useTradePlots } from "../lib/useTradePlots";
+import { useDrawings } from "../lib/useDrawings";
+import { useLayerHistory } from "../lib/useLayerHistory";
+import type { DrawKind } from "../lib/drawings";
 import { normTime, timeToIndex, type PlotSide } from "../lib/tradePlot";
 import { barKey, toChartTime } from "../lib/barTime";
 import {
@@ -38,6 +45,7 @@ export default function Charts() {
   const dark = theme === "dark";
   const [smc, setSmc] = useState(loadSmcPrefs);
   const [smcOpen, setSmcOpen] = useState(false);
+  const [split, setSplit] = useState(false); // two charts side by side (no replay or trade plot)
   const [structure, setStructure] = useState(loadStructureSettings);
   const { timeframes, bars, loading, busy, error, notice, fetching, syncing, fetchMissing, sync } = useChartData(symbol, tf);
   const replay = useReplay(bars.length);
@@ -50,6 +58,13 @@ export default function Charts() {
   const [plotTool, setPlotTool] = useState<PlotSide | null>(null);
   const [selectedPlot, setSelectedPlot] = useState<number | null>(null);
   const tradePlots = useTradePlots(symbol);
+  const drawings = useDrawings(symbol);
+  const history = useLayerHistory(symbol,
+    { items: tradePlots.plots, create: tradePlots.create, remove: tradePlots.remove },
+    { items: drawings.drawings, create: drawings.create, remove: drawings.remove });
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [selectedDrawing, setSelectedDrawing] = useState<number | null>(null);
+  const [drawTool, setDrawTool] = useState<DrawKind | null>(null); // armed line / rectangle tool
   // card values per instrument, shared by the cards and the "+" menu on the chart
   const [settings, setSettings] = useState<Record<Instrument, CardSettings>>({ CE: DEFAULT_SETTINGS, PE: DEFAULT_SETTINGS });
   // a stop-loss / target line being dragged: shown on the chart and the cards at once, committed when dropped
@@ -62,7 +77,9 @@ export default function Charts() {
     setTrades([]);
     setLive({});
     setPlotTool(null);
+    setDrawTool(null);
     setSelectedPlot(null);
+    setSelectedDrawing(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf, bars]);
 
@@ -146,6 +163,7 @@ export default function Charts() {
     setSmcOpen(false);
     setPlotMode(false);
     setPlotTool(null);
+    setDrawTool(null);
   };
 
   /** Scroll the chart to a saved trade box. */
@@ -156,6 +174,31 @@ export default function Charts() {
     if (index < 0) return;
     setSelectedPlot(id);
     handle.chart.timeScale().setVisibleLogicalRange({ from: index - 30, to: index + 60 });
+  };
+
+  const selectLayer = (layer: LayerRef) => {
+    if (layer.type === "trade") { setSelectedDrawing(null); jumpToPlot(layer.id); return; }
+    const d = drawings.drawings.find((x) => x.id === layer.id);
+    setSelectedPlot(null);
+    setSelectedDrawing(layer.id);
+    if (!d || !handle) return;
+    const index = timeToIndex(bars.map((b) => normTime(barKey(b.date))), normTime(d.time1));
+    if (index >= 0) handle.chart.timeScale().setVisibleLogicalRange({ from: index - 30, to: index + 60 });
+  };
+  const deleteLayer = (layer: LayerRef) => {
+    history.deleteLayers([layer]);
+    if (layer.type === "trade") setSelectedPlot((c) => (c === layer.id ? null : c));
+    else setSelectedDrawing((c) => (c === layer.id ? null : c));
+  };
+  const deleteAllLayers = () => {
+    const n = tradePlots.plots.length + drawings.drawings.length;
+    if (!window.confirm(`Delete all ${n} plotted items on ${symbol}? You can undo this from the Layers panel.`)) return;
+    history.deleteLayers([
+      ...tradePlots.plots.map((p): LayerRef => ({ type: "trade", id: p.id })),
+      ...drawings.drawings.map((d): LayerRef => ({ type: "drawing", id: d.id })),
+    ]);
+    setSelectedPlot(null);
+    setSelectedDrawing(null);
   };
 
   const exitReplay = () => {
@@ -230,6 +273,7 @@ export default function Charts() {
     <div className={`h-full flex flex-col ${dark ? "bg-[#131722]" : "bg-white"}`}>
       {/* Top toolbar */}
       <div className={`h-11 shrink-0 flex items-center gap-3 px-3 border-b ${dark ? "border-[#2a2e39] bg-[#131722]" : "border-slate-200 bg-white"}`}>
+        {!split && (<>
         <div className="w-56">
           <SymbolCombobox value={draft} onChange={setDraft} onSelect={pick} placeholder="Search symbol…" />
         </div>
@@ -264,6 +308,16 @@ export default function Charts() {
             <Rewind size={14} /> Replay
           </button>
         )}
+        </>)}
+        <button onClick={() => { replay.exit(); setPicking(false); setPlotMode(false); setPlotTool(null); setSplit((v) => !v); }}
+          title={split ? "Back to one chart" : "Show two charts side by side"}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+            split
+              ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+              : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
+          }`}>
+          <Columns2 size={14} /> Split
+        </button>
         <button onClick={() => setSmcOpen((v) => !v)} disabled={replay.active}
           title={replay.active ? "SMC overlays are off during replay" : "Smart Money Concepts overlays"}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
@@ -274,31 +328,8 @@ export default function Charts() {
           <Layers size={14} /> SMC
           {smcActive && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
         </button>
-        <button onClick={() => { setPlotMode((v) => !v); setPlotTool(null); setPicking(false); }} disabled={replay.active}
-          title={replay.active ? "Trade plot is off during replay" : "Plot long / short trades on the chart and save them"}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
-            plotMode
-              ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
-              : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
-          }`}>
-          <PencilRuler size={14} /> Trade plot
-        </button>
-        {plotMode && !replay.active && (
-          <div className="flex items-center gap-1">
-            {(["long", "short"] as const).map((side) => (
-              <button key={side} onClick={() => setPlotTool((t) => (t === side ? null : side))}
-                title={`Place a ${side} trade box: click the chart`}
-                className={`px-2.5 py-1 rounded text-xs font-bold border transition-colors ${
-                  plotTool === side
-                    ? (side === "long" ? "bg-emerald-600 text-white border-emerald-600" : "bg-red-600 text-white border-red-600")
-                    : (side === "long" ? "text-emerald-500 border-emerald-500/50 hover:bg-emerald-500/10" : "text-red-500 border-red-500/50 hover:bg-red-500/10")
-                }`}>
-                {side === "long" ? "Long" : "Short"}
-              </button>
-            ))}
-          </div>
-        )}
         <div className={`ml-auto flex items-center gap-3 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          {!split && (<>
           {busy && (
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
@@ -313,6 +344,16 @@ export default function Charts() {
             <RefreshCw size={13} className={syncing || fetching ? "animate-spin" : ""} /> {syncing || fetching ? "Syncing…" : "Sync data"}
           </button>
           {bars.length > 0 && !replay.active && <span>{bars.length.toLocaleString()} bars</span>}
+          </>)}
+          {!split && !replay.active && (
+            <button onClick={() => setLayersOpen((v) => !v)} title="Everything plotted on this chart"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                layersOpen ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+                  : (dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-600 hover:bg-slate-100")}`}>
+              <PanelRight size={14} /> Layers
+              {tradePlots.plots.length + drawings.drawings.length > 0 && <span className="opacity-70">{tradePlots.plots.length + drawings.drawings.length}</span>}
+            </button>
+          )}
           <button onClick={toggleTheme} title={dark ? "Switch chart to light mode" : "Switch chart to dark mode"}
             className={`p-1.5 rounded transition-colors ${dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-500 hover:bg-slate-100"}`}>
             {dark ? <Sun size={15} /> : <Moon size={15} />}
@@ -321,7 +362,16 @@ export default function Charts() {
       </div>
 
       {/* Chart area: the chart (with the order bar under it during replay) and, in replay, the trades on the right */}
+      {split ? (
+        <SplitCharts symbol={symbol} tf={tf} theme={theme} smc={smc} onSmc={changeSmc} smcOpen={smcOpen} onSmcClose={() => setSmcOpen(false)}
+          structure={structure} onStructure={changeStructure} />
+      ) : (
       <div className="flex flex-1 min-h-0">
+      {!replay.active && (
+        <DrawingToolbar dark={dark} plotMode={plotMode} tool={plotTool} onTool={(t) => { setPlotTool(t); if (t) setDrawTool(null); }}
+          drawTool={drawTool} onDrawTool={(k) => { setDrawTool(k); if (k) setPlotTool(null); }}
+          onTogglePlot={() => { setPlotMode((v) => !v); setPlotTool(null); setPicking(false); }} />
+      )}
       <div className="flex flex-col flex-1 min-w-0">
       <div className="relative flex-1 min-h-0">
         <BacktestChart fill ohlcv={shown} symbol={symbol} smc={replay.active ? NO_SMC : smc} theme={theme}
@@ -335,8 +385,13 @@ export default function Charts() {
         {handle && !replay.active && (
           <TradePlotOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} plots={tradePlots.plots}
             editable={plotMode} tool={plotTool} dark={dark} selectedId={selectedPlot} onSelect={setSelectedPlot}
-            onCreate={tradePlots.create} onChange={tradePlots.update} onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot(null); }}
+            onCreate={tradePlots.create} onChange={tradePlots.update} onDelete={(id) => deleteLayer({ type: "trade", id })}
             onToolDone={() => setPlotTool(null)} />
+        )}
+        {handle && !replay.active && (
+          <DrawingsOverlay chart={handle.chart} series={handle.series} bars={bars} symbol={symbol} drawings={drawings.drawings}
+            tool={drawTool} dark={dark} selectedId={selectedDrawing} onSelect={setSelectedDrawing} onCreate={drawings.create} onChange={drawings.update} onDelete={(id) => deleteLayer({ type: "drawing", id })}
+            onToolDone={() => setDrawTool(null)} />
         )}
         {picking && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold shadow-lg">
@@ -391,7 +446,16 @@ export default function Charts() {
         <aside className={`w-80 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
           <TradePlotPanel plots={tradePlots.plots} loading={tradePlots.loading} error={tradePlots.error} selectedId={selectedPlot} dark={dark}
             onSelect={setSelectedPlot} onJump={jumpToPlot} onChange={tradePlots.update}
-            onDelete={(id) => { void tradePlots.remove(id); setSelectedPlot((cur) => (cur === id ? null : cur)); }} />
+            onClose={() => { setPlotMode(false); setPlotTool(null); }}
+            onDelete={(id) => deleteLayer({ type: "trade", id })} />
+        </aside>
+      )}
+      {layersOpen && !replay.active && (
+        <aside className={`w-72 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
+          <LayersPanel symbol={symbol} plots={tradePlots.plots} drawings={drawings.drawings} dark={dark}
+            selected={selectedPlot !== null ? { type: "trade", id: selectedPlot } : selectedDrawing !== null ? { type: "drawing", id: selectedDrawing } : null}
+            onSelect={selectLayer} onDelete={deleteLayer} onDeleteAll={deleteAllLayers}
+            canUndo={history.canUndo} canRedo={history.canRedo} onUndo={() => void history.undo()} onRedo={() => void history.redo()} onClose={() => setLayersOpen(false)} />
         </aside>
       )}
       {replay.active && (
@@ -401,6 +465,7 @@ export default function Charts() {
         </aside>
       )}
       </div>
+      )}
     </div>
   );
 }
