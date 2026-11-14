@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Search, X, ChevronDown, Play, AlertCircle, Plus, Trash2, BookmarkPlus, BarChart2,
-         Shuffle, Zap, LayoutGrid, Sunrise, SlidersHorizontal, BrainCircuit, Check, GitBranch, Download } from "lucide-react";
+         Shuffle, Zap, LayoutGrid, SlidersHorizontal, BrainCircuit, Check, GitBranch, Download } from "lucide-react";
 import Analysis from "./Analysis";
 import { api, ConditionRow, SweepDim, MlFeatureDistribution, ClusteringResult, StockScore, AltCoverage } from "../lib/api";
-import { useBacktestStore, SavedRun, ALGO_COLORS, ORBConfig, ORBResult, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
+import { useBacktestStore, SavedRun, ALGO_COLORS, ML_TIMEFRAME_OPTIONS } from "../store/useBacktestStore";
 import BacktestChart, { type BoxZone } from "../components/BacktestChart";
 import TrendOutlook from "../components/TrendOutlook";
-import IntradayFetchPanel from "../components/IntradayFetchPanel";
-import OrbTradeChart from "../components/OrbTradeChart";
 import SymbolCombobox from "../components/SymbolCombobox";
 import type { PatternHit } from "../lib/candlePatterns";
 import type { BacktestTradeV2 } from "../lib/api";
@@ -236,11 +234,6 @@ function SymbolSearch({ onAdd }: { onAdd: (sym: string) => void }) {
     </div>
   );
 }
-
-// ── Single-value symbol combobox (search-as-you-type + keyboard nav) ───────
-// For fields like ORB's "Symbol" input, where typing should both
-// filter suggestions AND directly update the bound value (unlike SymbolSearch
-// above, which clears itself after adding to a list).
 
 // ── Load watchlist dropdown ────────────────────────────────────────────────
 
@@ -500,27 +493,6 @@ function DataPanel() {
       <div className="mt-1.5 text-[10px] text-slate-400">
         All candles are <span className="font-semibold text-slate-500">daily (1D)</span> · Green ≥500 days · Yellow ≥200 · Orange &lt;200 (limited history)
       </div>
-    </div>
-  );
-}
-
-// ── Timeline preset buttons (ORB Step 1) ─────────────
-
-function TimelinePresetButtons({ onPick }: { onPick: (fromDate: string, toDate: string) => void }) {
-  const pick = (days: number) => {
-    const to = new Date();
-    const from = new Date(); from.setDate(from.getDate() - days);
-    onPick(from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
-  };
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-slate-400">Quick range:</span>
-      {SYNC_DAY_OPTIONS.map((o) => (
-        <button key={o.days} onClick={() => pick(o.days)}
-          className="px-2 py-1 text-[11px] font-medium bg-slate-50 border border-slate-200 rounded-md hover:border-blue-300 hover:bg-blue-50 text-slate-600 transition-colors">
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }
@@ -985,261 +957,6 @@ function MultiAlgoResults({
   );
 }
 
-const ORB_INTERVALS = ["1m", "5m", "15m", "30m", "60m"] as const;
-const ORB_DIRECTIONS = ["long_only", "short_only", "both"] as const;
-
-function OrbPanel({
-  orb, results, loading, error, onChange, onRun,
-}: {
-  orb: ORBConfig;
-  results: ORBResult | null;
-  loading: boolean;
-  error: string | null;
-  onChange: (p: Partial<ORBConfig>) => void;
-  onRun: () => void;
-}) {
-  const [dataStatus, setDataStatus] = useState<{ earliest_datetime: string | null; latest_datetime: string | null; total_bars: number } | null>(null);
-  const [showFetchPanel, setShowFetchPanel] = useState(false);
-  const [selectedTradeIdx, setSelectedTradeIdx] = useState(0);
-
-  const loadDataStatus = useCallback(() => {
-    if (!orb.symbol) return;
-    api.intradayDataStatus(orb.symbol, orb.interval).then(setDataStatus).catch(() => setDataStatus(null));
-  }, [orb.symbol, orb.interval]);
-
-  useEffect(() => { loadDataStatus(); }, [loadDataStatus]);
-  useEffect(() => { setSelectedTradeIdx(0); }, [results]);
-
-  const selectedTrade = results?.trades[selectedTradeIdx] ?? results?.trades[0];
-
-  return (
-    <div className="flex flex-col gap-4">
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">1</div>
-          <span className="text-sm font-semibold text-slate-700">Pick Symbol & Data</span>
-          <span className="text-xs text-slate-400 ml-1">— choose a symbol/interval, confirm intraday coverage, and set your backtest window</span>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Symbol</label>
-            <SymbolCombobox value={orb.symbol} onChange={(sym) => onChange({ symbol: sym })} placeholder="RELIANCE, NIFTY…" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Interval</label>
-            <select value={orb.interval} onChange={(e) => onChange({ interval: e.target.value as ORBConfig["interval"] })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400">
-              {ORB_INTERVALS.map((iv) => <option key={iv} value={iv}>{iv}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">From Date</label>
-            <input type="date" value={orb.from_date} onChange={(e) => onChange({ from_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">To Date</label>
-            <input type="date" value={orb.to_date} onChange={(e) => onChange({ to_date: e.target.value })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-        </div>
-
-        <div className="mb-3">
-          <TimelinePresetButtons onPick={(f, t) => onChange({ from_date: f, to_date: t })} />
-        </div>
-
-        {/* Intraday data coverage for this symbol/interval */}
-        {orb.symbol && (
-          <div className="mb-3 flex items-center gap-2 flex-wrap text-xs">
-            {dataStatus?.earliest_datetime ? (
-              <span className="text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
-                Intraday data available: <span className="font-semibold text-slate-700">{dataStatus.earliest_datetime} → {dataStatus.latest_datetime}</span> ({dataStatus.total_bars} bars)
-              </span>
-            ) : (
-              <span className="text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">No intraday data synced yet for {orb.symbol} ({orb.interval})</span>
-            )}
-            <button onClick={() => setShowFetchPanel((s) => !s)}
-              className="text-blue-600 hover:text-blue-700 font-medium underline underline-offset-2">
-              {showFetchPanel ? "Hide fetch panel" : "Fetch / extend this range"}
-            </button>
-          </div>
-        )}
-
-        {showFetchPanel && orb.symbol && (
-          <div className="mb-3">
-            <IntradayFetchPanel symbol={orb.symbol} interval={orb.interval} onDone={() => { setShowFetchPanel(false); loadDataStatus(); }} />
-          </div>
-        )}
-
-        <div className="text-[10px] text-slate-400 leading-relaxed">
-          Opening Range Breakout requires intraday data fetched on-demand via Yahoo Finance — lookback is
-          limited (~7 days for 1-minute bars, ~60 days for 5/15/30-minute bars). This is a standalone intraday
-          backtester, separate from the daily-bar condition-based Backtest engine.
-        </div>
-      </section>
-
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold shrink-0">2</div>
-          <span className="text-sm font-semibold text-slate-700">Strategy Builder</span>
-          <span className="text-xs text-slate-400 ml-1">— intraday, one trade per day max, no overnight holds</span>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Length of the opening-range window in minutes">OR Minutes</label>
-            <input type="number" value={orb.or_minutes} onChange={(e) => onChange({ or_minutes: parseInt(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Direction</label>
-            <select value={orb.direction} onChange={(e) => onChange({ direction: e.target.value as ORBConfig["direction"] })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400">
-              {ORB_DIRECTIONS.map((d) => <option key={d} value={d}>{d.replace("_", " ")}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Target %</label>
-            <input type="number" step="0.1" value={orb.target_pct} onChange={(e) => onChange({ target_pct: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Stop Loss %</label>
-            <input type="number" step="0.1" value={orb.sl_pct} onChange={(e) => onChange({ sl_pct: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block" title="Force-flatten time (HH:MM) — no overnight holds">Force Exit</label>
-            <input value={orb.force_exit_time} onChange={(e) => onChange({ force_exit_time: e.target.value })}
-              placeholder="15:20"
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Capital / Trade (₹)</label>
-            <input type="number" value={orb.capital_per_trade} onChange={(e) => onChange({ capital_per_trade: parseFloat(e.target.value) })}
-              className="w-full text-sm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
-          </div>
-        </div>
-
-        <button onClick={onRun} disabled={!orb.symbol || loading}
-          className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-          {loading
-            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" /> Running…</>
-            : <><Play size={13} /> Run ORB Backtest</>}
-        </button>
-      </section>
-
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-          <AlertCircle size={16} className="shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {results && (
-        <>
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div>
-                <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total Trades</div>
-                <div className="text-lg font-bold text-slate-800">{results.stats.total_trades}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-400 uppercase tracking-wide">Win Rate</div>
-                <div className="text-lg font-bold text-slate-800">{results.stats.win_rate_pct.toFixed(1)}%</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total P&L</div>
-                <div className={`text-lg font-bold ${results.stats.total_pnl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                  ₹{fmt(results.stats.total_pnl, 2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-400 uppercase tracking-wide">Avg P&L %</div>
-                <div className={`text-lg font-bold ${results.stats.avg_pnl_pct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                  {results.stats.avg_pnl_pct.toFixed(2)}%
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {selectedTrade && selectedTrade.bars.length > 0 && (
-            <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-              <div className="text-sm font-semibold text-slate-700 mb-1">
-                {selectedTrade.trade_date} — {selectedTrade.direction} trade ({orb.interval} bars)
-              </div>
-              <div className="text-[10px] text-slate-400 mb-3">Click a row in the table below to view a different trading day</div>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <OrbTradeChart
-                  bars={selectedTrade.bars}
-                  orHigh={selectedTrade.or_high}
-                  orLow={selectedTrade.or_low}
-                  direction={selectedTrade.direction as "long" | "short"}
-                  entryTime={selectedTrade.entry_time}
-                  entryPrice={selectedTrade.entry_price}
-                  targetPrice={selectedTrade.target_price}
-                  slPrice={selectedTrade.sl_price}
-                  exitTime={selectedTrade.exit_time}
-                  exitPrice={selectedTrade.exit_price}
-                  exitReason={selectedTrade.exit_reason}
-                />
-              </div>
-            </section>
-          )}
-
-          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-            <div className="text-sm font-semibold text-slate-700 mb-3">Trades</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-slate-400 text-left border-b border-slate-100">
-                    <th className="py-1.5 pr-3">Date</th>
-                    <th className="py-1.5 pr-3">Dir</th>
-                    <th className="py-1.5 pr-3 text-right">OR High</th>
-                    <th className="py-1.5 pr-3 text-right">OR Low</th>
-                    <th className="py-1.5 pr-3">Entry</th>
-                    <th className="py-1.5 pr-3 text-right">Entry ₹</th>
-                    <th className="py-1.5 pr-3">Exit</th>
-                    <th className="py-1.5 pr-3 text-right">Exit ₹</th>
-                    <th className="py-1.5 pr-3 text-right">P&L %</th>
-                    <th className="py-1.5 pr-3 text-right">P&L ₹</th>
-                    <th className="py-1.5 pr-3">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.trades.map((t, i) => (
-                    <tr key={i}
-                      onClick={() => setSelectedTradeIdx(i)}
-                      className={`border-b border-slate-50 cursor-pointer transition-colors ${
-                        i === selectedTradeIdx ? "bg-blue-50" : "hover:bg-slate-50/50"
-                      }`}>
-                      <td className="py-1.5 pr-3 font-semibold text-slate-700">{t.trade_date}</td>
-                      <td className="py-1.5 pr-3 capitalize">{t.direction}</td>
-                      <td className="py-1.5 pr-3 text-right text-slate-500">{t.or_high}</td>
-                      <td className="py-1.5 pr-3 text-right text-slate-500">{t.or_low}</td>
-                      <td className="py-1.5 pr-3 text-slate-500">{t.entry_time.slice(11, 16)}</td>
-                      <td className="py-1.5 pr-3 text-right">{t.entry_price}</td>
-                      <td className="py-1.5 pr-3 text-slate-500">{t.exit_time.slice(11, 16)}</td>
-                      <td className="py-1.5 pr-3 text-right">{t.exit_price}</td>
-                      <td className={`py-1.5 pr-3 text-right font-medium ${t.pnl_pct >= 0 ? "text-emerald-600" : "text-red-500"}`}>{t.pnl_pct.toFixed(2)}%</td>
-                      <td className={`py-1.5 pr-3 text-right font-medium ${t.pnl_amount >= 0 ? "text-emerald-600" : "text-red-500"}`}>₹{fmt(t.pnl_amount, 2)}</td>
-                      <td className="py-1.5 pr-3 text-slate-400">{t.exit_reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
-
 // ── Grid Search panel ────────────────────────────────────────────────────────
 
 function isNumericRight(right: string): boolean {
@@ -1603,7 +1320,7 @@ function MlAlgoTypeStep() {
 }
 
 /** Timeframe picker + (for intraday) a data-availability check and sync-if-needed
- * flow — batch version of ORB's IntradayFetchPanel, since ML picks multiple stocks. */
+ * flow, for the several stocks ML picks. */
 /** Timeframe picker, nested inside the "Pick Stocks" step (only shown once at
  * least one stock is picked and we're in ML mode) rather than a separate step. */
 function MlTimeframeInline() {
@@ -2791,8 +2508,6 @@ export default function Backtest() {
     // matrix
     matrixAlgos, matrixResults, matrixLoading, matrixError, matrixProgress,
     addMatrixAlgo, removeMatrixAlgo, updateMatrixAlgo, runMatrix,
-    // ORB
-    orb, orbResults, orbLoading, orbError, setOrb, runOrb,
   } = store;
 
   const [algoSymbolSearch, setAlgoSymbolSearch] = useState("");
@@ -2933,7 +2648,6 @@ export default function Backtest() {
             { key: "multi_stock" as const, Icon: Shuffle,          label: "Multi-Stock", desc: "1 algo · N stocks" },
             { key: "multi_algo"  as const, Icon: Zap,              label: "Multi-Algo",  desc: "N algos · 1 stock" },
             { key: "matrix"      as const, Icon: LayoutGrid,       label: "Matrix",      desc: "M algos · N stocks" },
-            { key: "orb"         as const, Icon: Sunrise,          label: "ORB",         desc: "opening-range breakout" },
             { key: "grid"        as const, Icon: SlidersHorizontal, label: "Grid Search", desc: "tune thresholds & periods" },
             { key: "ml"          as const, Icon: BrainCircuit,     label: "ML Models",   desc: "learned entry filter" },
             { key: "analysis"    as const, Icon: GitBranch,        label: "Analysis",    desc: "markov / monte carlo / index fund" },
@@ -3012,18 +2726,6 @@ export default function Backtest() {
           onRunAll={runAllAlgos}
           expandedAlgoId={expandedAlgoId}
           setExpandedAlgoId={setExpandedAlgoId}
-        />
-      )}
-
-      {/* ── ORB mode ── */}
-      {mode === "orb" && (
-        <OrbPanel
-          orb={orb}
-          results={orbResults}
-          loading={orbLoading}
-          error={orbError}
-          onChange={setOrb}
-          onRun={runOrb}
         />
       )}
 

@@ -666,10 +666,6 @@ export const api = {
     ),
   intradayFetchJob: (jobId: string) =>
     apiFetch<{ total: number; done: number; inserted: number; status: string; error?: string }>(`/intraday/fetch-job/${jobId}`),
-  intradayDataStatus: (symbol: string, interval: string) =>
-    apiFetch<{ earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }>(
-      `/intraday/data-status/${symbol}?interval=${interval}`
-    ),
   fetchIntradayBatch: (symbols: string[], interval: string, days: number) =>
     apiFetch<{ job_id: string; symbols: string[]; interval: string; days: number; max_lookback_days: number }>(
       `/intraday/fetch-batch?symbols=${symbols.map(encodeURIComponent).join(",")}&interval=${interval}&days=${days}`,
@@ -679,26 +675,6 @@ export const api = {
     apiFetch<Record<string, { earliest_datetime: string | null; latest_datetime: string | null; total_bars: number }>>(
       `/intraday/data-status-batch?symbols=${symbols.map(encodeURIComponent).join(",")}&interval=${interval}`
     ),
-
-  runOrbBacktest: (params: {
-    symbol: string; from_date: string; to_date: string; or_minutes?: number;
-    direction?: "long_only" | "short_only" | "both"; target_pct?: number; sl_pct?: number;
-    force_exit_time?: string; capital_per_trade?: number; interval?: string;
-  }) =>
-    apiFetch<{
-      trades: Array<{
-        trade_date: string; direction: string; or_high: number; or_low: number;
-        entry_time: string; entry_price: number; target_price: number; sl_price: number;
-        exit_time: string; exit_price: number; pnl_pct: number; pnl_amount: number; exit_reason: string;
-        bars: Array<{ time: string; open: number; high: number; low: number; close: number }>;
-      }>;
-      stats: { total_trades: number; win_rate_pct: number; total_pnl: number; avg_pnl_pct: number };
-      note?: string;
-    }>("/backtest/run-orb", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    }),
 
   getGridSweepables: () =>
     apiFetch<{ period_columns: string[]; max_combos: number; max_dims: number; max_values_per_dim: number; max_symbols: number }>(

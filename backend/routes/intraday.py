@@ -1,6 +1,6 @@
 """
 Intraday OHLCV routes — on-demand yfinance fetch (since intraday can't be bulk-
-synced like EOD bhavcopy), and query endpoints for ORB backtesting.
+synced like EOD bhavcopy), and query endpoints for the Charts page and ML backtests.
 """
 
 import uuid
@@ -75,23 +75,6 @@ def get_intraday_fetch_job(job_id: str):
     return job
 
 
-@router.get("/data-status/{symbol}")
-def intraday_data_status(symbol: str, interval: str = Query("5m")):
-    """What intraday data is already synced, so the ORB fetch panel can show it
-    before triggering a new fetch."""
-    db = get_db()
-    row = db.execute(
-        "SELECT MIN(datetime), MAX(datetime), COUNT(*) FROM stock_intraday_ohlcv WHERE symbol = ? AND interval = ?",
-        [symbol.strip().upper(), interval],
-    ).fetchone()
-    earliest, latest, total = row if row else (None, None, 0)
-    return {
-        "earliest_datetime": str(earliest) if earliest else None,
-        "latest_datetime": str(latest) if latest else None,
-        "total_bars": total or 0,
-    }
-
-
 @router.post("/fetch-batch")
 async def fetch_intraday_batch(
     background_tasks: BackgroundTasks,
@@ -100,7 +83,7 @@ async def fetch_intraday_batch(
     days: int = Query(30, ge=1, le=730),
 ):
     """Multi-symbol version of /fetch, for the ML section's stock-picker (which
-    can have many symbols at once, unlike ORB's single-symbol flow) — one job_id
+    can have many symbols at once) — one job_id
     tracks progress across the whole list, same polling contract as /fetch-job."""
     if interval not in VALID_INTERVALS:
         raise HTTPException(400, f"interval must be one of {VALID_INTERVALS}")
@@ -122,7 +105,7 @@ async def fetch_intraday_batch(
 
 @router.get("/data-status-batch")
 def intraday_data_status_batch(symbols: str = Query(..., description="Comma-separated symbols"), interval: str = Query("5m")):
-    """Batch version of /data-status/{symbol} — one call for the whole picked
+    """What intraday data is already synced — one call for the whole picked
     stock list instead of N separate requests."""
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     db = get_db()

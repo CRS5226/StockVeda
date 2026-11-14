@@ -134,7 +134,7 @@ def get_candle_stats(symbols: str = Query(..., description="Comma-separated symb
 
 
 
-# Index pseudo-symbols (backtests, ORB, charts) — these aren't
+# Index pseudo-symbols (backtests, charts) — these aren't
 # equities, so they never appear in nse_symbols and would otherwise be unfindable by
 # search (e.g. "NIFTY" would only surface unrelated ETF tickers like NIFTYBEES).
 _INDEX_SEARCH_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
