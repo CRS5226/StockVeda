@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Download, Layers, Moon, PencilRuler, RefreshCw, Rewind, Sun } from "lucide-react";
+import { AlertCircle, Columns2, Download, Layers, Moon, PencilRuler, RefreshCw, Rewind, Sun } from "lucide-react";
 import BacktestChart, { NO_SMC, type ChartHandle } from "../components/BacktestChart";
 import OrderCards from "../components/OrderCards";
 import OrderOverlay from "../components/OrderOverlay";
@@ -10,6 +10,7 @@ import TradePanel from "../components/TradePanel";
 import TradePlotOverlay from "../components/TradePlotOverlay";
 import TradePlotPanel from "../components/TradePlotPanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
+import SplitCharts from "../components/SplitCharts";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
 import { useReplay } from "../lib/useReplay";
@@ -38,6 +39,7 @@ export default function Charts() {
   const dark = theme === "dark";
   const [smc, setSmc] = useState(loadSmcPrefs);
   const [smcOpen, setSmcOpen] = useState(false);
+  const [split, setSplit] = useState(false); // two charts side by side (no replay or trade plot)
   const [structure, setStructure] = useState(loadStructureSettings);
   const { timeframes, bars, loading, busy, error, notice, fetching, syncing, fetchMissing, sync } = useChartData(symbol, tf);
   const replay = useReplay(bars.length);
@@ -230,6 +232,7 @@ export default function Charts() {
     <div className={`h-full flex flex-col ${dark ? "bg-[#131722]" : "bg-white"}`}>
       {/* Top toolbar */}
       <div className={`h-11 shrink-0 flex items-center gap-3 px-3 border-b ${dark ? "border-[#2a2e39] bg-[#131722]" : "border-slate-200 bg-white"}`}>
+        {!split && (<>
         <div className="w-56">
           <SymbolCombobox value={draft} onChange={setDraft} onSelect={pick} placeholder="Search symbol…" />
         </div>
@@ -264,6 +267,16 @@ export default function Charts() {
             <Rewind size={14} /> Replay
           </button>
         )}
+        </>)}
+        <button onClick={() => { replay.exit(); setPicking(false); setPlotMode(false); setPlotTool(null); setSplit((v) => !v); }}
+          title={split ? "Back to one chart" : "Show two charts side by side"}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+            split
+              ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
+              : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
+          }`}>
+          <Columns2 size={14} /> Split
+        </button>
         <button onClick={() => setSmcOpen((v) => !v)} disabled={replay.active}
           title={replay.active ? "SMC overlays are off during replay" : "Smart Money Concepts overlays"}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
@@ -299,6 +312,7 @@ export default function Charts() {
           </div>
         )}
         <div className={`ml-auto flex items-center gap-3 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          {!split && (<>
           {busy && (
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
@@ -313,6 +327,7 @@ export default function Charts() {
             <RefreshCw size={13} className={syncing || fetching ? "animate-spin" : ""} /> {syncing || fetching ? "Syncing…" : "Sync data"}
           </button>
           {bars.length > 0 && !replay.active && <span>{bars.length.toLocaleString()} bars</span>}
+          </>)}
           <button onClick={toggleTheme} title={dark ? "Switch chart to light mode" : "Switch chart to dark mode"}
             className={`p-1.5 rounded transition-colors ${dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-500 hover:bg-slate-100"}`}>
             {dark ? <Sun size={15} /> : <Moon size={15} />}
@@ -321,6 +336,10 @@ export default function Charts() {
       </div>
 
       {/* Chart area: the chart (with the order bar under it during replay) and, in replay, the trades on the right */}
+      {split ? (
+        <SplitCharts symbol={symbol} tf={tf} theme={theme} smc={smc} onSmc={changeSmc} smcOpen={smcOpen} onSmcClose={() => setSmcOpen(false)}
+          structure={structure} onStructure={changeStructure} />
+      ) : (
       <div className="flex flex-1 min-h-0">
       <div className="flex flex-col flex-1 min-w-0">
       <div className="relative flex-1 min-h-0">
@@ -401,6 +420,7 @@ export default function Charts() {
         </aside>
       )}
       </div>
+      )}
     </div>
   );
 }
