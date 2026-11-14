@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Briefcase, Plus, Trash2 } from "lucide-react";
 import AssetsSection from "../components/portfolio/AssetsSection";
 import FdSection from "../components/portfolio/FdSection";
+import MfSection from "../components/portfolio/MfSection";
 import PortfolioTotal from "../components/portfolio/PortfolioTotal";
 import HoldingsTable from "../components/portfolio/HoldingsTable";
 import SymbolCombobox from "../components/SymbolCombobox";
@@ -109,6 +110,7 @@ export default function Portfolio() {
                 </div>
                 <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
               </div>
+              <MfSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
               <FdSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
               <AssetsSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
               <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>

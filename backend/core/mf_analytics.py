@@ -106,6 +106,14 @@ def _xirr(cash_flows: list[tuple[pd.Timestamp, float]], guess: float = 0.12) -> 
     return rate if abs(npv(rate)) < 1.0 else None
 
 
+def xirr(cash_flows: list[tuple]) -> float | None:
+    """XIRR of dated cash flows [(date, amount)], money paid out negative. Returns a fraction (0.12 = 12% a year) or None."""
+    flows = sorted(((pd.Timestamp(d), a) for d, a in cash_flows), key=lambda f: f[0])
+    if not any(a < 0 for _, a in flows) or not any(a > 0 for _, a in flows):
+        return None
+    return _xirr(flows)
+
+
 def sip_xirr(nav_df: pd.DataFrame, monthly_amount: float, start_date: str, end_date: str) -> dict:
     """Simulate a monthly SIP against real historical NAV (one purchase per calendar
     month, at the first available NAV on/after that month's start). Returns invested

@@ -26,14 +26,7 @@ function Donut({ parts }: { parts: Total["parts"] }) {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <div>
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`text-xl font-semibold tabular-nums ${tone ?? "text-slate-900"}`}>{value}</div>
-    </div>
-  );
-}
+const darkTone = (n: number | null) => (n === null || n === 0 ? "text-slate-300" : n > 0 ? "text-emerald-400" : "text-red-400");
 
 /**
  * Everything in the portfolio added up in rupees: stocks, fixed deposits and the other investments, split by type.
@@ -60,14 +53,25 @@ export default function PortfolioTotal({ portfolioId, stocks, refreshKey }: { po
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
       <h2 className="font-semibold mb-4">Portfolio total</h2>
-      <div className="flex flex-wrap gap-8 items-center">
-        <div className="flex flex-col gap-4 min-w-[200px]">
-          <Stat label="Invested" value={rupees(total.invested)} />
-          <Stat label="Current value" value={rupees(total.value)} />
-          <div className="flex gap-8">
-            <Stat label="Profit / loss" value={signedRupees(total.pnl)} tone={resultColor(total.pnl)} />
-            <Stat label="Return" value={total.pnl_pct === null ? "—" : signedPercent(total.pnl_pct)} tone={resultColor(total.pnl_pct)} />
+      <div className="flex flex-wrap gap-8 items-stretch">
+        <div className="min-w-[260px] rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 text-white p-5 flex flex-col gap-4">
+          <div>
+            <div className="text-xs text-slate-300">Current value</div>
+            <div className="text-3xl font-bold tabular-nums">{rupees(total.value)}</div>
+            <div className={`mt-1 text-sm tabular-nums ${darkTone(total.pnl)}`}>
+              Total returns {signedRupees(total.pnl)}{total.pnl_pct !== null && ` (${signedPercent(total.pnl_pct)})`}
+            </div>
           </div>
+          <div className="flex justify-between gap-6 text-sm">
+            <div><div className="text-xs text-slate-300">Invested value</div><div className="font-semibold tabular-nums">{rupees(total.invested)}</div></div>
+            <div className="text-right" title="Annual return worked out from the dated purchases">
+              <div className="text-xs text-slate-300">XIRR</div>
+              <div className={`font-semibold tabular-nums ${darkTone(total.xirr_pct)}`}>{total.xirr_pct === null ? "—" : signedPercent(total.xirr_pct)}</div>
+            </div>
+          </div>
+          {total.xirr_items.total > total.xirr_items.dated && (
+            <div className="text-[11px] text-slate-400">XIRR uses {total.xirr_items.dated} of {total.xirr_items.total} items; the rest have no buy date.</div>
+          )}
         </div>
         {total.parts.length > 0 ? (
           <div className="flex flex-wrap gap-6 items-center flex-1 min-w-[300px]">

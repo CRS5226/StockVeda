@@ -448,3 +448,17 @@ CREATE TABLE IF NOT EXISTS portfolio_assets (
 );
 -- the rate the user types in to show USD assets in rupees
 ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS usd_inr DOUBLE;
+
+-- A mutual fund SIP or lump sum in a portfolio. Units and value are worked out from the stored NAV history.
+CREATE TABLE IF NOT EXISTS portfolio_mf (
+    id           INTEGER,
+    portfolio_id INTEGER NOT NULL,
+    scheme_code  VARCHAR NOT NULL,
+    scheme_name  VARCHAR NOT NULL,
+    kind         VARCHAR NOT NULL,      -- sip | lumpsum
+    amount       DOUBLE NOT NULL,       -- per instalment (SIP) or the whole amount (lump sum)
+    start_date   DATE NOT NULL,
+    end_date     DATE,                  -- a SIP stopped on this date
+    created_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);

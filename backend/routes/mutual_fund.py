@@ -141,7 +141,7 @@ def get_schemes(
     return rows
 
 
-def _backfill_from_mfapi(scheme_code: str, scheme_name: str, isin: Optional[str]) -> int:
+def backfill_from_mfapi(scheme_code: str, scheme_name: str, isin: Optional[str]) -> int:
     """Pull full NAV history from mfapi.in and cache it into mf_nav. Returns rows inserted."""
     try:
         with get_client(timeout=30) as client:
@@ -165,13 +165,15 @@ def _backfill_from_mfapi(scheme_code: str, scheme_name: str, isin: Optional[str]
     df = df[["date", "scheme_code", "scheme_name", "isin", "nav"]]
 
     db = get_db()
+    # An earlier fetchone() on this thread's connection can leave a result open, which blocks register(); finish it first.
+    db.execute("SELECT 1").fetchall()
     db.register("_mf_backfill_tmp", df)
     db.execute("INSERT OR REPLACE INTO mf_nav SELECT * FROM _mf_backfill_tmp")
     db.unregister("_mf_backfill_tmp")
     return len(df)
 
 
-def _load_meta_and_history(scheme_code: str) -> tuple[dict, "pd.DataFrame"]:
+def load_meta_and_history(scheme_code: str) -> tuple[dict, "pd.DataFrame"]:
     """Shared by detail/sip/projection: load scheme meta, backfill from mfapi.in on
     first touch if the local cache is sparse, then return the full NAV history."""
     db = get_db()
@@ -186,7 +188,7 @@ def _load_meta_and_history(scheme_code: str) -> tuple[dict, "pd.DataFrame"]:
         "SELECT COUNT(*) FROM mf_nav WHERE scheme_code = ?", [scheme_code]
     ).fetchone()[0]
     if count < 30:
-        _backfill_from_mfapi(scheme_code, meta["scheme_name"], meta.get("isin"))
+        backfill_from_mfapi(scheme_code, meta["scheme_name"], meta.get("isin"))
 
     hist_df = db.execute(
         "SELECT date, nav FROM mf_nav WHERE scheme_code = ? ORDER BY date", [scheme_code]
@@ -198,7 +200,7 @@ def _load_meta_and_history(scheme_code: str) -> tuple[dict, "pd.DataFrame"]:
 
 @router.get("/scheme/{scheme_code}")
 def get_scheme_detail(scheme_code: str):
-    meta, hist_df = _load_meta_and_history(scheme_code)
+    meta, hist_df = load_meta_and_history(scheme_code)
 
     latest_row = hist_df.iloc[-1]
     latest_nav = float(latest_row["nav"])
@@ -237,7 +239,7 @@ class SipRequest(BaseModel):
 
 @router.post("/scheme/{scheme_code}/sip")
 def get_scheme_sip(scheme_code: str, req: SipRequest):
-    _, hist_df = _load_meta_and_history(scheme_code)
+    _, hist_df = load_meta_and_history(scheme_code)
     end_date = req.end_date or str(hist_df["date"].iloc[-1])
     result = mf_analytics.sip_xirr(hist_df, req.monthly_amount, req.start_date, end_date)
     if "error" in result:
@@ -252,7 +254,7 @@ def get_scheme_projection(
     n_simulations: int = Query(1000, ge=100, le=5000),
     lookback_days: int = Query(252, ge=10, le=1825),
 ):
-    _, hist_df = _load_meta_and_history(scheme_code)
+    _, hist_df = load_meta_and_history(scheme_code)
     result = mf_analytics.nav_projection(hist_df, horizon_days, n_simulations, lookback_days)
     if "error" in result:
         raise HTTPException(400, result["error"])

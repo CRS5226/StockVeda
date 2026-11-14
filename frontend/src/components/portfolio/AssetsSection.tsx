@@ -5,7 +5,7 @@ import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/form
 import { usePortfolioAssets } from "../../lib/usePortfolioAssets";
 
 const TYPES: { value: AssetType; label: string }[] = [
-  { value: "crypto", label: "Crypto" }, { value: "us_stock", label: "US stock" }, { value: "mutual_fund", label: "Mutual fund" },
+  { value: "crypto", label: "Crypto" }, { value: "us_stock", label: "US stock" }, { value: "mutual_fund", label: "Other fund" },
   { value: "bond", label: "Bond" }, { value: "gold", label: "Gold" }, { value: "other", label: "Other" },
 ];
 const typeLabel = Object.fromEntries(TYPES.map((t) => [t.value, t.label])) as Record<AssetType, string>;

@@ -152,7 +152,22 @@ export interface PortfolioTotal {
   invested: number; value: number; pnl: number; pnl_pct: number | null; parts: TotalPart[];
   /** Stocks without a quantity and buy price, and dollar assets without a USD to INR rate: not in the total yet. */
   left_out: { stocks: number; assets: number };
+  /** Annualised return over the items that have a date, and how many items that is. */
+  xirr_pct: number | null;
+  xirr_items: { dated: number; total: number };
 }
+export type MfKind = "sip" | "lumpsum";
+/** What the user types in for a mutual fund: the scheme, a SIP or a lump sum, the amount and when it started. */
+export interface MfDraft { scheme_code: string; kind: MfKind; amount: number; start_date: string; end_date: string | null }
+/** A saved fund with its units and value worked out from the stored NAV history. Figures are null without NAV data. */
+export interface PortfolioMf {
+  id: number; scheme_code: string; scheme_name: string; kind: MfKind; amount: number; start_date: string; end_date: string | null;
+  plan: string | null; option_type: string | null; category: string | null;
+  invested: number | null; units: number | null; current_value: number | null; returns: number | null; returns_pct: number | null;
+  xirr_pct: number | null; installments: number; last_nav: number | null; last_nav_date: string | null; active_sip: boolean;
+}
+export interface MfTotals { invested: number; current_value: number; returns: number; returns_pct: number | null; xirr_pct: number | null }
+export interface MfListing { holdings: PortfolioMf[]; totals: MfTotals }
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -647,6 +662,13 @@ export const api = {
     apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/usd-inr`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usd_inr: rate }) }),
 
   getPortfolioTotal: (portfolioId: number) => apiFetch<PortfolioTotal>(`/portfolios/${portfolioId}/total`),
+
+  getMf: (portfolioId: number) => apiFetch<MfListing>(`/portfolios/${portfolioId}/mf`),
+  addMf: (portfolioId: number, body: MfDraft) =>
+    apiFetch<MfListing>(`/portfolios/${portfolioId}/mf`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateMf: (portfolioId: number, id: number, body: MfDraft) =>
+    apiFetch<MfListing>(`/portfolios/${portfolioId}/mf/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteMf: (portfolioId: number, id: number) => apiFetch<MfListing>(`/portfolios/${portfolioId}/mf/${id}`, { method: "DELETE" }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),
