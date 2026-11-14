@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.core.dividends import buy_date_problem
 from backend.core.portfolio import holding_metrics, latest_closes, portfolio_totals
 from backend.db.connection import get_db
 
@@ -127,12 +128,24 @@ def add_holding(pid: int, body: HoldingIn):
     return portfolio_detail(db, pid)
 
 
+def _check_dividends_still_after_purchase(db, pid: int, hid: int, body: HoldingIn) -> None:
+    """A new buy date must not put a dividend of the stock before its purchase."""
+    symbol = body.symbol.strip().upper()
+    others = [r[0] for r in db.execute(
+        "SELECT buy_date FROM portfolio_holdings WHERE portfolio_id = ? AND symbol = ? AND id <> ?", [pid, symbol, hid]).fetchall()]
+    first = db.execute("SELECT MIN(pay_date) FROM portfolio_dividends WHERE portfolio_id = ? AND symbol = ?", [pid, symbol]).fetchall()[0][0]
+    problem = buy_date_problem(symbol, others + [body.buy_date], first)
+    if problem:
+        raise HTTPException(400, problem)
+
+
 @router.put("/{pid}/holdings/{hid}")
 def update_holding(pid: int, hid: int, body: HoldingIn):
     db = get_db()
     _require_portfolio(db, pid)
     if db.execute("SELECT 1 FROM portfolio_holdings WHERE id = ? AND portfolio_id = ?", [hid, pid]).fetchone() is None:
         raise HTTPException(404, "No such holding.")
+    _check_dividends_still_after_purchase(db, pid, hid, body)
     db.execute(
         "UPDATE portfolio_holdings SET symbol = ?, qty = ?, buy_price = ?, buy_date = ? WHERE id = ?",
         [body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date, hid],
@@ -140,9 +153,22 @@ def update_holding(pid: int, hid: int, body: HoldingIn):
     return portfolio_detail(db, pid)
 
 
+def _refuse_if_it_would_orphan_dividends(db, pid: int, hid: int) -> None:
+    """Removing the last lot of a stock would leave its dividends with no purchase behind them."""
+    row = db.execute("SELECT symbol FROM portfolio_holdings WHERE id = ? AND portfolio_id = ?", [hid, pid]).fetchall()
+    if not row:
+        return
+    symbol = row[0][0]
+    others = db.execute("SELECT COUNT(*) FROM portfolio_holdings WHERE portfolio_id = ? AND symbol = ? AND id <> ?", [pid, symbol, hid]).fetchall()[0][0]
+    dividends = db.execute("SELECT COUNT(*) FROM portfolio_dividends WHERE portfolio_id = ? AND symbol = ?", [pid, symbol]).fetchall()[0][0]
+    if others == 0 and dividends > 0:
+        raise HTTPException(400, f"{symbol} has {dividends} recorded {'dividend' if dividends == 1 else 'dividends'}. Delete them before removing the stock.")
+
+
 @router.delete("/{pid}/holdings/{hid}")
 def delete_holding(pid: int, hid: int):
     db = get_db()
     _require_portfolio(db, pid)
+    _refuse_if_it_would_orphan_dividends(db, pid, hid)
     db.execute("DELETE FROM portfolio_holdings WHERE id = ? AND portfolio_id = ?", [hid, pid])
     return portfolio_detail(db, pid)

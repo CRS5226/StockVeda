@@ -4,6 +4,7 @@ import AssetsSection from "../components/portfolio/AssetsSection";
 import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
 import MfSection from "../components/portfolio/MfSection";
+import { buyInfo } from "../lib/dividendRules";
 import StatCards from "../components/portfolio/StatCards";
 import PortfolioTabs, { loadPortfolioTab, savePortfolioTab, type PortfolioTab } from "../components/portfolio/PortfolioTabs";
 import PortfolioTotal from "../components/portfolio/PortfolioTotal";
@@ -112,7 +113,7 @@ export default function Portfolio() {
                 </>
               )}
               {tab === "mutual_funds" && <MfSection portfolioId={p.detail.id} onChanged={changed} />}
-              {tab === "dividends" && <DividendsSection portfolioId={p.detail.id} symbols={[...new Set(p.detail.holdings.map((h) => h.symbol))]} onChanged={changed} />}
+              {tab === "dividends" && <DividendsSection portfolioId={p.detail.id} buy={buyInfo(p.detail.holdings)} onChanged={changed} />}
               {tab === "fixed_deposits" && <FdSection portfolioId={p.detail.id} onChanged={changed} />}
               {tab === "other" && <AssetsSection portfolioId={p.detail.id} onChanged={changed} />}
             </div>

@@ -48,6 +48,7 @@ def client(monkeypatch):
         monkeypatch.setattr(module, "get_db", lambda: conn)
     conn.execute("INSERT INTO portfolios (id, name) VALUES (1, 'Mine')")
     conn.execute("INSERT INTO stock_ohlcv VALUES (?, 'TCS', 1, 1, 1, 110, 1)", [date.today()])
+    conn.execute("INSERT INTO portfolio_holdings (id, portfolio_id, symbol) VALUES (1, 1, 'ITC')")      # held, no buy date known
     app = FastAPI()
     for module in modules:
         app.include_router(module.router, prefix="/api")
@@ -59,6 +60,7 @@ def _div(**over):
 
 
 def test_add_edit_delete(client):
+    client.post("/api/portfolios/1/holdings", json={"symbol": "TCS"})
     client.post("/api/portfolios/1/dividends", json=_div(symbol="itc"))
     r = client.post("/api/portfolios/1/dividends", json=_div()).json()
     assert {x["symbol"]: x["company"] for x in r["dividends"]} == {"ITC": None, "TCS": "Tata Consultancy Services Limited"}
@@ -70,11 +72,12 @@ def test_add_edit_delete(client):
 
 
 def test_bad_input(client):
-    assert client.post("/api/portfolios/1/dividends", json=_div(amount=0)).status_code == 422
-    assert client.post("/api/portfolios/1/dividends", json=_div(tds=-1)).status_code == 422
-    assert client.post("/api/portfolios/1/dividends", json=_div(pay_date=str(date.today() + timedelta(days=3)))).status_code == 400
-    assert client.post("/api/portfolios/9/dividends", json=_div()).status_code == 404
-    assert client.put("/api/portfolios/1/dividends/99", json=_div()).status_code == 404
+    itc = _div(symbol="ITC")
+    assert client.post("/api/portfolios/1/dividends", json={**itc, "amount": 0}).status_code == 422
+    assert client.post("/api/portfolios/1/dividends", json={**itc, "tds": -1}).status_code == 422
+    assert client.post("/api/portfolios/1/dividends", json={**itc, "pay_date": str(date.today() + timedelta(days=3))}).status_code == 400
+    assert client.post("/api/portfolios/9/dividends", json=itc).status_code == 404
+    assert client.put("/api/portfolios/1/dividends/99", json=itc).status_code == 404
 
 
 def test_dividends_count_in_the_portfolio_total_and_go_with_the_portfolio(client):
@@ -99,3 +102,48 @@ def test_dividends_only_count_in_xirr_for_stocks_with_a_buy_date():
 def test_combine_adds_dividends_to_the_stock_profit():
     t = combine({"invested": 1_000, "value": 1_100, "incomplete": 0}, {"principal": 0, "current_value": 0}, [], None, 40)
     assert t["pnl"] == 140 and t["parts"][0]["pnl"] == 140 and t["value"] == 1_100 and t["dividends"] == 40
+
+
+def test_core_rules():
+    from backend.core.dividends import buy_date_problem, dividend_date_problem, earliest_buy
+    assert earliest_buy([D(2026, 3, 1), D(2025, 6, 1)]) == D(2025, 6, 1)
+    assert earliest_buy([D(2026, 3, 1), None]) is None and earliest_buy([]) is None
+    assert "not in this portfolio" in dividend_date_problem("ITC", D(2026, 5, 1), [])
+    assert "bought on 2026-03-01" in dividend_date_problem("ITC", D(2026, 2, 28), [D(2026, 3, 1)])
+    assert dividend_date_problem("ITC", D(2026, 3, 1), [D(2026, 3, 1)]) is None          # the buy day itself is fine
+    assert dividend_date_problem("ITC", D(2020, 1, 1), [D(2026, 3, 1), None]) is None    # a lot without a date: cannot tell
+    assert "before the buy date" in buy_date_problem("ITC", [D(2026, 6, 1)], D(2026, 5, 1))
+    assert buy_date_problem("ITC", [D(2026, 4, 1)], D(2026, 5, 1)) is None and buy_date_problem("ITC", [D(2026, 6, 1)], None) is None
+
+
+def test_a_dividend_must_come_after_the_stock_was_bought(client):
+    bought = date.today() - timedelta(days=100)
+    client.post("/api/portfolios/1/holdings", json={"symbol": "TCS", "qty": 5, "buy_price": 100, "buy_date": str(bought)})
+    too_early = client.post("/api/portfolios/1/dividends", json=_div(pay_date=str(bought - timedelta(days=1))))
+    assert too_early.status_code == 400 and "was bought on" in too_early.json()["detail"]
+    assert client.post("/api/portfolios/1/dividends", json=_div(pay_date=str(bought))).status_code == 200
+    assert client.post("/api/portfolios/1/dividends", json=_div(pay_date=str(bought + timedelta(days=40)))).status_code == 200
+    unknown = client.post("/api/portfolios/1/dividends", json=_div(symbol="WIPRO"))
+    assert unknown.status_code == 400 and "not in this portfolio" in unknown.json()["detail"]
+    did = client.get("/api/portfolios/1/dividends").json()["dividends"][0]["id"]
+    assert client.put(f"/api/portfolios/1/dividends/{did}", json=_div(pay_date=str(bought - timedelta(days=5)))).status_code == 400
+
+
+def test_a_buy_date_cannot_move_past_an_existing_dividend(client):
+    start = date.today() - timedelta(days=200)
+    lot = client.post("/api/portfolios/1/holdings", json={"symbol": "TCS", "qty": 5, "buy_price": 100, "buy_date": str(start)}).json()["holdings"][-1]
+    client.post("/api/portfolios/1/dividends", json=_div(pay_date=str(start + timedelta(days=50))))
+    body = {"symbol": "TCS", "qty": 5, "buy_price": 100}
+    late = client.put(f"/api/portfolios/1/holdings/{lot['id']}", json={**body, "buy_date": str(start + timedelta(days=80))})
+    assert late.status_code == 400 and "before the buy date" in late.json()["detail"]
+    assert client.put(f"/api/portfolios/1/holdings/{lot['id']}", json={**body, "buy_date": str(start + timedelta(days=10))}).status_code == 200
+
+
+def test_the_last_lot_of_a_stock_with_dividends_cannot_be_removed(client):
+    lots = client.post("/api/portfolios/1/holdings", json={"symbol": "TCS", "qty": 5, "buy_price": 100}).json()["holdings"]
+    tcs = next(h for h in lots if h["symbol"] == "TCS")
+    client.post("/api/portfolios/1/dividends", json=_div())
+    blocked = client.delete(f"/api/portfolios/1/holdings/{tcs['id']}")
+    assert blocked.status_code == 400 and "Delete them before removing the stock" in blocked.json()["detail"]
+    second = client.post("/api/portfolios/1/holdings", json={"symbol": "TCS", "qty": 1, "buy_price": 90}).json()["holdings"][-1]
+    assert client.delete(f"/api/portfolios/1/holdings/{second['id']}").status_code == 200     # another lot remains

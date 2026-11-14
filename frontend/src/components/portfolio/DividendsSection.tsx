@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import type { DividendDraft, PortfolioDividend } from "../../lib/api";
 import { isoDay, shiftMonth } from "../../lib/calendar";
+import type { BuyInfo } from "../../lib/dividendRules";
 import { rupees } from "../../lib/formatMoney";
 import { usePortfolioDividends } from "../../lib/usePortfolioDividends";
 import DividendCalendar from "./DividendCalendar";
@@ -12,11 +13,15 @@ const todayIso = () => { const n = new Date(); return isoDay(n.getFullYear(), n.
 const blank = (date?: string): DividendDraft => ({ symbol: "", pay_date: date ?? todayIso(), amount: 0, tds: 0 });
 const prettyDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
-function DividendForm({ initial, symbols, onSave, onCancel }: { initial: DividendDraft; symbols: string[]; onSave: (d: DividendDraft) => Promise<boolean>; onCancel: () => void }) {
+function DividendForm({ initial, buy, onSave, onCancel }: { initial: DividendDraft; buy: BuyInfo; onSave: (d: DividendDraft) => Promise<boolean>; onCancel: () => void }) {
   const [d, setD] = useState(initial);
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof DividendDraft>(k: K, v: DividendDraft[K]) => setD((p) => ({ ...p, [k]: v }));
-  const ready = d.symbol.trim() !== "" && d.amount > 0 && d.pay_date !== "";
+  // a stock pays dividends only after it was bought, so the date picker starts at its first purchase
+  const symbol = d.symbol.trim().toUpperCase();
+  const held = buy.has(symbol), bought = buy.get(symbol) ?? null;
+  const tooEarly = bought !== null && d.pay_date !== "" && d.pay_date < bought;
+  const ready = symbol !== "" && held && !tooEarly && d.amount > 0 && d.pay_date !== "";
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -27,10 +32,10 @@ function DividendForm({ initial, symbols, onSave, onCancel }: { initial: Dividen
     <form onSubmit={submit} className="p-4 border-b border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
       <label className="flex flex-col gap-1 text-xs text-slate-500">Stock
         <input className={input} list="dividend-symbols" placeholder="e.g. ITC" value={d.symbol} onChange={(e) => set("symbol", e.target.value.toUpperCase())} />
-        <datalist id="dividend-symbols">{symbols.map((s) => <option key={s} value={s} />)}</datalist>
+        <datalist id="dividend-symbols">{[...buy.keys()].map((s) => <option key={s} value={s} />)}</datalist>
       </label>
       <label className="flex flex-col gap-1 text-xs text-slate-500">Paid on
-        <input className={input} type="date" max={todayIso()} value={d.pay_date} onChange={(e) => set("pay_date", e.target.value)} />
+        <input className={input} type="date" min={bought ?? undefined} max={todayIso()} value={d.pay_date} onChange={(e) => set("pay_date", e.target.value)} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-slate-500">Received in my account (₹)
         <input className={input} type="number" min={0} step="any" value={d.amount || ""} onChange={(e) => set("amount", Number(e.target.value))} />
@@ -42,6 +47,8 @@ function DividendForm({ initial, symbols, onSave, onCancel }: { initial: Dividen
         <button disabled={!ready || saving} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">{saving ? "Saving…" : "Save"}</button>
         <button type="button" onClick={onCancel} className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Cancel</button>
       </div>
+      {symbol !== "" && !held && <p className="col-span-full text-xs text-red-600">{symbol} is not in this portfolio. Add it on the Stocks tab first.</p>}
+      {held && bought && <p className={`col-span-full text-xs ${tooEarly ? "text-red-600" : "text-slate-500"}`}>{symbol} was bought on {bought}, so a dividend can be dated on or after that day.</p>}
     </form>
   );
 }
@@ -78,7 +85,7 @@ function DayPanel({ date, rows, onAdd, onEdit, onDelete }: { date: string | null
 }
 
 /** Dividends received on the portfolio's stocks, entered by hand and shown on a calendar. They count towards the profit and the XIRR. */
-export default function DividendsSection({ portfolioId, symbols, onChanged }: { portfolioId: number; symbols: string[]; onChanged?: () => void }) {
+export default function DividendsSection({ portfolioId, buy, onChanged }: { portfolioId: number; buy: BuyInfo; onChanged?: () => void }) {
   const dv = usePortfolioDividends(portfolioId, onChanged);
   const list = dv.listing?.dividends ?? [];
   const summary = dv.listing?.summary;
@@ -125,8 +132,8 @@ export default function DividendsSection({ portfolioId, symbols, onChanged }: { 
           </button>
         </div>
         {dv.error && <div className="mx-4 mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{dv.error}</div>}
-        {editing === "new" && <DividendForm key={formDate ?? "today"} initial={blank(formDate)} symbols={symbols} onSave={dv.add} onCancel={() => setEditing(null)} />}
-        {editingDividend && <DividendForm key={editingDividend.id} initial={editingDividend} symbols={symbols} onSave={(d) => dv.update(editingDividend.id, d)} onCancel={() => setEditing(null)} />}
+        {editing === "new" && <DividendForm key={formDate ?? "today"} initial={blank(formDate)} buy={buy} onSave={dv.add} onCancel={() => setEditing(null)} />}
+        {editingDividend && <DividendForm key={editingDividend.id} initial={editingDividend} buy={buy} onSave={(d) => dv.update(editingDividend.id, d)} onCancel={() => setEditing(null)} />}
         <div className="p-4 flex flex-col lg:flex-row gap-6">
           <DividendCalendar year={view.year} month={view.month} dividends={list} selected={selected} onSelect={setSelected}
             onMonth={(delta) => setView((v) => shiftMonth(v.year, v.month, delta))} onJump={(year, month) => setView({ year, month })}

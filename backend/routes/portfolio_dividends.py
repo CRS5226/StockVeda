@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.core.dividends import summarize
+from backend.core.dividends import dividend_date_problem, summarize
 from backend.db.connection import get_db
 
 router = APIRouter(prefix="/portfolios/{pid}/dividends", tags=["portfolio"])
@@ -25,9 +25,14 @@ def _require_portfolio(db, pid: int) -> None:
         raise HTTPException(404, "No such portfolio.")
 
 
-def _checked(body: DividendIn) -> None:
+def _checked(db, pid: int, body: DividendIn) -> None:
     if body.pay_date > date.today():
         raise HTTPException(400, "The payment date cannot be in the future.")
+    symbol = body.symbol.strip().upper()
+    lots = [r[0] for r in db.execute("SELECT buy_date FROM portfolio_holdings WHERE portfolio_id = ? AND symbol = ?", [pid, symbol]).fetchall()]
+    problem = dividend_date_problem(symbol, body.pay_date, lots)
+    if problem:
+        raise HTTPException(400, problem)
 
 
 def dividend_rows(db, pid: int) -> list[dict]:
@@ -57,9 +62,9 @@ def list_dividends(pid: int):
 
 @router.post("")
 def add_dividend(pid: int, body: DividendIn):
-    _checked(body)
     db = get_db()
     _require_portfolio(db, pid)
+    _checked(db, pid, body)
     did = db.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM portfolio_dividends").fetchall()[0][0]
     db.execute(
         "INSERT INTO portfolio_dividends (id, portfolio_id, symbol, pay_date, amount, tds) VALUES (?, ?, ?, ?, ?, ?)",
@@ -70,9 +75,9 @@ def add_dividend(pid: int, body: DividendIn):
 
 @router.put("/{did}")
 def update_dividend(pid: int, did: int, body: DividendIn):
-    _checked(body)
     db = get_db()
     _require_portfolio(db, pid)
+    _checked(db, pid, body)
     if not db.execute("SELECT 1 FROM portfolio_dividends WHERE id = ? AND portfolio_id = ?", [did, pid]).fetchall():
         raise HTTPException(404, "No such dividend.")
     db.execute(
