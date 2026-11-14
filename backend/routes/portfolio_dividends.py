@@ -35,11 +35,19 @@ def dividend_rows(db, pid: int) -> list[dict]:
     return [{"id": r[0], "symbol": r[1], "pay_date": r[2], "amount": r[3], "tds": r[4] or 0.0} for r in rows]
 
 
+def _company_names(db, symbols: list[str]) -> dict[str, str]:
+    if not symbols:
+        return {}
+    marks = ",".join("?" for _ in symbols)
+    return dict(db.execute(f"SELECT symbol, company_name FROM nse_symbols WHERE symbol IN ({marks})", symbols).fetchall())
+
+
 def dividend_listing(db, pid: int) -> dict:
     _require_portfolio(db, pid)
     rows = dividend_rows(db, pid)
     summary = summarize(rows, date.today())
-    return {"dividends": [{**r, "pay_date": str(r["pay_date"])} for r in rows], "summary": summary}
+    names = _company_names(db, sorted({r["symbol"] for r in rows}))
+    return {"dividends": [{**r, "pay_date": str(r["pay_date"]), "company": names.get(r["symbol"])} for r in rows], "summary": summary}
 
 
 @router.get("")

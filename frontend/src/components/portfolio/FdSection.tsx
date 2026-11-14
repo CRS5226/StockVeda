@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import type { FdDraft, FdFrequency, FdPayout, PortfolioFd } from "../../lib/api";
+import StatCards from "./StatCards";
 import { resultColor, rupees, signedRupees } from "../../lib/formatMoney";
 import { usePortfolioFds } from "../../lib/usePortfolioFds";
 
@@ -70,14 +71,16 @@ export default function FdSection({ portfolioId, onChanged }: { portfolioId: num
   const editingFd = typeof editing === "number" ? list.find((f) => f.id === editing) : undefined;
 
   return (
+    <div className="flex flex-col gap-4">
+      <StatCards items={[
+        { label: "Invested", value: rupees(totals?.principal ?? 0) },
+        { label: "Value today", value: rupees(totals?.current_value ?? 0) },
+        { label: "Interest earned", value: signedRupees(totals?.interest_earned ?? 0), tone: resultColor(totals?.interest_earned ?? 0) },
+        { label: "At maturity", value: rupees(totals?.maturity_value ?? 0) },
+      ]} />
     <div className="bg-white border border-slate-200 rounded-xl">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
         <h3 className="font-semibold">Fixed deposits</h3>
-        {totals && list.length > 0 && (
-          <span className="text-xs text-slate-500 tabular-nums">
-            {rupees(totals.principal)} invested · {rupees(totals.current_value)} today · {rupees(totals.maturity_value)} at maturity
-          </span>
-        )}
         <button onClick={() => setEditing(editing === null ? "new" : null)}
           className="ml-auto flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700">
           {editing === null ? <><Plus size={13} /> Add FD</> : <><X size={13} /> Close</>}
@@ -124,6 +127,7 @@ export default function FdSection({ portfolioId, onChanged }: { portfolioId: num
           </table>
         </div>
       )}
+    </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import AssetsSection from "../components/portfolio/AssetsSection";
 import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
 import MfSection from "../components/portfolio/MfSection";
+import StatCards from "../components/portfolio/StatCards";
 import PortfolioTabs, { loadPortfolioTab, savePortfolioTab, type PortfolioTab } from "../components/portfolio/PortfolioTabs";
 import PortfolioTotal from "../components/portfolio/PortfolioTotal";
 import HoldingsTable from "../components/portfolio/HoldingsTable";
@@ -14,15 +15,6 @@ import { usePortfolio } from "../lib/usePortfolio";
 
 const button = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40";
 const input = "px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-blue-400";
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`text-lg font-semibold tabular-nums ${tone ?? "text-slate-900"}`}>{value}</div>
-    </div>
-  );
-}
 
 /** Portfolios of stocks the user holds: start one from a watchlist, fill in quantity and buy price, see profit and loss. */
 export default function Portfolio() {
@@ -99,12 +91,12 @@ export default function Portfolio() {
               {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} />}
               {tab === "stocks" && (
                 <>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <Stat label="Invested" value={rupees(totals.invested)} />
-                    <Stat label="Current value" value={rupees(totals.value)} />
-                    <Stat label="Profit / loss" value={signedRupees(totals.pnl)} tone={resultColor(totals.pnl)} />
-                    <Stat label="Return" value={totals.pnl_pct === null ? "—" : signedPercent(totals.pnl_pct)} tone={resultColor(totals.pnl_pct)} />
-                  </div>
+                  <StatCards items={[
+                    { label: "Invested", value: rupees(totals.invested) },
+                    { label: "Current value", value: rupees(totals.value) },
+                    { label: "Profit / loss", value: signedRupees(totals.pnl), tone: resultColor(totals.pnl) },
+                    { label: "Return", value: totals.pnl_pct === null ? "—" : signedPercent(totals.pnl_pct), tone: resultColor(totals.pnl_pct) },
+                  ]} />
                   {totals.incomplete > 0 && (
                     <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                       {totals.incomplete} {totals.incomplete === 1 ? "stock needs" : "stocks need"} a quantity and buy price (and a stored daily close) before {totals.incomplete === 1 ? "it counts" : "they count"} in the totals.

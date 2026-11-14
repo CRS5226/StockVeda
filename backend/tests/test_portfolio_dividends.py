@@ -42,6 +42,7 @@ def test_summary_splits_by_financial_year_and_stock():
 def client(monkeypatch):
     conn = duckdb.connect()
     conn.execute(SCHEMA)
+    conn.execute("INSERT INTO nse_symbols (symbol, company_name) VALUES ('TCS', 'Tata Consultancy Services Limited')")
     modules = (portfolio, portfolio_assets, portfolio_dividends, portfolio_fd, portfolio_mf, portfolio_total)
     for module in modules:
         monkeypatch.setattr(module, "get_db", lambda: conn)
@@ -58,12 +59,14 @@ def _div(**over):
 
 
 def test_add_edit_delete(client):
+    client.post("/api/portfolios/1/dividends", json=_div(symbol="itc"))
     r = client.post("/api/portfolios/1/dividends", json=_div()).json()
-    d = r["dividends"][0]
-    assert d["symbol"] == "TCS" and r["summary"]["received"] == 100 and r["summary"]["gross"] == 110
+    assert {x["symbol"]: x["company"] for x in r["dividends"]} == {"ITC": None, "TCS": "Tata Consultancy Services Limited"}
+    d = next(x for x in r["dividends"] if x["symbol"] == "TCS")
+    assert d["symbol"] == "TCS" and r["summary"]["received"] == 200 and r["summary"]["gross"] == 220
     r = client.put(f"/api/portfolios/1/dividends/{d['id']}", json=_div(amount=250)).json()
-    assert r["summary"]["received"] == 250
-    assert client.delete(f"/api/portfolios/1/dividends/{d['id']}").json()["dividends"] == []
+    assert r["summary"]["received"] == 350
+    assert len(client.delete(f"/api/portfolios/1/dividends/{d['id']}").json()["dividends"]) == 1
 
 
 def test_bad_input(client):

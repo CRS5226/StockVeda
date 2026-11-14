@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
-import type { DividendDraft } from "../../lib/api";
+import type { DividendDraft, PortfolioDividend } from "../../lib/api";
+import { isoDay, shiftMonth } from "../../lib/calendar";
 import { rupees } from "../../lib/formatMoney";
 import { usePortfolioDividends } from "../../lib/usePortfolioDividends";
+import DividendCalendar from "./DividendCalendar";
+import StatCards from "./StatCards";
 
 const input = "w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-blue-400";
-const today = () => new Date().toISOString().slice(0, 10);
-const blank = (): DividendDraft => ({ symbol: "", pay_date: today(), amount: 0, tds: 0 });
+const todayIso = () => { const n = new Date(); return isoDay(n.getFullYear(), n.getMonth(), n.getDate()); };
+const blank = (date?: string): DividendDraft => ({ symbol: "", pay_date: date ?? todayIso(), amount: 0, tds: 0 });
+const prettyDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 function DividendForm({ initial, symbols, onSave, onCancel }: { initial: DividendDraft; symbols: string[]; onSave: (d: DividendDraft) => Promise<boolean>; onCancel: () => void }) {
   const [d, setD] = useState(initial);
@@ -26,7 +30,7 @@ function DividendForm({ initial, symbols, onSave, onCancel }: { initial: Dividen
         <datalist id="dividend-symbols">{symbols.map((s) => <option key={s} value={s} />)}</datalist>
       </label>
       <label className="flex flex-col gap-1 text-xs text-slate-500">Paid on
-        <input className={input} type="date" max={today()} value={d.pay_date} onChange={(e) => set("pay_date", e.target.value)} />
+        <input className={input} type="date" max={todayIso()} value={d.pay_date} onChange={(e) => set("pay_date", e.target.value)} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-slate-500">Received in my account (₹)
         <input className={input} type="number" min={0} step="any" value={d.amount || ""} onChange={(e) => set("amount", Number(e.target.value))} />
@@ -42,68 +46,98 @@ function DividendForm({ initial, symbols, onSave, onCancel }: { initial: Dividen
   );
 }
 
-/** Dividends received on the portfolio's stocks, entered by hand. They count towards the profit and the XIRR of the portfolio. */
+/** What was paid on the selected day: the company, the amount and the TDS, with edit and delete. */
+function DayPanel({ date, rows, onAdd, onEdit, onDelete }: { date: string | null; rows: PortfolioDividend[]; onAdd: () => void; onEdit: (id: number) => void; onDelete: (d: PortfolioDividend) => void }) {
+  if (!date) return <div className="lg:w-72 text-sm text-slate-400 py-6">Click a day on the calendar to see its dividends.</div>;
+  return (
+    <div className="lg:w-72 shrink-0 border border-slate-200 rounded-xl p-4 flex flex-col gap-3 self-start">
+      <div className="text-sm font-semibold">{prettyDate(date)}</div>
+      {rows.length === 0 && <div className="text-xs text-slate-400">No dividend on this day.</div>}
+      {rows.map((d) => (
+        <div key={d.id} className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-emerald-900">{d.symbol}</div>
+              {d.company && <div className="text-xs text-emerald-700 truncate" title={d.company}>{d.company}</div>}
+            </div>
+            <button title="Edit" onClick={() => onEdit(d.id)} className="p-1 rounded text-emerald-700 hover:bg-emerald-100"><Pencil size={13} /></button>
+            <button title="Delete" onClick={() => onDelete(d)} className="p-1 rounded text-emerald-700 hover:bg-emerald-100"><Trash2 size={13} /></button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-y-1 text-xs">
+            <span className="text-emerald-700">Received</span><span className="text-right font-semibold tabular-nums text-emerald-900">{rupees(d.amount)}</span>
+            {d.tds > 0 && <><span className="text-emerald-700">TDS deducted</span><span className="text-right tabular-nums text-emerald-900">{rupees(d.tds)}</span>
+              <span className="text-emerald-700">Before TDS</span><span className="text-right tabular-nums text-emerald-900">{rupees(d.amount + d.tds)}</span></>}
+          </div>
+        </div>
+      ))}
+      <button onClick={onAdd} className="flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+        <Plus size={13} /> Add a dividend on this day
+      </button>
+    </div>
+  );
+}
+
+/** Dividends received on the portfolio's stocks, entered by hand and shown on a calendar. They count towards the profit and the XIRR. */
 export default function DividendsSection({ portfolioId, symbols, onChanged }: { portfolioId: number; symbols: string[]; onChanged?: () => void }) {
   const dv = usePortfolioDividends(portfolioId, onChanged);
-  // null: form closed, "new": adding, a number: editing that dividend
-  const [editing, setEditing] = useState<null | "new" | number>(null);
   const list = dv.listing?.dividends ?? [];
   const summary = dv.listing?.summary;
+  // null: form closed, "new": adding, a number: editing that dividend
+  const [editing, setEditing] = useState<null | "new" | number>(null);
+  const [formDate, setFormDate] = useState<string | undefined>(undefined);
+  const now = new Date();
+  const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const [selected, setSelected] = useState<string | null>(null);
+
+  // Open on the month of the latest dividend, so existing entries are visible straight away.
+  useEffect(() => {
+    if (!dv.listing || list.length === 0) return;
+    const [y, m] = list[0].pay_date.split("-").map(Number);
+    setView({ year: y, month: m - 1 });
+    setSelected(list[0].pay_date);
+    // only when the data first arrives
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dv.listing === null]);
+
   const editingDividend = typeof editing === "number" ? list.find((x) => x.id === editing) : undefined;
+  const dayRows = selected ? list.filter((d) => d.pay_date === selected) : [];
+  const openAdd = (date?: string) => { setFormDate(date); setEditing("new"); };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
-        <h3 className="font-semibold">Dividends</h3>
-        {summary && list.length > 0 && (
-          <span className="text-xs text-slate-500 tabular-nums">
-            {rupees(summary.received)} received · {rupees(summary.this_fy)} in FY {summary.this_fy_label}
-            {summary.tds > 0 && <> · {rupees(summary.tds)} TDS deducted</>}
-          </span>
+    <div className="flex flex-col gap-4">
+      <StatCards items={[
+        { label: "Total received", value: rupees(summary?.received ?? 0), tone: "text-emerald-600" },
+        { label: `This financial year (${summary?.this_fy_label ?? ""})`, value: rupees(summary?.this_fy ?? 0) },
+        { label: "TDS deducted", value: rupees(summary?.tds ?? 0) },
+        { label: "Payments", value: String(list.length) },
+      ]} />
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
+          <h3 className="font-semibold">Dividend calendar</h3>
+          {summary && summary.by_fy.length > 1 && (
+            <span className="flex flex-wrap gap-2 text-xs">
+              {summary.by_fy.map((b) => <span key={b.fy} className="px-2 py-1 rounded bg-slate-100 text-slate-600 tabular-nums">FY {b.fy}: {rupees(b.received)}</span>)}
+            </span>
+          )}
+          <button onClick={() => (editing === null ? openAdd() : setEditing(null))}
+            className="ml-auto flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+            {editing === null ? <><Plus size={13} /> Add dividend</> : <><X size={13} /> Close</>}
+          </button>
+        </div>
+        {dv.error && <div className="mx-4 mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{dv.error}</div>}
+        {editing === "new" && <DividendForm key={formDate ?? "today"} initial={blank(formDate)} symbols={symbols} onSave={dv.add} onCancel={() => setEditing(null)} />}
+        {editingDividend && <DividendForm key={editingDividend.id} initial={editingDividend} symbols={symbols} onSave={(d) => dv.update(editingDividend.id, d)} onCancel={() => setEditing(null)} />}
+        <div className="p-4 flex flex-col lg:flex-row gap-6">
+          <DividendCalendar year={view.year} month={view.month} dividends={list} selected={selected} onSelect={setSelected}
+            onMonth={(delta) => setView((v) => shiftMonth(v.year, v.month, delta))}
+            onToday={() => { const n = new Date(); setView({ year: n.getFullYear(), month: n.getMonth() }); setSelected(todayIso()); }} />
+          <DayPanel date={selected} rows={dayRows} onAdd={() => openAdd(selected ?? undefined)} onEdit={setEditing}
+            onDelete={(d) => { if (window.confirm(`Delete the ${d.symbol} dividend of ${rupees(d.amount)}?`)) void dv.remove(d.id); }} />
+        </div>
+        {list.length === 0 && editing === null && (
+          <div className="pb-6 text-center text-sm text-slate-400">No dividends yet. Add the ones you received and they show up on the calendar and in your returns.</div>
         )}
-        <button onClick={() => setEditing(editing === null ? "new" : null)}
-          className="ml-auto flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700">
-          {editing === null ? <><Plus size={13} /> Add dividend</> : <><X size={13} /> Close</>}
-        </button>
       </div>
-      {dv.error && <div className="mx-4 mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{dv.error}</div>}
-      {editing === "new" && <DividendForm initial={blank()} symbols={symbols} onSave={dv.add} onCancel={() => setEditing(null)} />}
-      {editingDividend && <DividendForm key={editingDividend.id} initial={editingDividend} symbols={symbols} onSave={(d) => dv.update(editingDividend.id, d)} onCancel={() => setEditing(null)} />}
-      {list.length === 0 && editing === null && (
-        <div className="py-8 text-center text-sm text-slate-400">No dividends yet. Add the ones you received, and they are counted in your returns.</div>
-      )}
-      {summary && summary.by_fy.length > 1 && (
-        <div className="px-4 pt-3 flex flex-wrap gap-2 text-xs">
-          {summary.by_fy.map((b) => <span key={b.fy} className="px-2 py-1 rounded bg-slate-100 text-slate-600 tabular-nums">FY {b.fy}: {rupees(b.received)}</span>)}
-        </div>
-      )}
-      {list.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-sm">
-            <thead>
-              <tr className="text-xs text-slate-500 text-left">
-                <th className="px-3 py-2 font-medium">Paid on</th><th className="px-3 py-2 font-medium">Stock</th>
-                <th className="px-3 py-2 font-medium text-right">Received</th><th className="px-3 py-2 font-medium text-right">TDS</th><th /><th />
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((x) => (
-                <tr key={x.id} className="border-t border-slate-100">
-                  <td className="px-3 py-2 tabular-nums">{x.pay_date}</td>
-                  <td className="px-3 py-2 font-semibold">{x.symbol}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-600">{rupees(x.amount)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-slate-500">{x.tds > 0 ? rupees(x.tds) : "—"}</td>
-                  <td className="px-1 py-2 text-right"><button title="Edit" onClick={() => setEditing(x.id)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"><Pencil size={14} /></button></td>
-                  <td className="px-2 py-2 text-right">
-                    <button title="Delete" onClick={() => { if (window.confirm(`Delete the ${x.symbol} dividend of ${rupees(x.amount)}?`)) void dv.remove(x.id); }}
-                      className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50"><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

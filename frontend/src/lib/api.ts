@@ -170,7 +170,7 @@ export interface MfTotals { invested: number; current_value: number; returns: nu
 export interface MfListing { holdings: PortfolioMf[]; totals: MfTotals }
 /** What the user types in for a dividend: the stock, the payment date, what reached the account, and any TDS taken on top. */
 export interface DividendDraft { symbol: string; pay_date: string; amount: number; tds: number }
-export interface PortfolioDividend extends DividendDraft { id: number }
+export interface PortfolioDividend extends DividendDraft { id: number; company: string | null }
 export interface DividendSummary {
   received: number; tds: number; gross: number; this_fy: number; this_fy_label: string;
   by_fy: { fy: string; received: number; tds: number }[];

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { api, type MfDraft, type MfKind, type MfScheme, type PortfolioMf } from "../../lib/api";
+import StatCards from "./StatCards";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 import { usePortfolioMf } from "../../lib/usePortfolioMf";
 
@@ -149,16 +150,17 @@ export default function MfSection({ portfolioId, onChanged }: { portfolioId: num
   const blank: MfDraft = { scheme_code: "", kind: "sip", amount: 0, start_date: "", end_date: null };
 
   return (
+    <div className="flex flex-col gap-4">
+      <StatCards items={[
+        { label: "Invested", value: rupees(totals?.invested ?? 0) },
+        { label: "Current value", value: rupees(totals?.current_value ?? 0) },
+        { label: "Profit / loss", value: signedRupees(totals?.returns ?? 0), tone: resultColor(totals?.returns ?? 0) },
+        { label: "Return", value: totals?.returns_pct == null ? "—" : signedPercent(totals.returns_pct), tone: resultColor(totals?.returns_pct ?? null) },
+        { label: "XIRR", value: totals?.xirr_pct == null ? "—" : signedPercent(totals.xirr_pct), tone: resultColor(totals?.xirr_pct ?? null), hint: "Annual return worked out from the dated SIP instalments" },
+      ]} />
     <div className="bg-white border border-slate-200 rounded-xl">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
         <h3 className="font-semibold">Mutual funds <span className="text-slate-400 font-normal">({list.length})</span></h3>
-        {totals && list.length > 0 && (
-          <span className="text-xs text-slate-500 tabular-nums">
-            {rupees(totals.invested)} invested · {rupees(totals.current_value)} now ·{" "}
-            <span className={resultColor(totals.returns)}>{signedRupees(totals.returns)}{totals.returns_pct !== null && ` (${signedPercent(totals.returns_pct)})`}</span>
-            {totals.xirr_pct !== null && <> · XIRR {signedPercent(totals.xirr_pct)}</>}
-          </span>
-        )}
         <div className="ml-auto flex items-center gap-3">
           {list.length > 1 && (
             <label className="flex items-center gap-1.5 text-xs text-slate-500">Sort by
@@ -189,6 +191,7 @@ export default function MfSection({ portfolioId, onChanged }: { portfolioId: num
           ))}
         </div>
       )}
+    </div>
     </div>
   );
 }

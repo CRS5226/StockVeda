@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Trash2 } from "lucide-react";
 import type { HoldingDraft, PortfolioHolding } from "../../lib/api";
+import { nextSort, sortRows, type SortState } from "../../lib/sortRows";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 
 interface Props {
@@ -48,7 +49,30 @@ function Row({ h, onUpdate, onDelete }: { h: PortfolioHolding } & Pick<Props, "o
   );
 }
 
+type SortKey = "symbol" | "qty" | "buy_price" | "buy_date" | "last_price" | "invested" | "value" | "pnl" | "pnl_pct";
+const COLUMNS: { key: SortKey; label: string; right?: boolean }[] = [
+  { key: "symbol", label: "Stock" }, { key: "qty", label: "Quantity" }, { key: "buy_price", label: "Buy price" }, { key: "buy_date", label: "Buy date" },
+  { key: "last_price", label: "Last close", right: true }, { key: "invested", label: "Invested", right: true }, { key: "value", label: "Value", right: true },
+  { key: "pnl", label: "P&L", right: true }, { key: "pnl_pct", label: "P&L %", right: true },
+];
+
+/** Column title that sorts the table: a small arrow shows the direction, and a click steps through ascending, descending and off. */
+function SortHeader({ col, sort, onSort }: { col: (typeof COLUMNS)[number]; sort: SortState<SortKey> | null; onSort: (k: SortKey) => void }) {
+  const active = sort?.key === col.key;
+  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th className={`px-3 py-2 font-medium ${col.right ? "text-right" : ""}`} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button onClick={() => onSort(col.key)} title="Sort"
+        className={`inline-flex items-center gap-1 hover:text-slate-800 ${active ? "text-blue-600" : ""} ${col.right ? "flex-row-reverse" : ""}`}>
+        {col.label}<Icon size={12} className={active ? "" : "opacity-40"} />
+      </button>
+    </th>
+  );
+}
+
 export default function HoldingsTable({ holdings, onUpdate, onDelete }: Props) {
+  const [sort, setSort] = useState<SortState<SortKey> | null>(null);
+  const rows = useMemo(() => (sort ? sortRows(holdings, sort.key, sort.dir) : holdings), [holdings, sort]);
   if (holdings.length === 0) {
     return <div className="py-10 text-center text-sm text-slate-400">No stocks yet. Search a symbol above to add one.</div>;
   }
@@ -57,13 +81,12 @@ export default function HoldingsTable({ holdings, onUpdate, onDelete }: Props) {
       <table className="w-full min-w-[900px] text-sm">
         <thead>
           <tr className="text-xs text-slate-500 text-left">
-            {["Stock", "Quantity", "Buy price", "Buy date", "Last close", "Invested", "Value", "P&L", "P&L %", ""].map((c, i) => (
-              <th key={i} className={`px-3 py-2 font-medium ${i >= 4 && i <= 8 ? "text-right" : ""}`}>{c}</th>
-            ))}
+            {COLUMNS.map((c) => <SortHeader key={c.key} col={c} sort={sort} onSort={(k) => setSort((cur) => nextSort(cur, k))} />)}
+            <th />
           </tr>
         </thead>
         <tbody>
-          {holdings.map((h) => (
+          {rows.map((h) => (
             <Row key={`${h.id}-${h.qty}-${h.buy_price}-${h.buy_date}`} h={h} onUpdate={onUpdate} onDelete={onDelete} />
           ))}
         </tbody>

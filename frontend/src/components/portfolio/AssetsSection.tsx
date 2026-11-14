@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import type { AssetCurrency, AssetDraft, AssetType, PortfolioAsset } from "../../lib/api";
+import StatCards from "./StatCards";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 import { usePortfolioAssets } from "../../lib/usePortfolioAssets";
 
@@ -90,15 +91,16 @@ export default function AssetsSection({ portfolioId, onChanged }: { portfolioId:
   const hasUsd = list.some((x) => x.currency === "USD");
 
   return (
+    <div className="flex flex-col gap-4">
+      <StatCards items={[
+        { label: "Invested", value: rupees(totals?.invested ?? 0) },
+        { label: "Current value", value: rupees(totals?.value ?? 0) },
+        { label: "Profit / loss", value: signedRupees(totals?.pnl ?? 0), tone: resultColor(totals?.pnl ?? 0) },
+        { label: "Return", value: totals?.pnl_pct == null ? "—" : signedPercent(totals.pnl_pct), tone: resultColor(totals?.pnl_pct ?? null), hint: "In rupees; dollar assets use the USD rate typed on this tab" },
+      ]} />
     <div className="bg-white border border-slate-200 rounded-xl">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
         <h3 className="font-semibold">Other investments</h3>
-        {totals && list.length > 0 && (
-          <span className="text-xs text-slate-500 tabular-nums">
-            {rupees(totals.invested)} invested · {rupees(totals.value)} now ·{" "}
-            <span className={resultColor(totals.pnl)}>{signedRupees(totals.pnl)}{totals.pnl_pct !== null && ` (${signedPercent(totals.pnl_pct)})`}</span>
-          </span>
-        )}
         <div className="ml-auto flex items-center gap-3">
           <RateBox key={a.listing?.usd_inr ?? "none"} rate={a.listing?.usd_inr ?? null} onSave={(r) => void a.setRate(r)} />
           <button onClick={() => setEditing(editing === null ? "new" : null)}
@@ -151,6 +153,7 @@ export default function AssetsSection({ portfolioId, onChanged }: { portfolioId:
           {hasUsd && <p className="px-4 py-2 text-[11px] text-slate-400">Dollar assets show their rupee value underneath once the USD to INR rate is entered.</p>}
         </div>
       )}
+    </div>
     </div>
   );
 }
