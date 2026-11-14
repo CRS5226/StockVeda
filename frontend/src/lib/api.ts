@@ -133,6 +133,19 @@ export interface PortfolioFd extends FdDraft {
 }
 export interface FdTotals { principal: number; current_value: number; interest_earned: number; interest_received: number; maturity_value: number }
 export interface FdListing { fds: PortfolioFd[]; totals: FdTotals }
+export type AssetType = "crypto" | "us_stock" | "mutual_fund" | "bond" | "gold" | "other";
+export type AssetCurrency = "INR" | "USD";
+/** What the user types in for an investment such as crypto or a US stock; the current price is typed in too. */
+export interface AssetDraft {
+  name: string; asset_type: AssetType; currency: AssetCurrency; qty: number; buy_price: number; current_price: number; buy_date: string | null;
+}
+/** Figures are in the asset's own currency; the *_inr ones are null for a USD asset until a rate is entered. */
+export interface PortfolioAsset extends AssetDraft {
+  id: number; invested: number; value: number; pnl: number; pnl_pct: number | null;
+  invested_inr: number | null; value_inr: number | null; pnl_inr: number | null;
+}
+export interface AssetTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; unconverted: number }
+export interface AssetListing { assets: PortfolioAsset[]; usd_inr: number | null; totals: AssetTotals }
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -616,6 +629,15 @@ export const api = {
   updateFd: (portfolioId: number, id: number, body: FdDraft) =>
     apiFetch<FdListing>(`/portfolios/${portfolioId}/fds/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   deleteFd: (portfolioId: number, id: number) => apiFetch<FdListing>(`/portfolios/${portfolioId}/fds/${id}`, { method: "DELETE" }),
+
+  getAssets: (portfolioId: number) => apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets`),
+  addAsset: (portfolioId: number, body: AssetDraft) =>
+    apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateAsset: (portfolioId: number, id: number, body: AssetDraft) =>
+    apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteAsset: (portfolioId: number, id: number) => apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/${id}`, { method: "DELETE" }),
+  setUsdInr: (portfolioId: number, rate: number | null) =>
+    apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/usd-inr`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usd_inr: rate }) }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

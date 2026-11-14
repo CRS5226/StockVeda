@@ -431,3 +431,20 @@ CREATE TABLE IF NOT EXISTS portfolio_fds (
     created_at    TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- Other investments in a portfolio (crypto, US stocks, mutual funds, bonds, gold ...). Prices are typed in by the user.
+CREATE TABLE IF NOT EXISTS portfolio_assets (
+    id            INTEGER,
+    portfolio_id  INTEGER NOT NULL,
+    name          VARCHAR NOT NULL,
+    asset_type    VARCHAR NOT NULL,     -- crypto | us_stock | mutual_fund | bond | gold | other
+    currency      VARCHAR NOT NULL,     -- INR | USD
+    qty           DOUBLE NOT NULL,
+    buy_price     DOUBLE NOT NULL,
+    current_price DOUBLE NOT NULL,
+    buy_date      DATE,
+    created_at    TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+-- the rate the user types in to show USD assets in rupees
+ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS usd_inr DOUBLE;
