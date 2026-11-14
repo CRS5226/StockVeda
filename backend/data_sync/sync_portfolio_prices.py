@@ -62,16 +62,17 @@ def fetch_closes(symbols: list[str], start: date) -> pd.DataFrame:
     return closes_from_download(raw, ticker_to_symbol)
 
 
-def run_price_sync(job_id: str, symbols: dict[str, date | None], schemes: dict[str, tuple[str, str | None]], expected: date, today: date) -> None:
-    """Fetch what is stale. `symbols` maps each stale symbol to its newest stored close date, `schemes` each stale scheme
-    code to (name, isin)."""
+def run_price_sync(job_id: str, symbols: dict[str, date | None], schemes: dict[str, tuple[str, str | None]], expected: date, today: date,
+                   first_load_days: int = 30) -> None:
+    """Fetch what is stale. `symbols` maps each stale symbol to its newest stored close date (None: start from
+    `first_load_days` back), `schemes` each stale scheme code to (name, isin)."""
     job = price_jobs[job_id]
     job.update({"status": "running", "total": len(symbols) + len(schemes), "done": 0})
     try:
         names = sorted(symbols)
         for i in range(0, len(names), CHUNK):
             chunk = names[i:i + CHUNK]
-            start = fetch_start([symbols[s] for s in chunk], today)
+            start = fetch_start([symbols[s] for s in chunk], today, first_load_days)
             try:
                 df = fetch_closes(chunk, start)
             except Exception:

@@ -477,3 +477,13 @@ CREATE TABLE IF NOT EXISTS portfolio_dividends (
 
 -- The type a user set by hand for a holding (stock | etf | reit | invit); empty means it is worked out from the symbol and name.
 ALTER TABLE portfolio_holdings ADD COLUMN IF NOT EXISTS kind VARCHAR;
+
+-- The limits a portfolio is checked against: the largest share one stock should have, how far a type may drift,
+-- and the target share of each type (a JSON object such as {"stocks": 60, "fixed_deposits": 20}).
+CREATE TABLE IF NOT EXISTS portfolio_targets (
+    portfolio_id     INTEGER,
+    max_position_pct DOUBLE,
+    band_pp          DOUBLE,
+    targets          VARCHAR,
+    PRIMARY KEY (portfolio_id)
+);

@@ -185,6 +185,22 @@ export interface PriceSyncJob {
   status: "queued" | "running" | "done" | "error"; total: number; done: number;
   prices: number; updated_symbols: number; navs: number; no_data: string[]; as_of: string; error?: string;
 }
+export interface HealthSettings { max_position_pct: number; band_pp: number; targets: Record<string, number> }
+export interface HealthPosition { symbol: string; kind: HoldingKind; weight_pct: number; value: number; over_limit: boolean; excess_value: number; shares_to_trim: number }
+export interface HealthAllocation {
+  key: string; label: string; value: number; current_pct: number; target_pct: number | null; diff_pp: number | null;
+  status: "within" | "over" | "under" | "no_target"; move: number | null;
+}
+export interface HealthTrend {
+  symbol: string; kind: HoldingKind; weight_pct: number; bars: number; last: number | null; sma50: number | null; sma200: number | null;
+  above_sma50: boolean | null; above_sma200: boolean | null; from_high_pct: number | null; return_1y_pct: number | null; deep_drawdown: boolean;
+}
+export interface HealthReport {
+  total_value: number; settings: HealthSettings;
+  concentration: { positions: HealthPosition[]; top5_pct: number; effective_holdings: number; over_limit: number; max_pct: number };
+  allocation: HealthAllocation[]; trend: HealthTrend[];
+  summary: { stocks: number; below_sma200: number; with_sma200: number; deep_drawdown: number; types_out_of_band: number };
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -696,6 +712,11 @@ export const api = {
 
   startPriceSync: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/sync`, { method: "POST" }),
   getPriceSync: (portfolioId: number, jobId: string) => apiFetch<PriceSyncJob>(`/portfolios/${portfolioId}/prices/sync/${jobId}`),
+
+  getHealth: (portfolioId: number) => apiFetch<HealthReport>(`/portfolios/${portfolioId}/health`),
+  putHealthTargets: (portfolioId: number, body: HealthSettings) =>
+    apiFetch<HealthSettings>(`/portfolios/${portfolioId}/health/targets`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  startPriceHistory: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/history`, { method: "POST" }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

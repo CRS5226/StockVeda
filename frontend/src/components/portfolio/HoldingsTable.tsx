@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import type { HoldingDraft, PortfolioHolding } from "../../lib/api";
+import SortHeader from "./SortHeader";
 import { nextSort, sortRows, type SortState } from "../../lib/sortRows";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 
@@ -55,20 +56,6 @@ const COLUMNS: { key: SortKey; label: string; right?: boolean }[] = [
   { key: "pnl", label: "P&L", right: true }, { key: "pnl_pct", label: "P&L %", right: true },
 ];
 
-/** Column title that sorts the table: a small arrow shows the direction, and a click steps through ascending, descending and off. */
-function SortHeader({ col, sort, onSort }: { col: (typeof COLUMNS)[number]; sort: SortState<SortKey> | null; onSort: (k: SortKey) => void }) {
-  const active = sort?.key === col.key;
-  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
-  return (
-    <th className={`${col.key === "pnl" || col.key === "pnl_pct" ? "px-5" : "px-3"} py-2 font-medium ${col.right ? "text-right" : ""}`} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-      <button onClick={() => onSort(col.key)} title="Sort"
-        className={`inline-flex items-center gap-1 hover:text-slate-800 ${active ? "text-blue-600" : ""} ${col.right ? "flex-row-reverse" : ""}`}>
-        {col.label}<Icon size={12} className={active ? "" : "opacity-40"} />
-      </button>
-    </th>
-  );
-}
-
 export default function HoldingsTable({ holdings, onUpdate, onDelete }: Props) {
   const [sort, setSort] = useState<SortState<SortKey> | null>(null);
   const rows = useMemo(() => (sort ? sortRows(holdings, sort.key, sort.dir) : holdings), [holdings, sort]);
@@ -80,7 +67,10 @@ export default function HoldingsTable({ holdings, onUpdate, onDelete }: Props) {
       <table className="w-full min-w-[1000px] text-sm">
         <thead>
           <tr className="text-xs text-slate-500 text-left">
-            {COLUMNS.map((c) => <SortHeader key={c.key} col={c} sort={sort} onSort={(k) => setSort((cur) => nextSort(cur, k))} />)}
+            {COLUMNS.map((c) => (
+              <SortHeader key={c.key} columnKey={c.key} label={c.label} right={c.right} sort={sort} onSort={(k) => setSort((cur) => nextSort(cur, k))}
+                className={c.key === "pnl" || c.key === "pnl_pct" ? "px-5" : "px-3"} />
+            ))}
             <th />
           </tr>
         </thead>

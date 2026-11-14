@@ -51,6 +51,34 @@ def start_sync(pid: int, background_tasks: BackgroundTasks):
     return {"status": "started", "job_id": job_id, "total": total, "done": 0}
 
 
+HISTORY_BARS = 252            # a year of daily closes: enough for the 200-day average and the 52-week high
+HISTORY_DAYS = 800            # calendar days to load for a stock that has less
+
+
+@router.post("/history")
+def start_history(pid: int, background_tasks: BackgroundTasks):
+    """Load about two years of daily closes for the stocks that have less than a year stored (needed for trend checks)."""
+    db = get_db()
+    if not db.execute("SELECT 1 FROM portfolios WHERE id = ?", [pid]).fetchall():
+        raise HTTPException(404, "No such portfolio.")
+    running = next((jid for jid, j in price_jobs.items() if j["pid"] == pid and j["status"] in ("queued", "running")), None)
+    if running:
+        return {"status": "started", "job_id": running, **{k: price_jobs[running][k] for k in ("total", "done")}}
+    symbols = sorted(r[0] for r in db.execute("SELECT DISTINCT symbol FROM portfolio_holdings WHERE portfolio_id = ?", [pid]).fetchall())
+    counts = {r[0]: r[1] for r in db.execute(
+        f"SELECT symbol, COUNT(*) FROM stock_ohlcv WHERE symbol IN ({','.join('?' for _ in symbols)}) GROUP BY symbol", symbols).fetchall()} if symbols else {}
+    short = [s for s in symbols if counts.get(s, 0) < HISTORY_BARS]
+    expected = expected_close_date(datetime.now(timezone.utc))
+    if not short:
+        return {"status": "up_to_date", "as_of": str(expected), "checked": len(symbols)}
+    job_id = uuid.uuid4().hex
+    price_jobs[job_id] = {"pid": pid, "status": "queued", "total": len(short), "done": 0, "prices": 0, "updated_symbols": 0, "navs": 0,
+                          "no_data": [], "as_of": str(expected)}
+    # None as the newest date: every one of these starts HISTORY_DAYS back, so the rows already stored are simply rewritten
+    background_tasks.add_task(run_price_sync, job_id, {s: None for s in short}, {}, expected, date.today(), HISTORY_DAYS)
+    return {"status": "started", "job_id": job_id, "total": len(short), "done": 0}
+
+
 @router.get("/sync/{job_id}")
 def sync_progress(pid: int, job_id: str):
     job = price_jobs.get(job_id)

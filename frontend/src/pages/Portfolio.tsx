@@ -3,6 +3,7 @@ import { Briefcase, Plus, Trash2 } from "lucide-react";
 import AssetsSection from "../components/portfolio/AssetsSection";
 import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
+import HealthSection from "../components/portfolio/HealthSection";
 import MfSection from "../components/portfolio/MfSection";
 import { buyInfo } from "../lib/dividendRules";
 import { countByKind, holdingTotals, KIND_LABELS, KIND_ORDER } from "../lib/holdingKinds";
@@ -139,6 +140,7 @@ export default function Portfolio() {
               {tab === "dividends" && <DividendsSection portfolioId={p.detail.id} buy={buyInfo(p.detail.holdings)} onChanged={changed} />}
               {tab === "fixed_deposits" && <FdSection portfolioId={p.detail.id} onChanged={changed} />}
               {tab === "other" && <AssetsSection portfolioId={p.detail.id} onChanged={changed} />}
+              {tab === "health" && <HealthSection portfolioId={p.detail.id} refreshKey={version} />}
             </div>
           )}
         </section>
