@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type PriceSyncJob } from "./api";
+import { api, type PriceSyncJob, type PriceSyncStart } from "./api";
 import { errorText } from "./useTradePlots";
 
 export type SyncPhase = "idle" | "checking" | "running" | "done" | "up_to_date" | "error";
@@ -18,7 +18,7 @@ export function describeSync(job: PriceSyncJob): string {
  * The portfolio's Sync button: asks the server for the latest closes and NAVs, follows the background job, and keeps
  * a short message for the user. `onUpdated` runs when new prices were stored, so the page can reload its figures.
  */
-export function usePriceSync(portfolioId: number, onUpdated: () => void) {
+export function usePriceSync(portfolioId: number, onUpdated: () => void, startCall: (id: number) => Promise<PriceSyncStart> = api.startPriceSync) {
   const [phase, setPhase] = useState<SyncPhase>("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [message, setMessage] = useState("");
@@ -32,7 +32,7 @@ export function usePriceSync(portfolioId: number, onUpdated: () => void) {
     setPhase("checking");
     setMessage("");
     try {
-      const start = await api.startPriceSync(portfolioId);
+      const start = await startCall(portfolioId);
       if (start.status === "up_to_date") {
         setPhase("up_to_date");
         setMessage(`Already up to date. Latest close: ${start.as_of}.`);
@@ -61,7 +61,7 @@ export function usePriceSync(portfolioId: number, onUpdated: () => void) {
       setPhase("error");
       setMessage(errorText(e));
     }
-  }, [phase, portfolioId, onUpdated]);
+  }, [phase, portfolioId, onUpdated, startCall]);
 
   return { phase, progress, message, sync, busy: phase === "checking" || phase === "running" };
 }

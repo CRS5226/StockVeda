@@ -119,3 +119,24 @@ def test_stale_mutual_fund_navs_are_refreshed(client, db, monkeypatch):
     started = client.post("/api/portfolios/1/prices/sync").json()
     assert started["total"] == 1 and fetched == ["100"]
     assert client.get(f"/api/portfolios/1/prices/sync/{started['job_id']}").json()["navs"] == 1
+
+
+def test_history_loads_two_years_for_stocks_with_less_than_a_year(client, db, monkeypatch):
+    for i in range(260):                                               # TCS already has a year of closes
+        db.execute("INSERT INTO stock_ohlcv VALUES (?, 'TCS', 1, 1, 1, 100, 1)", [date.today() - timedelta(days=i + 400)])
+    db.execute("INSERT INTO stock_ohlcv VALUES (?, 'ITC', 1, 1, 1, 100, 1)", [_expected()])          # ITC has one day
+    calls = []
+    monkeypatch.setattr(sync, "fetch_closes", lambda symbols, start: calls.append((sorted(symbols), start)) or pd.DataFrame())
+    monkeypatch.setattr(sync, "PAUSE_SECONDS", 0)
+    started = client.post("/api/portfolios/1/prices/history").json()
+    assert started["status"] == "started" and started["total"] == 2                  # ITC and NEWCO; not TCS
+    assert calls == [(["ITC", "NEWCO"], date.today() - timedelta(days=800))]
+    assert client.get(f"/api/portfolios/1/prices/sync/{started['job_id']}").json()["status"] == "done"
+
+
+def test_history_says_up_to_date_when_every_stock_has_a_year(client, db):
+    for sym in ("TCS", "ITC", "NEWCO"):
+        for i in range(255):
+            db.execute("INSERT INTO stock_ohlcv VALUES (?, ?, 1, 1, 1, 100, 1)", [date.today() - timedelta(days=i), sym])
+    assert client.post("/api/portfolios/1/prices/history").json()["status"] == "up_to_date"
+    assert client.post("/api/portfolios/9/prices/history").status_code == 404

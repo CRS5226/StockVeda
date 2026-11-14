@@ -15,9 +15,8 @@ from backend.routes.portfolio_mf import mf_listing_with_flows
 router = APIRouter(prefix="/portfolios/{pid}/total", tags=["portfolio"])
 
 
-@router.get("")
-def get_total(pid: int):
-    db = get_db()
+def compute_total(db, pid: int) -> tuple[dict, dict]:
+    """The portfolio total, and the stock detail it was built from (the health check needs both)."""
     stocks = portfolio_detail(db, pid)   # 404s for an unknown portfolio
     fds = fd_listing(db, pid)
     assets = asset_listing(db, pid)
@@ -28,4 +27,9 @@ def get_total(pid: int):
     # mutual funds always have dates; count them once for each holding
     total["xirr_pct"] = portfolio_xirr(flows)
     total["xirr_items"] = {"dated": dated + len(mf["holdings"]), "total": counted + len(mf["holdings"])}
-    return total
+    return total, stocks
+
+
+@router.get("")
+def get_total(pid: int):
+    return compute_total(get_db(), pid)[0]
