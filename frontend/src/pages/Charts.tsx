@@ -446,6 +446,7 @@ export default function Charts() {
         <aside className={`w-80 shrink-0 border-l ${dark ? "border-[#2a2e39]" : "border-slate-200"}`}>
           <TradePlotPanel plots={tradePlots.plots} loading={tradePlots.loading} error={tradePlots.error} selectedId={selectedPlot} dark={dark}
             onSelect={setSelectedPlot} onJump={jumpToPlot} onChange={tradePlots.update}
+            onClose={() => { setPlotMode(false); setPlotTool(null); }}
             onDelete={(id) => deleteLayer({ type: "trade", id })} />
         </aside>
       )}
