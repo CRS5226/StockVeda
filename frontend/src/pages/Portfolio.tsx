@@ -4,6 +4,7 @@ import AssetsSection from "../components/portfolio/AssetsSection";
 import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
 import MfSection from "../components/portfolio/MfSection";
+import PortfolioTabs, { loadPortfolioTab, savePortfolioTab, type PortfolioTab } from "../components/portfolio/PortfolioTabs";
 import PortfolioTotal from "../components/portfolio/PortfolioTotal";
 import HoldingsTable from "../components/portfolio/HoldingsTable";
 import SymbolCombobox from "../components/SymbolCombobox";
@@ -31,6 +32,8 @@ export default function Portfolio() {
   const [watchlistId, setWatchlistId] = useState("");
   const [symbol, setSymbol] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [tab, setTab] = useState<PortfolioTab>(loadPortfolioTab);
+  const openTab = (next: PortfolioTab) => { setTab(next); savePortfolioTab(next); };
   const [version, setVersion] = useState(0); // bumped when fixed deposits or other investments change, to reload the total
   const changed = useCallback(() => setVersion((n) => n + 1), []);
 
@@ -92,30 +95,34 @@ export default function Portfolio() {
                 <button title="Delete this portfolio" className="ml-auto p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50"
                   onClick={() => { if (window.confirm(`Delete the portfolio "${p.detail!.name}" and its holdings?`)) void p.remove(); }}><Trash2 size={15} /></button>
               </div>
-              <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} />
-              <h3 className="font-semibold -mb-2">Stocks</h3>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Stat label="Invested" value={rupees(totals.invested)} />
-                <Stat label="Current value" value={rupees(totals.value)} />
-                <Stat label="Profit / loss" value={signedRupees(totals.pnl)} tone={resultColor(totals.pnl)} />
-                <Stat label="Return" value={totals.pnl_pct === null ? "—" : signedPercent(totals.pnl_pct)} tone={resultColor(totals.pnl_pct)} />
-              </div>
-              {totals.incomplete > 0 && (
-                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  {totals.incomplete} {totals.incomplete === 1 ? "stock needs" : "stocks need"} a quantity and buy price (and a stored daily close) before {totals.incomplete === 1 ? "it counts" : "they count"} in the totals.
-                </div>
+              <PortfolioTabs value={tab} onChange={openTab} />
+              {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} />}
+              {tab === "stocks" && (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <Stat label="Invested" value={rupees(totals.invested)} />
+                    <Stat label="Current value" value={rupees(totals.value)} />
+                    <Stat label="Profit / loss" value={signedRupees(totals.pnl)} tone={resultColor(totals.pnl)} />
+                    <Stat label="Return" value={totals.pnl_pct === null ? "—" : signedPercent(totals.pnl_pct)} tone={resultColor(totals.pnl_pct)} />
+                  </div>
+                  {totals.incomplete > 0 && (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      {totals.incomplete} {totals.incomplete === 1 ? "stock needs" : "stocks need"} a quantity and buy price (and a stored daily close) before {totals.incomplete === 1 ? "it counts" : "they count"} in the totals.
+                    </div>
+                  )}
+                  <div className="bg-white border border-slate-200 rounded-xl">
+                    <div className="p-3 border-b border-slate-100 w-72">
+                      <SymbolCombobox value={symbol} onChange={setSymbol} onSelect={add} placeholder="Add a stock…" />
+                    </div>
+                    <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
+                  </div>
+                  <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>
+                </>
               )}
-              <div className="bg-white border border-slate-200 rounded-xl">
-                <div className="p-3 border-b border-slate-100 w-72">
-                  <SymbolCombobox value={symbol} onChange={setSymbol} onSelect={add} placeholder="Add a stock…" />
-                </div>
-                <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
-              </div>
-              <DividendsSection portfolioId={p.detail.id} symbols={[...new Set(p.detail.holdings.map((h) => h.symbol))]} onChanged={changed} />
-              <MfSection portfolioId={p.detail.id} onChanged={changed} />
-              <FdSection portfolioId={p.detail.id} onChanged={changed} />
-              <AssetsSection portfolioId={p.detail.id} onChanged={changed} />
-              <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>
+              {tab === "mutual_funds" && <MfSection portfolioId={p.detail.id} onChanged={changed} />}
+              {tab === "dividends" && <DividendsSection portfolioId={p.detail.id} symbols={[...new Set(p.detail.holdings.map((h) => h.symbol))]} onChanged={changed} />}
+              {tab === "fixed_deposits" && <FdSection portfolioId={p.detail.id} onChanged={changed} />}
+              {tab === "other" && <AssetsSection portfolioId={p.detail.id} onChanged={changed} />}
             </div>
           )}
         </section>
