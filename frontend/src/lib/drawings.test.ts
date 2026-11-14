@@ -17,6 +17,10 @@ describe("applyHandle", () => {
     const moved = applyHandle(rect, { t: 2, p: 1 }, barTimes[3], 95);
     expect(moved).toMatchObject({ time1: rect.time1, price1: 95, time2: "2026-01-01T09:30:00", price2: 110 });
   });
+  it("an edge handle changes only the length or only the height", () => {
+    expect(applyHandle(rect, { t: 2 }, barTimes[3], 999)).toMatchObject({ time2: "2026-01-01T09:30:00", price1: 100, price2: 110 });
+    expect(applyHandle(rect, { p: 2 }, barTimes[3], 120)).toMatchObject({ time2: rect.time2, price1: 100, price2: 120 });
+  });
   it("keeps a horizontal line flat", () => {
     const h = newDrawing("TCS", "hline", { time: barTimes[0], price: 100 }, { time: barTimes[2], price: 100 });
     expect(applyHandle(h, { t: 2, p: 2 }, barTimes[3], 120)).toMatchObject({ price1: 120, price2: 120 });

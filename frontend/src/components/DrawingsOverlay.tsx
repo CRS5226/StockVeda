@@ -201,7 +201,10 @@ export default function DrawingsOverlay(props: Props) {
             : d.kind === "hline"
               ? [{ x: s.x1, y: s.y1, handle: { t: 1, p: 1 } }, { x: s.x2, y: s.y1, handle: { t: 2, p: 2 } }]
               : [{ x: s.x1, y: s.y1, handle: { t: 1, p: 1 } }, { x: s.x2, y: s.y1, handle: { t: 2, p: 1 } },
-                 { x: s.x1, y: s.y2, handle: { t: 1, p: 2 } }, { x: s.x2, y: s.y2, handle: { t: 2, p: 2 } }];
+                 { x: s.x1, y: s.y2, handle: { t: 1, p: 2 } }, { x: s.x2, y: s.y2, handle: { t: 2, p: 2 } },
+                 // edge midpoints change only the length or only the height
+                 { x: s.x1, y: (s.y1 + s.y2) / 2, handle: { t: 1 } }, { x: s.x2, y: (s.y1 + s.y2) / 2, handle: { t: 2 } },
+                 { x: (s.x1 + s.x2) / 2, y: s.y1, handle: { p: 1 } }, { x: (s.x1 + s.x2) / 2, y: s.y2, handle: { p: 2 } }];
           return (
             <g key={s.id}>
               {d.kind === "rect" && (
@@ -226,7 +229,7 @@ export default function DrawingsOverlay(props: Props) {
               )}
               {knobs.map((k, i) => (
                 <rect key={i} x={k.x - 5} y={k.y - 5} width={10} height={10} rx={2} strokeWidth={2} stroke={BLUE}
-                  fill={dark ? "#131722" : "#fff"} pointerEvents="all" style={{ cursor: "move" }}
+                  fill={dark ? "#131722" : "#fff"} pointerEvents="all" style={{ cursor: k.handle.t && k.handle.p ? "move" : k.handle.t ? "ew-resize" : "ns-resize" }}
                   onPointerDown={(e) => startDrag(e, base, { handle: k.handle })} {...handlers} />
               ))}
             </g>
