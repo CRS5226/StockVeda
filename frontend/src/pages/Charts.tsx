@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesMarker, Time } from "lightweight-charts";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, Columns2, Download, Layers, Moon, PencilRuler, RefreshCw, Rewind, Sun } from "lucide-react";
+import { AlertCircle, Columns2, Download, Layers, Moon, RefreshCw, Rewind, Sun } from "lucide-react";
 import BacktestChart, { NO_SMC, type ChartHandle } from "../components/BacktestChart";
 import OrderCards from "../components/OrderCards";
 import OrderOverlay from "../components/OrderOverlay";
@@ -10,6 +10,7 @@ import TradePanel from "../components/TradePanel";
 import TradePlotOverlay from "../components/TradePlotOverlay";
 import TradePlotPanel from "../components/TradePlotPanel";
 import SmcFloatingBox from "../components/SmcFloatingBox";
+import DrawingToolbar from "../components/DrawingToolbar";
 import SplitCharts from "../components/SplitCharts";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { useChartData } from "../lib/useChartData";
@@ -287,30 +288,6 @@ export default function Charts() {
           <Layers size={14} /> SMC
           {smcActive && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
         </button>
-        <button onClick={() => { setPlotMode((v) => !v); setPlotTool(null); setPicking(false); }} disabled={replay.active}
-          title={replay.active ? "Trade plot is off during replay" : "Plot long / short trades on the chart and save them"}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
-            plotMode
-              ? (dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-50 text-blue-600")
-              : (dark ? "text-slate-400 hover:bg-[#1e222d] hover:text-slate-100" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")
-          }`}>
-          <PencilRuler size={14} /> Trade plot
-        </button>
-        {plotMode && !replay.active && (
-          <div className="flex items-center gap-1">
-            {(["long", "short"] as const).map((side) => (
-              <button key={side} onClick={() => setPlotTool((t) => (t === side ? null : side))}
-                title={`Place a ${side} trade box: click the chart`}
-                className={`px-2.5 py-1 rounded text-xs font-bold border transition-colors ${
-                  plotTool === side
-                    ? (side === "long" ? "bg-emerald-600 text-white border-emerald-600" : "bg-red-600 text-white border-red-600")
-                    : (side === "long" ? "text-emerald-500 border-emerald-500/50 hover:bg-emerald-500/10" : "text-red-500 border-red-500/50 hover:bg-red-500/10")
-                }`}>
-                {side === "long" ? "Long" : "Short"}
-              </button>
-            ))}
-          </div>
-        )}
         <div className={`ml-auto flex items-center gap-3 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
           {!split && (<>
           {busy && (
@@ -341,6 +318,10 @@ export default function Charts() {
           structure={structure} onStructure={changeStructure} />
       ) : (
       <div className="flex flex-1 min-h-0">
+      {!replay.active && (
+        <DrawingToolbar dark={dark} plotMode={plotMode} tool={plotTool} onTool={setPlotTool}
+          onTogglePlot={() => { setPlotMode((v) => !v); setPlotTool(null); setPicking(false); }} />
+      )}
       <div className="flex flex-col flex-1 min-w-0">
       <div className="relative flex-1 min-h-0">
         <BacktestChart fill ohlcv={shown} symbol={symbol} smc={replay.active ? NO_SMC : smc} theme={theme}
