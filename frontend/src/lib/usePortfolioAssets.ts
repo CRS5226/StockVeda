@@ -3,7 +3,7 @@ import { api, type AssetDraft, type AssetListing } from "./api";
 import { errorText } from "./useTradePlots";
 
 /** The other investments of one portfolio and its USD to INR rate, with save / edit / delete that follow the server. */
-export function usePortfolioAssets(portfolioId: number) {
+export function usePortfolioAssets(portfolioId: number, onChanged?: () => void) {
   const [listing, setListing] = useState<AssetListing | null>(null);
   const [error, setError] = useState("");
 
@@ -20,12 +20,13 @@ export function usePortfolioAssets(portfolioId: number) {
     try {
       setListing(await call());
       setError("");
+      onChanged?.();
       return true;
     } catch (e) {
       setError(errorText(e));
       return false;
     }
-  }, []);
+  }, [onChanged]);
 
   const add = (draft: AssetDraft) => run(() => api.addAsset(portfolioId, draft));
   const update = (id: number, draft: AssetDraft) => run(() => api.updateAsset(portfolioId, id, draft));

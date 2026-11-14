@@ -61,8 +61,8 @@ const when = (f: PortfolioFd) => (f.status === "matured" ? "Matured" : f.status 
 const terms = (f: PortfolioFd) => (f.payout === "cumulative" ? `Cumulative, ${label[f.compounding].toLowerCase()}` : `Paid out ${label[f.payout].toLowerCase()}`);
 
 /** Fixed deposits of a portfolio. The current amount is worked out from the terms entered, so nothing needs updating by hand. */
-export default function FdSection({ portfolioId }: { portfolioId: number }) {
-  const fds = usePortfolioFds(portfolioId);
+export default function FdSection({ portfolioId, onChanged }: { portfolioId: number; onChanged?: () => void }) {
+  const fds = usePortfolioFds(portfolioId, onChanged);
   // null: form closed, "new": adding, a number: editing that FD
   const [editing, setEditing] = useState<null | "new" | number>(null);
   const list = fds.listing?.fds ?? [];

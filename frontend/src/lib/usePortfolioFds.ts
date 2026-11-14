@@ -3,7 +3,7 @@ import { api, type FdDraft, type FdListing } from "./api";
 import { errorText } from "./useTradePlots";
 
 /** The fixed deposits of one portfolio, with save / edit / delete that keep the list in step with the server. */
-export function usePortfolioFds(portfolioId: number) {
+export function usePortfolioFds(portfolioId: number, onChanged?: () => void) {
   const [listing, setListing] = useState<FdListing | null>(null);
   const [error, setError] = useState("");
 
@@ -20,12 +20,13 @@ export function usePortfolioFds(portfolioId: number) {
     try {
       setListing(await call());
       setError("");
+      onChanged?.();
       return true;
     } catch (e) {
       setError(errorText(e));
       return false;
     }
-  }, []);
+  }, [onChanged]);
 
   const add = (draft: FdDraft) => run(() => api.addFd(portfolioId, draft));
   const update = (id: number, draft: FdDraft) => run(() => api.updateFd(portfolioId, id, draft));

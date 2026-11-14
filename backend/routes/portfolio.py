@@ -40,7 +40,7 @@ def _require_portfolio(db, pid: int) -> tuple:
     return row
 
 
-def _detail(db, pid: int) -> dict:
+def portfolio_detail(db, pid: int) -> dict:
     _, name = _require_portfolio(db, pid)
     lots = db.execute(
         "SELECT id, symbol, qty, buy_price, buy_date FROM portfolio_holdings WHERE portfolio_id = ? ORDER BY symbol, id", [pid]
@@ -72,7 +72,7 @@ def create_portfolio(body: PortfolioIn):
     db = get_db()
     pid = _next_id(db, "portfolios")
     db.execute("INSERT INTO portfolios (id, name) VALUES (?, ?)", [pid, body.name.strip()])
-    return _detail(db, pid)
+    return portfolio_detail(db, pid)
 
 
 @router.post("/from-watchlist")
@@ -87,12 +87,12 @@ def create_from_watchlist(body: FromWatchlistIn):
     hid = _next_id(db, "portfolio_holdings")
     for offset, symbol in enumerate(dict.fromkeys(s.strip().upper() for s in (wl[1] or []))):
         db.execute("INSERT INTO portfolio_holdings (id, portfolio_id, symbol) VALUES (?, ?, ?)", [hid + offset, pid, symbol])
-    return _detail(db, pid)
+    return portfolio_detail(db, pid)
 
 
 @router.get("/{pid}")
 def get_portfolio(pid: int):
-    return _detail(get_db(), pid)
+    return portfolio_detail(get_db(), pid)
 
 
 @router.put("/{pid}")
@@ -100,7 +100,7 @@ def rename_portfolio(pid: int, body: PortfolioIn):
     db = get_db()
     _require_portfolio(db, pid)
     db.execute("UPDATE portfolios SET name = ? WHERE id = ?", [body.name.strip(), pid])
-    return _detail(db, pid)
+    return portfolio_detail(db, pid)
 
 
 @router.delete("/{pid}")
@@ -122,7 +122,7 @@ def add_holding(pid: int, body: HoldingIn):
         "INSERT INTO portfolio_holdings (id, portfolio_id, symbol, qty, buy_price, buy_date) VALUES (?, ?, ?, ?, ?, ?)",
         [_next_id(db, "portfolio_holdings"), pid, body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date],
     )
-    return _detail(db, pid)
+    return portfolio_detail(db, pid)
 
 
 @router.put("/{pid}/holdings/{hid}")
@@ -135,7 +135,7 @@ def update_holding(pid: int, hid: int, body: HoldingIn):
         "UPDATE portfolio_holdings SET symbol = ?, qty = ?, buy_price = ?, buy_date = ? WHERE id = ?",
         [body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date, hid],
     )
-    return _detail(db, pid)
+    return portfolio_detail(db, pid)
 
 
 @router.delete("/{pid}/holdings/{hid}")
@@ -143,4 +143,4 @@ def delete_holding(pid: int, hid: int):
     db = get_db()
     _require_portfolio(db, pid)
     db.execute("DELETE FROM portfolio_holdings WHERE id = ? AND portfolio_id = ?", [hid, pid])
-    return _detail(db, pid)
+    return portfolio_detail(db, pid)

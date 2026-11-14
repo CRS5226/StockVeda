@@ -35,7 +35,7 @@ def _usd_inr(db, pid: int) -> Optional[float]:
     return row[0]
 
 
-def _listing(db, pid: int) -> dict:
+def asset_listing(db, pid: int) -> dict:
     rate = _usd_inr(db, pid)
     assets = []
     for aid, name, kind, currency, qty, buy_price, price, buy_date in db.execute(
@@ -51,7 +51,7 @@ def _listing(db, pid: int) -> dict:
 
 @router.get("")
 def list_assets(pid: int):
-    return _listing(get_db(), pid)
+    return asset_listing(get_db(), pid)
 
 
 @router.put("/usd-inr")
@@ -59,7 +59,7 @@ def set_usd_inr(pid: int, body: RateIn):
     db = get_db()
     _usd_inr(db, pid)
     db.execute("UPDATE portfolios SET usd_inr = ? WHERE id = ?", [body.usd_inr, pid])
-    return _listing(db, pid)
+    return asset_listing(db, pid)
 
 
 @router.post("")
@@ -72,7 +72,7 @@ def add_asset(pid: int, body: AssetIn):
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [aid, pid, body.name.strip(), body.asset_type, body.currency, body.qty, body.buy_price, body.current_price, body.buy_date],
     )
-    return _listing(db, pid)
+    return asset_listing(db, pid)
 
 
 @router.put("/{aid}")
@@ -85,7 +85,7 @@ def update_asset(pid: int, aid: int, body: AssetIn):
         "UPDATE portfolio_assets SET name = ?, asset_type = ?, currency = ?, qty = ?, buy_price = ?, current_price = ?, buy_date = ? WHERE id = ?",
         [body.name.strip(), body.asset_type, body.currency, body.qty, body.buy_price, body.current_price, body.buy_date, aid],
     )
-    return _listing(db, pid)
+    return asset_listing(db, pid)
 
 
 @router.delete("/{aid}")
@@ -93,4 +93,4 @@ def delete_asset(pid: int, aid: int):
     db = get_db()
     _usd_inr(db, pid)
     db.execute("DELETE FROM portfolio_assets WHERE id = ? AND portfolio_id = ?", [aid, pid])
-    return _listing(db, pid)
+    return asset_listing(db, pid)

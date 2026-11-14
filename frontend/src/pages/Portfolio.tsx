@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Briefcase, Plus, Trash2 } from "lucide-react";
 import AssetsSection from "../components/portfolio/AssetsSection";
 import FdSection from "../components/portfolio/FdSection";
+import PortfolioTotal from "../components/portfolio/PortfolioTotal";
 import HoldingsTable from "../components/portfolio/HoldingsTable";
 import SymbolCombobox from "../components/SymbolCombobox";
 import { api, type Watchlist } from "../lib/api";
@@ -28,6 +29,8 @@ export default function Portfolio() {
   const [watchlistId, setWatchlistId] = useState("");
   const [symbol, setSymbol] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [version, setVersion] = useState(0); // bumped when fixed deposits or other investments change, to reload the total
+  const changed = useCallback(() => setVersion((n) => n + 1), []);
 
   useEffect(() => { api.getWatchlists().then(setWatchlists).catch(() => { /* none offered */ }); }, []);
 
@@ -87,6 +90,8 @@ export default function Portfolio() {
                 <button title="Delete this portfolio" className="ml-auto p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50"
                   onClick={() => { if (window.confirm(`Delete the portfolio "${p.detail!.name}" and its holdings?`)) void p.remove(); }}><Trash2 size={15} /></button>
               </div>
+              <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} />
+              <h3 className="font-semibold -mb-2">Stocks</h3>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Stat label="Invested" value={rupees(totals.invested)} />
                 <Stat label="Current value" value={rupees(totals.value)} />
@@ -104,8 +109,8 @@ export default function Portfolio() {
                 </div>
                 <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
               </div>
-              <FdSection key={p.detail.id} portfolioId={p.detail.id} />
-              <AssetsSection key={p.detail.id} portfolioId={p.detail.id} />
+              <FdSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
+              <AssetsSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
               <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>
             </>
           )}

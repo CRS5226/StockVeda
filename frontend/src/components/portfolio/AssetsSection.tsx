@@ -80,8 +80,8 @@ function RateBox({ rate, onSave }: { rate: number | null; onSave: (r: number | n
 }
 
 /** Crypto, US stocks, mutual funds, bonds, gold and anything else, with prices typed in. Shown in rupees using the USD rate entered here. */
-export default function AssetsSection({ portfolioId }: { portfolioId: number }) {
-  const a = usePortfolioAssets(portfolioId);
+export default function AssetsSection({ portfolioId, onChanged }: { portfolioId: number; onChanged?: () => void }) {
+  const a = usePortfolioAssets(portfolioId, onChanged);
   // null: form closed, "new": adding, a number: editing that asset
   const [editing, setEditing] = useState<null | "new" | number>(null);
   const list = a.listing?.assets ?? [];

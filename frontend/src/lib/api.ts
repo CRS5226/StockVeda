@@ -146,6 +146,13 @@ export interface PortfolioAsset extends AssetDraft {
 }
 export interface AssetTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; unconverted: number }
 export interface AssetListing { assets: PortfolioAsset[]; usd_inr: number | null; totals: AssetTotals }
+/** One slice of the portfolio total: stocks, fixed deposits or one kind of other investment, all in rupees. */
+export interface TotalPart { key: string; label: string; invested: number; value: number; pnl: number; pnl_pct: number | null; share_pct: number }
+export interface PortfolioTotal {
+  invested: number; value: number; pnl: number; pnl_pct: number | null; parts: TotalPart[];
+  /** Stocks without a quantity and buy price, and dollar assets without a USD to INR rate: not in the total yet. */
+  left_out: { stocks: number; assets: number };
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -638,6 +645,8 @@ export const api = {
   deleteAsset: (portfolioId: number, id: number) => apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/${id}`, { method: "DELETE" }),
   setUsdInr: (portfolioId: number, rate: number | null) =>
     apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/usd-inr`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usd_inr: rate }) }),
+
+  getPortfolioTotal: (portfolioId: number) => apiFetch<PortfolioTotal>(`/portfolios/${portfolioId}/total`),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

@@ -37,7 +37,7 @@ def _checked(body: FdIn) -> None:
         raise HTTPException(400, problem)
 
 
-def _listing(db, pid: int) -> dict:
+def fd_listing(db, pid: int) -> dict:
     today = date.today()
     fds = []
     for fid, name, principal, rate, start, maturity, compounding, payout in db.execute(
@@ -64,7 +64,7 @@ def _listing(db, pid: int) -> dict:
 def list_fds(pid: int):
     db = get_db()
     _require_portfolio(db, pid)
-    return _listing(db, pid)
+    return fd_listing(db, pid)
 
 
 @router.post("")
@@ -78,7 +78,7 @@ def add_fd(pid: int, body: FdIn):
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [fid, pid, body.name.strip(), body.principal, body.annual_rate, body.start_date, body.maturity_date, body.compounding, body.payout],
     )
-    return _listing(db, pid)
+    return fd_listing(db, pid)
 
 
 @router.put("/{fid}")
@@ -92,7 +92,7 @@ def update_fd(pid: int, fid: int, body: FdIn):
         "UPDATE portfolio_fds SET name = ?, principal = ?, annual_rate = ?, start_date = ?, maturity_date = ?, compounding = ?, payout = ? WHERE id = ?",
         [body.name.strip(), body.principal, body.annual_rate, body.start_date, body.maturity_date, body.compounding, body.payout, fid],
     )
-    return _listing(db, pid)
+    return fd_listing(db, pid)
 
 
 @router.delete("/{fid}")
@@ -100,4 +100,4 @@ def delete_fd(pid: int, fid: int):
     db = get_db()
     _require_portfolio(db, pid)
     db.execute("DELETE FROM portfolio_fds WHERE id = ? AND portfolio_id = ?", [fid, pid])
-    return _listing(db, pid)
+    return fd_listing(db, pid)

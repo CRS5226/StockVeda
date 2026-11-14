@@ -1,0 +1,100 @@
+import { useEffect, useState } from "react";
+import { api, type PortfolioDetail, type PortfolioTotal as Total } from "../../lib/api";
+import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
+import { errorText } from "../../lib/useTradePlots";
+
+const COLORS: Record<string, string> = {
+  stocks: "#3b82f6", fixed_deposits: "#14b8a6", crypto: "#f59e0b", us_stock: "#8b5cf6", mutual_fund: "#ec4899", bond: "#64748b", gold: "#eab308", other: "#94a3b8",
+};
+
+/** Ring chart of each part's share of the current value. */
+function Donut({ parts }: { parts: Total["parts"] }) {
+  let offset = 0;
+  return (
+    <svg viewBox="0 0 36 36" className="w-36 h-36 -rotate-90 shrink-0" role="img" aria-label="Allocation by type">
+      <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="5" />
+      {parts.map((p) => {
+        const share = Math.max(p.share_pct, 0);
+        const slice = (
+          <circle key={p.key} cx="18" cy="18" r="15.9155" fill="none" stroke={COLORS[p.key] ?? "#94a3b8"} strokeWidth="5"
+            strokeDasharray={`${share} ${100 - share}`} strokeDashoffset={-offset} />
+        );
+        offset += share;
+        return slice;
+      })}
+    </svg>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div>
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className={`text-xl font-semibold tabular-nums ${tone ?? "text-slate-900"}`}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Everything in the portfolio added up in rupees: stocks, fixed deposits and the other investments, split by type.
+ * `stocks` and `refreshKey` change whenever something in the portfolio does, which reloads the total.
+ */
+export default function PortfolioTotal({ portfolioId, stocks, refreshKey }: { portfolioId: number; stocks: PortfolioDetail; refreshKey: number }) {
+  const [total, setTotal] = useState<Total | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getPortfolioTotal(portfolioId).then((t) => { if (!cancelled) { setTotal(t); setError(""); } }).catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
+  }, [portfolioId, stocks, refreshKey]);
+
+  if (error) return <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>;
+  if (!total) return null;
+
+  const leftOut = [
+    total.left_out.stocks > 0 && `${total.left_out.stocks} ${total.left_out.stocks === 1 ? "stock" : "stocks"} without a quantity and buy price`,
+    total.left_out.assets > 0 && `${total.left_out.assets} dollar ${total.left_out.assets === 1 ? "asset" : "assets"} without a USD to INR rate`,
+  ].filter(Boolean);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 className="font-semibold mb-4">Portfolio total</h2>
+      <div className="flex flex-wrap gap-8 items-center">
+        <div className="flex flex-col gap-4 min-w-[200px]">
+          <Stat label="Invested" value={rupees(total.invested)} />
+          <Stat label="Current value" value={rupees(total.value)} />
+          <div className="flex gap-8">
+            <Stat label="Profit / loss" value={signedRupees(total.pnl)} tone={resultColor(total.pnl)} />
+            <Stat label="Return" value={total.pnl_pct === null ? "—" : signedPercent(total.pnl_pct)} tone={resultColor(total.pnl_pct)} />
+          </div>
+        </div>
+        {total.parts.length > 0 ? (
+          <div className="flex flex-wrap gap-6 items-center flex-1 min-w-[300px]">
+            <Donut parts={total.parts} />
+            <table className="text-sm flex-1 min-w-[260px]">
+              <thead>
+                <tr className="text-xs text-slate-500 text-left">
+                  <th className="py-1 font-medium">Type</th><th className="py-1 font-medium text-right">Value</th><th className="py-1 font-medium text-right">Share</th><th className="py-1 font-medium text-right">P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {total.parts.map((p) => (
+                  <tr key={p.key} className="border-t border-slate-100">
+                    <td className="py-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full mr-2 align-middle" style={{ background: COLORS[p.key] ?? "#94a3b8" }} />{p.label}</td>
+                    <td className="py-1.5 text-right tabular-nums">{rupees(p.value)}</td>
+                    <td className="py-1.5 text-right tabular-nums text-slate-500">{p.share_pct.toFixed(1)}%</td>
+                    <td className={`py-1.5 text-right tabular-nums ${resultColor(p.pnl)}`}>{p.pnl_pct === null ? "—" : signedPercent(p.pnl_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 flex-1">Add stocks, fixed deposits or other investments below and they are added up here.</p>
+        )}
+      </div>
+      {leftOut.length > 0 && <p className="mt-4 text-xs text-amber-700">Not in the total yet: {leftOut.join(" and ")}.</p>}
+    </div>
+  );
+}
