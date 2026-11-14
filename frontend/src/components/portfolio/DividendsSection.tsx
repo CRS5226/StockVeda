@@ -129,7 +129,7 @@ export default function DividendsSection({ portfolioId, symbols, onChanged }: { 
         {editingDividend && <DividendForm key={editingDividend.id} initial={editingDividend} symbols={symbols} onSave={(d) => dv.update(editingDividend.id, d)} onCancel={() => setEditing(null)} />}
         <div className="p-4 flex flex-col lg:flex-row gap-6">
           <DividendCalendar year={view.year} month={view.month} dividends={list} selected={selected} onSelect={setSelected}
-            onMonth={(delta) => setView((v) => shiftMonth(v.year, v.month, delta))}
+            onMonth={(delta) => setView((v) => shiftMonth(v.year, v.month, delta))} onJump={(year, month) => setView({ year, month })}
             onToday={() => { const n = new Date(); setView({ year: n.getFullYear(), month: n.getMonth() }); setSelected(todayIso()); }} />
           <DayPanel date={selected} rows={dayRows} onAdd={() => openAdd(selected ?? undefined)} onEdit={setEditing}
             onDelete={(d) => { if (window.confirm(`Delete the ${d.symbol} dividend of ${rupees(d.amount)}?`)) void dv.remove(d.id); }} />

@@ -13,23 +13,35 @@ interface Props {
   selected: string | null;               // "YYYY-MM-DD"
   onSelect: (date: string) => void;
   onMonth: (delta: number) => void;
+  /** Jump straight to a month and year picked from the dropdowns. */
+  onJump: (year: number, month: number) => void;
   onToday: () => void;
 }
 
 /** A month calendar. A day with a dividend is green and shows the amount; click a day to see who paid it. */
-export default function DividendCalendar({ year, month, dividends, selected, onSelect, onMonth, onToday }: Props) {
+export default function DividendCalendar({ year, month, dividends, selected, onSelect, onMonth, onJump, onToday }: Props) {
   const byDate = groupByDate(dividends);
   const now = new Date();
   const today = isoDay(now.getFullYear(), now.getMonth(), now.getDate());
   const monthRows = dividends.filter((d) => d.pay_date.startsWith(isoDay(year, month, 1).slice(0, 7)));
   const monthTotal = monthRows.reduce((sum, d) => sum + d.amount, 0);
   const nav = "p-1.5 rounded-lg text-slate-500 hover:bg-slate-100";
+  // years from five back (or the earliest dividend, if older) to next year, and always the one on screen
+  const thisYear = now.getFullYear();
+  const earliest = dividends.reduce((min, d) => Math.min(min, Number(d.pay_date.slice(0, 4))), thisYear - 5);
+  const years = Array.from({ length: thisYear + 1 - Math.min(earliest, year) + 1 }, (_, i) => Math.min(earliest, year) + i).reverse();
+  const picker = "px-2 py-1 text-sm font-semibold border border-slate-200 rounded-lg bg-white hover:border-slate-300 focus:outline-none focus:border-blue-400";
 
   return (
     <div className="flex-1 min-w-[300px]">
       <div className="flex items-center gap-2 mb-3">
         <button className={nav} onClick={() => onMonth(-1)} title="Previous month"><ChevronLeft size={16} /></button>
-        <h4 className="font-semibold w-40 text-center">{MONTHS[month]} {year}</h4>
+        <select className={picker} value={month} onChange={(e) => onJump(year, Number(e.target.value))} aria-label="Month">
+          {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+        </select>
+        <select className={picker} value={year} onChange={(e) => onJump(Number(e.target.value), month)} aria-label="Year">
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
         <button className={nav} onClick={() => onMonth(1)} title="Next month"><ChevronRight size={16} /></button>
         <button onClick={onToday} className="px-2 py-1 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Today</button>
         <span className="ml-auto text-xs text-slate-500 tabular-nums">
