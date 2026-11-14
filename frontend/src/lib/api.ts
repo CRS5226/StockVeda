@@ -237,6 +237,18 @@ export interface SignalsReport {
   settings: SignalSettings; max_position_pct: number; rows: SignalRow[];
   summary: { stocks: number; with_signals: number; aligned_bullish: number; aligned_bearish: number; profit_zone: number; recovery_zone: number };
 }
+export type EvidenceVerdict = "held_up" | "mixed" | "did_not" | "few_trades";
+export interface RuleResult {
+  trades: number; win_rate_pct: number | null; avg_trade_pct: number | null; avg_days_in_trade: number | null;
+  total_pct: number; buy_hold_pct: number; earlier_pct: number; later_pct: number; later_buy_hold_pct: number;
+  max_drawdown_pct: number; in_market_pct: number; candles: number; from_date: string; to_date: string; verdict: EvidenceVerdict;
+}
+export interface RuleEvidenceReport {
+  cost_pct: number; stocks_total: number;
+  rules: { key: string; label: string; how: string }[];
+  rows: { symbol: string; kind: HoldingKind; weight_pct: number; results: Record<string, RuleResult | null> }[];
+  summary: { key: string; tested: number; held_up: number; mixed: number; did_not: number; few_trades: number; median_later_pct: number | null; beat_buy_hold_later: number }[];
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -762,6 +774,8 @@ export const api = {
   getSignals: (portfolioId: number) => apiFetch<SignalsReport>(`/portfolios/${portfolioId}/signals`),
   putSignalSettings: (portfolioId: number, body: SignalSettings) =>
     apiFetch<SignalSettings>(`/portfolios/${portfolioId}/signals/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+
+  getRuleEvidence: (portfolioId: number, costPct: number) => apiFetch<RuleEvidenceReport>(`/portfolios/${portfolioId}/evidence?cost_pct=${costPct}`),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

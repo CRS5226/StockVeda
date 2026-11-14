@@ -10,6 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.core.candles import load_daily, load_hourly
 from backend.core.portfolio_health import positions
 from backend.core.signal_rules import alignment, evaluate_rules, to_weekly
 from backend.core.signal_zones import classify_zone, clean_settings, sizing
@@ -18,8 +19,6 @@ from backend.routes.portfolio_health import load_targets
 from backend.routes.portfolio_total import compute_total
 
 router = APIRouter(prefix="/portfolios/{pid}/signals", tags=["portfolio"])
-
-COLUMNS = ["date", "open", "high", "low", "close", "volume"]
 
 
 class SettingsIn(BaseModel):
@@ -57,25 +56,6 @@ def put_settings(pid: int, body: SettingsIn):
     return settings
 
 
-def _daily(db, symbols: list[str]) -> dict[str, pd.DataFrame]:
-    """About two years of daily candles per symbol, in one query."""
-    marks = ",".join("?" for _ in symbols)
-    df = db.execute(
-        f"SELECT symbol, {', '.join(COLUMNS)} FROM stock_ohlcv WHERE symbol IN ({marks}) AND date >= current_date - INTERVAL 800 DAY ORDER BY symbol, date", symbols,
-    ).df()
-    return {sym: g[COLUMNS].reset_index(drop=True) for sym, g in df.groupby("symbol")}
-
-
-def _hourly(db, symbols: list[str]) -> dict[str, pd.DataFrame]:
-    """The last year or so of 60-minute candles per symbol, in one query."""
-    marks = ",".join("?" for _ in symbols)
-    df = db.execute(
-        f"SELECT symbol, datetime AS date, open, high, low, close, volume FROM stock_intraday_ohlcv WHERE interval = '60m' AND symbol IN ({marks}) "
-        "AND datetime >= current_timestamp - INTERVAL 400 DAY ORDER BY symbol, datetime", symbols,
-    ).df()
-    return {sym: g[COLUMNS].reset_index(drop=True) for sym, g in df.groupby("symbol")}
-
-
 def _slim(result: Optional[dict]) -> Optional[dict]:
     """What the page needs from one timeframe's result."""
     if result is None:
@@ -92,8 +72,7 @@ def get_signals(pid: int):
     rows = positions(stocks["holdings"])
     value = total["value"]
     symbols = [r["symbol"] for r in rows]
-    daily = _daily(db, symbols) if symbols else {}
-    hourly = _hourly(db, symbols) if symbols else {}
+    daily, hourly = load_daily(db, symbols), load_hourly(db, symbols)
 
     out = []
     for r in sorted(rows, key=lambda r: -r["value"]):

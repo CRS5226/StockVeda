@@ -4,6 +4,7 @@ import { pct } from "../../lib/healthLabels";
 import { usePortfolioDataSync } from "../../lib/usePortfolioDataSync";
 import { usePortfolioHealth } from "../../lib/usePortfolioHealth";
 import { usePriceSync } from "../../lib/usePriceSync";
+import RuleEvidence from "./health/RuleEvidence";
 import DataSyncPanel from "./health/DataSyncPanel";
 import FundamentalsCheck from "./health/FundamentalsCheck";
 import AllocationCheck from "./health/AllocationCheck";
@@ -52,6 +53,7 @@ export default function HealthSection({ portfolioId, refreshKey }: { portfolioId
       <AllocationCheck rows={r.allocation} band={r.settings.band_pp} />
       <ConcentrationCheck data={r.concentration} />
       <TrendCheck trend={r.trend} />
+      <RuleEvidence portfolioId={portfolioId} />
       <FundamentalsCheck rows={data.rows} />
     </div>
   );
