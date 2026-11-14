@@ -25,6 +25,8 @@ export interface ChartData {
   /** Message from the last data download (auto or manual), if any. */
   notice: string;
   fetching: boolean;
+  /** A Sync data click is in progress: downloading, then reloading the chart with the new bars. */
+  syncing: boolean;
   /** Download the bars the current range is missing. */
   fetchMissing: () => void;
   /** Fetch the bars newer than the last stored one (the "Sync data" button); says when there is nothing new. */
@@ -57,6 +59,7 @@ export function useChartData(symbol: string, tf: string): ChartData {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [fetching, setFetching] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const autoTried = useRef("");
   const loadedKey = useRef("");
@@ -96,6 +99,7 @@ export function useChartData(symbol: string, tf: string): ChartData {
         const base = syncBase.current;
         if (base) {
           syncBase.current = null;
+          setSyncing(false);
           const added = base.last ? res.bars.filter((b) => b.date > base.last!).length : res.bars.length;
           setNotice(added > 0 ? `Fetched ${added.toLocaleString()} new bars.` : "No new bars are available yet.");
         }
@@ -104,6 +108,7 @@ export function useChartData(symbol: string, tf: string): ChartData {
         if (cancelled) return;
         setResult(null);
         setBars([]);
+        setSyncing(false);
         setError(e instanceof Error ? e.message : "Failed to load candles");
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -114,7 +119,7 @@ export function useChartData(symbol: string, tf: string): ChartData {
     stopPoll();
     setFetching(false);
     setNotice(message);
-    if (failed) syncBase.current = null; // keep the error message instead of a bar count
+    if (failed) { syncBase.current = null; setSyncing(false); } // keep the error message instead of a bar count
     setReloadKey((k) => k + 1);
   }, []);
 
@@ -147,7 +152,8 @@ export function useChartData(symbol: string, tf: string): ChartData {
 
   const sync = useCallback(() => {
     if (!result || fetching || loading) return;
-    if (bars.length > 0 && result.missing.after === 0) { setNotice("Already up to date."); return; }
+    // Always ask the source: the stored-range estimate ignores gaps shorter than a few days, so it cannot tell "up to date" from "a day behind".
+    setSyncing(true);
     syncBase.current = { last: bars.length ? bars[bars.length - 1].date : null };
     fetchMissing();
   }, [result, fetching, loading, bars, fetchMissing]);
@@ -165,5 +171,5 @@ export function useChartData(symbol: string, tf: string): ChartData {
   const awaitingDownload = !loading && !fetching && !!result && bars.length === 0 && autoTried.current !== `${symbol}|${tf}`;
   const busy = loading || fetching || awaitingDownload;
 
-  return { timeframes, bars, loading, busy, error, notice, fetching, fetchMissing, sync };
+  return { timeframes, bars, loading, busy, error, notice, fetching, syncing, fetchMissing, sync };
 }
