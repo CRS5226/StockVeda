@@ -395,3 +395,24 @@ CREATE TABLE IF NOT EXISTS chart_drawings (
     updated_at TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- ── Portfolio ──────────────────────────────────────────────────────────────
+-- A portfolio is a named set of holdings. A stock holding is one purchase (lot): quantity, buy price and date
+-- can be empty until the user fills them in (for example right after a watchlist is saved as a portfolio).
+CREATE TABLE IF NOT EXISTS portfolios (
+    id         INTEGER,
+    name       VARCHAR NOT NULL,
+    created_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+    id           INTEGER,
+    portfolio_id INTEGER NOT NULL,
+    symbol       VARCHAR NOT NULL,
+    qty          DOUBLE,
+    buy_price    DOUBLE,
+    buy_date     DATE,
+    created_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);

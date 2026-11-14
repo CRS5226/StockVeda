@@ -109,6 +109,16 @@ export interface ScreenerPreset { name: string; description: string; conditions:
 export interface ScreenerPresetOption { id: string; label: string; count: number; symbols: string[] }
 export interface SavedScreener { id: number; name: string; conditions: ScreenerCondition[]; created_at: string }
 export interface Watchlist { id: number; name: string; symbols: string[]; created_at: string }
+export interface PortfolioSummary { id: number; name: string; holdings: number }
+/** One purchase (lot) of a stock. Figures are null until quantity and buy price are filled in, or when no close is stored. */
+export interface PortfolioHolding {
+  id: number; symbol: string; qty: number | null; buy_price: number | null; buy_date: string | null;
+  last_price: number | null; last_date: string | null;
+  invested: number | null; value: number | null; pnl: number | null; pnl_pct: number | null;
+}
+export interface PortfolioTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; incomplete: number }
+export interface PortfolioDetail { id: number; name: string; holdings: PortfolioHolding[]; totals: PortfolioTotals }
+export type HoldingDraft = Pick<PortfolioHolding, "symbol" | "qty" | "buy_price" | "buy_date">;
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -567,6 +577,24 @@ export const api = {
 
   deleteWatchlist: (id: number) =>
     apiFetch<{ ok: boolean }>(`/screener/watchlists/${id}`, { method: "DELETE" }),
+
+  getPortfolios: () => apiFetch<PortfolioSummary[]>("/portfolios"),
+  getPortfolio: (id: number) => apiFetch<PortfolioDetail>(`/portfolios/${id}`),
+  createPortfolio: (name: string) =>
+    apiFetch<PortfolioDetail>("/portfolios", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }),
+  createPortfolioFromWatchlist: (watchlistId: number) =>
+    apiFetch<PortfolioDetail>("/portfolios/from-watchlist", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ watchlist_id: watchlistId }),
+    }),
+  renamePortfolio: (id: number, name: string) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }),
+  deletePortfolio: (id: number) => apiFetch<{ ok: boolean }>(`/portfolios/${id}`, { method: "DELETE" }),
+  addHolding: (id: number, body: HoldingDraft) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateHolding: (id: number, holdingId: number, body: HoldingDraft) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings/${holdingId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteHolding: (id: number, holdingId: number) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings/${holdingId}`, { method: "DELETE" }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),
