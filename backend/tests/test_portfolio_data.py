@@ -97,8 +97,9 @@ def test_sync_fills_the_gaps_and_reports_each_step(client, db, monkeypatch):
     # what was stored shows up in the table, and ITC is not asked again straight away
     table = {r["symbol"]: r for r in client.get("/api/portfolios/1/data/fundamentals").json()["rows"]}
     assert table["TCS"]["pe"] == 18.0 and table["TCS"]["roe_pct"] == 20.0 and table["TCS"]["quarter"]["revenue"] == 100.0 and "ITC" not in table
-    again = {d["key"]: d["stale"] for d in client.get("/api/portfolios/1/data/coverage").json()["datasets"]}
-    assert again["fundamentals"] == 0 and again["ratios"] == 1 and again["hourly"] == 1        # ITC fundamentals retried later; ratios and 1h have no fresh data for ITC
+    again = client.get("/api/portfolios/1/data/coverage").json()
+    assert {d["key"]: d["stale"] for d in again["datasets"]} == {"hourly": 0, "fundamentals": 0, "ratios": 0}      # ITC was tried and had nothing: not asked again at once
+    assert again["up_to_date"] is True
     assert client.get("/api/portfolios/1/data/sync/nope").status_code == 404
 
 
@@ -113,3 +114,16 @@ def test_a_failing_symbol_does_not_stop_the_others(client, db, monkeypatch):
     job_id = client.post("/api/portfolios/1/data/sync").json()["job_id"]
     steps = {s["key"]: s for s in client.get(f"/api/portfolios/1/data/sync/{job_id}").json()["steps"]}
     assert steps["hourly"]["failed"] == ["TCS"] and steps["hourly"]["updated"] == 2 and steps["hourly"]["done"] == 3
+
+
+def test_a_symbol_yahoo_has_no_trading_hours_for_counts_as_no_data_not_a_failure(client, db, monkeypatch):
+    def fake_hourly(sym, interval, days):
+        if sym == "TCS":
+            raise KeyError("tradingPeriods")
+        return pd.DataFrame({"datetime": [datetime(2026, 11, 13, 10, 15)], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
+    monkeypatch.setattr(sync, "fetch_intraday_symbol", fake_hourly)
+    monkeypatch.setattr(sync.yf, "Ticker", FakeTicker)
+    monkeypatch.setattr(sync, "parse_financials", lambda *a: [])
+    job_id = client.post("/api/portfolios/1/data/sync").json()["job_id"]
+    steps = {s["key"]: s for s in client.get(f"/api/portfolios/1/data/sync/{job_id}").json()["steps"]}
+    assert steps["hourly"]["no_data"] == ["TCS"] and steps["hourly"]["failed"] == []

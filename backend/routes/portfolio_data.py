@@ -36,16 +36,22 @@ def _state(db, pid: int) -> dict:
             fundamentals[sym] = d
         for sym, d in db.execute(f"SELECT symbol, MAX(as_of) FROM stock_ratios_snapshot WHERE symbol IN ({m}) GROUP BY symbol", stocks).fetchall():
             ratios[sym] = d
-    attempted = {r[0].removeprefix("pfund:"): r[1] for r in db.execute("SELECT source, last_synced_at FROM sync_log WHERE source LIKE 'pfund:%'").fetchall()}
-    return {"hourly": hourly, "fundamentals": fundamentals, "ratios": ratios, "attempted": attempted, "stocks": stocks, "symbols": symbols}
+    attempts: dict[str, dict] = {"hourly": {}, "fundamentals": {}, "ratios": {}}
+    for source, status, when in db.execute("SELECT source, status, last_synced_at FROM sync_log WHERE source LIKE 'pdata:%'").fetchall():
+        _, key, sym = source.split(":", 2)
+        if key in attempts:
+            attempts[key][sym] = (status, when)
+    return {"hourly": hourly, "fundamentals": fundamentals, "ratios": ratios, "attempts": attempts, "stocks": stocks, "symbols": symbols}
 
 
 def _stale(state: dict, now: datetime) -> dict:
     expected = expected_close_date(now)
+    local = now.astimezone().replace(tzinfo=None)         # the stored times have no zone
+    a = state["attempts"]
     return {
-        "hourly": stale_hourly(state["hourly"], expected),
-        "fundamentals": stale_fundamentals(state["fundamentals"], state["attempted"], now.replace(tzinfo=None)),
-        "ratios": stale_ratios(state["ratios"], now.astimezone().date()),
+        "hourly": stale_hourly(state["hourly"], expected, a["hourly"], local),
+        "fundamentals": stale_fundamentals(state["fundamentals"], a["fundamentals"], local),
+        "ratios": stale_ratios(state["ratios"], local.date(), a["ratios"], local),
     }
 
 

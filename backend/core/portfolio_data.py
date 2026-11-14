@@ -5,12 +5,26 @@ from typing import Optional
 
 HOURLY_FIRST_LOAD_DAYS = 725      # Yahoo serves 60-minute bars for about the last two years
 FUNDAMENTALS_STALE_DAYS = 120     # a company reports each quarter; a newest period older than this is probably missing results
-FUNDAMENTALS_RETRY_DAYS = 3       # do not ask again within this many days, even when Yahoo had nothing
+EMPTY_RETRY_DAYS = 3              # do not ask again within this many days when Yahoo had nothing for a symbol
 
 
-def stale_hourly(newest: dict[str, Optional[datetime]], expected: date) -> list[str]:
+# (status, when) of the last try for one symbol in one dataset; the status is "success" or "empty" (Yahoo had nothing)
+Attempt = tuple[str, datetime]
+
+
+def recently_empty(attempt: Optional[Attempt], now: datetime) -> bool:
+    """True when Yahoo had nothing for this symbol a moment ago, so asking again right away would only repeat the answer."""
+    return attempt is not None and attempt[0] == "empty" and now - attempt[1] < timedelta(days=EMPTY_RETRY_DAYS)
+
+
+def recently_tried(attempt: Optional[Attempt], now: datetime) -> bool:
+    """True when this symbol was tried within the last few days, whatever the answer. For data that changes rarely."""
+    return attempt is not None and now - attempt[1] < timedelta(days=EMPTY_RETRY_DAYS)
+
+
+def stale_hourly(newest: dict[str, Optional[datetime]], expected: date, attempts: dict[str, Attempt], now: datetime) -> list[str]:
     """Symbols whose newest 60-minute bar is from before the latest finished trading day, or that have none."""
-    return sorted(s for s, t in newest.items() if t is None or t.date() < expected)
+    return sorted(s for s, t in newest.items() if (t is None or t.date() < expected) and not recently_empty(attempts.get(s), now))
 
 
 def hourly_days_needed(newest: Optional[datetime], today: date) -> int:
@@ -20,21 +34,19 @@ def hourly_days_needed(newest: Optional[datetime], today: date) -> int:
     return min(max((today - newest.date()).days + 2, 5), HOURLY_FIRST_LOAD_DAYS)
 
 
-def stale_fundamentals(newest_period: dict[str, Optional[date]], attempted: dict[str, Optional[datetime]], now: datetime) -> list[str]:
-    """Symbols with no results stored or an old newest period, unless they were tried very recently."""
-    out = []
-    for symbol, period in newest_period.items():
-        old = period is None or (now.date() - period).days > FUNDAMENTALS_STALE_DAYS
-        tried = attempted.get(symbol)
-        recently = tried is not None and now - tried < timedelta(days=FUNDAMENTALS_RETRY_DAYS)
-        if old and not recently:
-            out.append(symbol)
-    return sorted(out)
+def stale_fundamentals(newest_period: dict[str, Optional[date]], attempts: dict[str, Attempt], now: datetime) -> list[str]:
+    """Symbols with no results stored or an old newest period, unless they were tried in the last few days.
+
+    A company that has not reported lately keeps looking old however often Yahoo is asked, and results change only four
+    times a year, so any recent try holds a symbol back, not only an empty one.
+    """
+    return sorted(s for s, period in newest_period.items()
+                  if (period is None or (now.date() - period).days > FUNDAMENTALS_STALE_DAYS) and not recently_tried(attempts.get(s), now))
 
 
-def stale_ratios(newest: dict[str, Optional[date]], today: date) -> list[str]:
-    """Symbols with no ratio snapshot from today."""
-    return sorted(s for s, d in newest.items() if d is None or d < today)
+def stale_ratios(newest: dict[str, Optional[date]], today: date, attempts: dict[str, Attempt], now: datetime) -> list[str]:
+    """Symbols with no ratio snapshot from today, unless Yahoo had nothing for them very recently."""
+    return sorted(s for s, d in newest.items() if (d is None or d < today) and not recently_empty(attempts.get(s), now))
 
 
 def _num(info: dict, key: str, scale: float = 1.0) -> Optional[float]:

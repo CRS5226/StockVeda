@@ -28,6 +28,11 @@ RATIO_COLUMNS = ["symbol", "as_of", "pe", "forward_pe", "pb", "roe_pct", "debt_t
                  "earnings_growth_pct", "dividend_yield_pct", "market_cap", "ev_to_ebitda", "beta", "sector", "industry"]
 
 
+def _remember(key: str, sym: str, found: bool, rows: int, today: date) -> None:
+    """Note that this symbol was tried, and whether Yahoo had anything, so an empty answer is not asked for again at once."""
+    log_sync(f"pdata:{key}:{sym}", "success" if found else "empty", rows, today)
+
+
 def _step(job: dict, key: str) -> dict:
     return next(s for s in job["steps"] if s["key"] == key)
 
@@ -41,6 +46,11 @@ def _hourly(symbols: dict[str, datetime | None], today: date, step: dict) -> Non
                 step["updated"] += 1
             else:
                 step["no_data"].append(sym)
+            _remember("hourly", sym, not df.empty, len(df), today)
+        except KeyError:
+            # Yahoo has no trading-hours data for this symbol (some REITs and new listings): the same as no data
+            step["no_data"].append(sym)
+            _remember("hourly", sym, False, 0, today)
         except Exception:
             logger.exception("1-hour fetch failed for %s", sym)
             step["failed"].append(sym)
@@ -59,7 +69,7 @@ def _fundamentals(symbols: list[str], today: date, step: dict) -> None:
                 step["updated"] += 1
             else:
                 step["no_data"].append(sym)
-            log_sync(f"pfund:{sym}", "success" if not df.empty else "empty", len(df), today)     # remembers the try, so an empty answer is not repeated at once
+            _remember("fundamentals", sym, not df.empty, len(df), today)
         except Exception:
             logger.exception("Fundamentals fetch failed for %s", sym)
             step["failed"].append(sym)
@@ -72,11 +82,13 @@ def _ratios(symbols: list[str], today: date, step: dict) -> None:
         try:
             info = yf.Ticker(yahoo_ticker(sym)).info or {}
             row = snapshot_row(sym, info, today)
-            if any(row[k] is not None for k in ("pe", "pb", "roe_pct", "market_cap")):
+            found = any(row[k] is not None for k in ("pe", "pb", "roe_pct", "market_cap"))
+            if found:
                 step["rows"] += upsert_df(pd.DataFrame([row])[RATIO_COLUMNS], "stock_ratios_snapshot")
                 step["updated"] += 1
             else:
                 step["no_data"].append(sym)
+            _remember("ratios", sym, found, int(found), today)
         except Exception:
             logger.exception("Ratio fetch failed for %s", sym)
             step["failed"].append(sym)

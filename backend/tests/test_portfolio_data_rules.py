@@ -14,21 +14,29 @@ NOW = datetime(2026, 11, 14, 12, 0)
 
 def test_stale_hourly_and_days_needed():
     newest = {"A": datetime(2026, 11, 13, 15, 0), "B": datetime(2026, 11, 10, 15, 0), "C": None}
-    assert stale_hourly(newest, D(2026, 11, 13)) == ["B", "C"]
+    assert stale_hourly(newest, D(2026, 11, 13), {}, NOW) == ["B", "C"]
     assert hourly_days_needed(None, D(2026, 11, 14)) == HOURLY_FIRST_LOAD_DAYS
     assert hourly_days_needed(datetime(2026, 11, 10, 15, 0), D(2026, 11, 14)) == 6
     assert hourly_days_needed(datetime(2026, 11, 14, 9, 0), D(2026, 11, 14)) == 5                    # never fewer than five days
     assert hourly_days_needed(datetime(2020, 1, 1), D(2026, 11, 14)) == HOURLY_FIRST_LOAD_DAYS      # nor more than Yahoo serves
 
 
-def test_stale_fundamentals_skips_recent_tries():
-    newest = {"NEW": D(2026, 9, 30), "OLD": D(2026, 3, 31), "NONE": None, "TRIED": D(2026, 3, 31)}
-    attempted = {"TRIED": NOW - timedelta(days=1), "OLD": NOW - timedelta(days=10)}
-    assert stale_fundamentals(newest, attempted, NOW) == ["NONE", "OLD"]
+def test_a_recent_try_holds_a_symbol_back():
+    newest = {"A": D(2026, 3, 31), "B": D(2026, 3, 31), "C": D(2026, 3, 31), "D": None}
+    attempts = {"A": ("empty", NOW - timedelta(days=1)), "B": ("empty", NOW - timedelta(days=10)), "C": ("success", NOW - timedelta(hours=1))}
+    # results change a few times a year, so any recent try holds a company back (it may simply not have reported yet)
+    assert stale_fundamentals(newest, attempts, NOW) == ["B", "D"]
+    assert stale_ratios({"A": None, "B": D(2026, 11, 13), "C": D(2026, 11, 14)}, D(2026, 11, 14), {"A": ("empty", NOW)}, NOW) == ["B"]
+    assert stale_hourly({"A": None}, D(2026, 11, 13), {"A": ("empty", NOW - timedelta(days=4))}, NOW) == ["A"]     # the wait is over
+    assert stale_hourly({"A": datetime(2026, 11, 10, 15)}, D(2026, 11, 13), {"A": ("success", NOW)}, NOW) == ["A"]   # a success never holds a symbol back
+
+
+def test_stale_fundamentals_needs_results_older_than_the_window():
+    assert stale_fundamentals({"NEW": D(2026, 9, 30), "OLD": D(2026, 3, 31)}, {}, NOW) == ["OLD"]
 
 
 def test_stale_ratios():
-    assert stale_ratios({"A": D(2026, 11, 14), "B": D(2026, 11, 13), "C": None}, D(2026, 11, 14)) == ["B", "C"]
+    assert stale_ratios({"A": D(2026, 11, 14), "B": D(2026, 11, 13), "C": None}, D(2026, 11, 14), {}, NOW) == ["B", "C"]
 
 
 def test_snapshot_row_scales_fractions_to_percent():
