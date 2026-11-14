@@ -39,7 +39,7 @@ export default function Charts() {
   const [smc, setSmc] = useState(loadSmcPrefs);
   const [smcOpen, setSmcOpen] = useState(false);
   const [structure, setStructure] = useState(loadStructureSettings);
-  const { timeframes, bars, loading, busy, error, notice, fetching, fetchMissing, sync } = useChartData(symbol, tf);
+  const { timeframes, bars, loading, busy, error, notice, fetching, syncing, fetchMissing, sync } = useChartData(symbol, tf);
   const replay = useReplay(bars.length);
   const [picking, setPicking] = useState(false); // waiting for a click on the candle to start from
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -302,15 +302,15 @@ export default function Charts() {
           {busy && (
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
-              {fetching ? "Downloading data…" : "Loading…"}
+              {fetching ? "Downloading data…" : syncing ? "Updating chart…" : "Loading…"}
             </span>
           )}
           {notice && !fetching && <span>{notice}</span>}
-          <button onClick={sync} disabled={loading || fetching || bars.length === 0} title="Fetch the newest candles that are missing for this symbol and timeframe"
+          <button onClick={sync} disabled={loading || fetching || syncing || bars.length === 0} title="Fetch the newest candles that are missing for this symbol and timeframe"
             className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-40 ${
               dark ? "text-slate-300 hover:bg-[#1e222d]" : "text-slate-600 hover:bg-slate-100"
             }`}>
-            <RefreshCw size={13} className={fetching ? "animate-spin" : ""} /> Sync data
+            <RefreshCw size={13} className={syncing || fetching ? "animate-spin" : ""} /> {syncing || fetching ? "Syncing…" : "Sync data"}
           </button>
           {bars.length > 0 && !replay.active && <span>{bars.length.toLocaleString()} bars</span>}
           <button onClick={toggleTheme} title={dark ? "Switch chart to light mode" : "Switch chart to dark mode"}
