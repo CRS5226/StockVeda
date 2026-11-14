@@ -24,7 +24,7 @@ function Row({ h, onUpdate, onDelete }: { h: PortfolioHolding } & Pick<Props, "o
     if ((q !== null && !(q > 0)) || (p !== null && !(p > 0))) return; // ignore an invalid number; the field keeps what was typed
     const d = date || null;
     if (q === h.qty && p === h.buy_price && d === h.buy_date) return;
-    onUpdate(h.id, { symbol: h.symbol, qty: q, buy_price: p, buy_date: d });
+    onUpdate(h.id, { symbol: h.symbol, qty: q, buy_price: p, buy_date: d, kind: h.kind_override });
   };
 
   const num = (n: number | null, f: (x: number) => string) => (n === null ? <span className="text-slate-300">—</span> : f(n));
@@ -36,12 +36,11 @@ function Row({ h, onUpdate, onDelete }: { h: PortfolioHolding } & Pick<Props, "o
       <td className="px-2 py-1.5 w-36"><input className={field} type="date" value={date} onChange={(e) => setDate(e.target.value)} onBlur={save} /></td>
       <td className="px-3 py-2 text-right tabular-nums">
         {num(h.last_price, rupees)}
-        {h.last_date && <div className="text-[10px] text-slate-400">{h.last_date}</div>}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{num(h.invested, rupees)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{num(h.value, rupees)}</td>
-      <td className={`px-3 py-2 text-right tabular-nums font-medium ${resultColor(h.pnl)}`}>{num(h.pnl, signedRupees)}</td>
-      <td className={`px-3 py-2 text-right tabular-nums font-medium ${resultColor(h.pnl_pct)}`}>{num(h.pnl_pct, signedPercent)}</td>
+      <td className={`px-5 py-2 min-w-[120px] text-right tabular-nums font-medium whitespace-nowrap ${resultColor(h.pnl)}`}>{num(h.pnl, signedRupees)}</td>
+      <td className={`px-5 py-2 min-w-[110px] text-right tabular-nums font-medium whitespace-nowrap ${resultColor(h.pnl_pct)}`}>{num(h.pnl_pct, signedPercent)}</td>
       <td className="px-2 py-2 text-right">
         <button title="Remove" onClick={() => onDelete(h.id)} className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50"><Trash2 size={14} /></button>
       </td>
@@ -61,7 +60,7 @@ function SortHeader({ col, sort, onSort }: { col: (typeof COLUMNS)[number]; sort
   const active = sort?.key === col.key;
   const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <th className={`px-3 py-2 font-medium ${col.right ? "text-right" : ""}`} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <th className={`${col.key === "pnl" || col.key === "pnl_pct" ? "px-5" : "px-3"} py-2 font-medium ${col.right ? "text-right" : ""}`} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
       <button onClick={() => onSort(col.key)} title="Sort"
         className={`inline-flex items-center gap-1 hover:text-slate-800 ${active ? "text-blue-600" : ""} ${col.right ? "flex-row-reverse" : ""}`}>
         {col.label}<Icon size={12} className={active ? "" : "opacity-40"} />
@@ -78,7 +77,7 @@ export default function HoldingsTable({ holdings, onUpdate, onDelete }: Props) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] text-sm">
+      <table className="w-full min-w-[1000px] text-sm">
         <thead>
           <tr className="text-xs text-slate-500 text-left">
             {COLUMNS.map((c) => <SortHeader key={c.key} col={c} sort={sort} onSort={(k) => setSort((cur) => nextSort(cur, k))} />)}

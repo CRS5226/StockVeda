@@ -5,12 +5,13 @@ import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
 import MfSection from "../components/portfolio/MfSection";
 import { buyInfo } from "../lib/dividendRules";
+import { countByKind, holdingTotals, KIND_LABELS, KIND_ORDER } from "../lib/holdingKinds";
 import StatCards from "../components/portfolio/StatCards";
 import PortfolioTabs, { loadPortfolioTab, savePortfolioTab, type PortfolioTab } from "../components/portfolio/PortfolioTabs";
 import PortfolioTotal from "../components/portfolio/PortfolioTotal";
 import HoldingsTable from "../components/portfolio/HoldingsTable";
 import SymbolCombobox from "../components/SymbolCombobox";
-import { api, type Watchlist } from "../lib/api";
+import { api, type HoldingKind, type Watchlist } from "../lib/api";
 import { resultColor, rupees, signedPercent, signedRupees } from "../lib/formatMoney";
 import { usePortfolio } from "../lib/usePortfolio";
 
@@ -26,6 +27,7 @@ export default function Portfolio() {
   const [symbol, setSymbol] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [tab, setTab] = useState<PortfolioTab>(loadPortfolioTab);
+  const [kindFilter, setKindFilter] = useState<"all" | HoldingKind>("all");
   const openTab = (next: PortfolioTab) => { setTab(next); savePortfolioTab(next); };
   const [version, setVersion] = useState(0); // bumped when fixed deposits or other investments change, to reload the total
   const changed = useCallback(() => setVersion((n) => n + 1), []);
@@ -36,7 +38,7 @@ export default function Portfolio() {
   const add = (sym: string) => {
     const s = sym.trim().toUpperCase();
     if (!s) return;
-    void p.addHolding({ symbol: s, qty: null, buy_price: null, buy_date: null });
+    void p.addHolding({ symbol: s, qty: null, buy_price: null, buy_date: null, kind: null });
     setSymbol("");
   };
 
@@ -89,29 +91,50 @@ export default function Portfolio() {
                   onClick={() => { if (window.confirm(`Delete the portfolio "${p.detail!.name}" and its holdings?`)) void p.remove(); }}><Trash2 size={15} /></button>
               </div>
               <PortfolioTabs value={tab} onChange={openTab} />
-              {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} />}
-              {tab === "stocks" && (
-                <>
-                  <StatCards items={[
-                    { label: "Invested", value: rupees(totals.invested) },
-                    { label: "Current value", value: rupees(totals.value) },
-                    { label: "Profit / loss", value: signedRupees(totals.pnl), tone: resultColor(totals.pnl) },
-                    { label: "Return", value: totals.pnl_pct === null ? "—" : signedPercent(totals.pnl_pct), tone: resultColor(totals.pnl_pct) },
-                  ]} />
-                  {totals.incomplete > 0 && (
-                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      {totals.incomplete} {totals.incomplete === 1 ? "stock needs" : "stocks need"} a quantity and buy price (and a stored daily close) before {totals.incomplete === 1 ? "it counts" : "they count"} in the totals.
+              {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} onPricesUpdated={() => { void p.reload(); changed(); }} />}
+              {tab === "stocks" && (() => {
+                const all = p.detail.holdings;
+                const counts = countByKind(all);
+                // a filter that matches nothing in this portfolio falls back to All
+                const active = kindFilter !== "all" && counts[kindFilter] === 0 ? "all" : kindFilter;
+                const shown = active === "all" ? all : all.filter((h) => h.kind === active);
+                const t = holdingTotals(shown);
+                return (
+                  <>
+                    <StatCards items={[
+                      { label: "Invested", value: rupees(t.invested) },
+                      { label: "Current value", value: rupees(t.value) },
+                      { label: "Profit / loss", value: signedRupees(t.pnl), tone: resultColor(t.pnl) },
+                      { label: "Return", value: t.pnl_pct === null ? "—" : signedPercent(t.pnl_pct), tone: resultColor(t.pnl_pct) },
+                    ]} />
+                    {t.incomplete > 0 && (
+                      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        {t.incomplete} {t.incomplete === 1 ? "holding needs" : "holdings need"} a quantity and buy price (and a stored daily close) before {t.incomplete === 1 ? "it counts" : "they count"} in the totals.
+                      </div>
+                    )}
+                    <div className="bg-white border border-slate-200 rounded-xl">
+                      <div className="p-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
+                        <div className="w-72"><SymbolCombobox value={symbol} onChange={setSymbol} onSelect={add} placeholder="Add a stock, ETF or REIT…" /></div>
+                        <div className="flex flex-wrap gap-1.5 text-xs font-medium" role="group" aria-label="Filter by type">
+                          {(["all", ...KIND_ORDER.filter((k) => counts[k] > 0)] as const).map((k) => {
+                            const label = k === "all" ? "All" : KIND_LABELS[k];
+                            const n = k === "all" ? all.length : counts[k];
+                            return (
+                              <button key={k} onClick={() => setKindFilter(k)} aria-pressed={active === k}
+                                className={`px-2.5 py-1 rounded-full border transition-colors ${
+                                  active === k ? "bg-blue-50 border-blue-300 text-blue-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
+                                {label} <span className="opacity-60">{n}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <HoldingsTable holdings={shown} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
                     </div>
-                  )}
-                  <div className="bg-white border border-slate-200 rounded-xl">
-                    <div className="p-3 border-b border-slate-100 w-72">
-                      <SymbolCombobox value={symbol} onChange={setSymbol} onSelect={add} placeholder="Add a stock…" />
-                    </div>
-                    <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
-                  </div>
-                  <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>
-                </>
-              )}
+                    <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them. The type of each holding is worked out from its symbol; change it with the Type menu if it is wrong.</p>
+                  </>
+                );
+              })()}
               {tab === "mutual_funds" && <MfSection portfolioId={p.detail.id} onChanged={changed} />}
               {tab === "dividends" && <DividendsSection portfolioId={p.detail.id} buy={buyInfo(p.detail.holdings)} onChanged={changed} />}
               {tab === "fixed_deposits" && <FdSection portfolioId={p.detail.id} onChanged={changed} />}

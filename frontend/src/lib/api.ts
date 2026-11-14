@@ -111,14 +111,17 @@ export interface SavedScreener { id: number; name: string; conditions: ScreenerC
 export interface Watchlist { id: number; name: string; symbols: string[]; created_at: string }
 export interface PortfolioSummary { id: number; name: string; holdings: number }
 /** One purchase (lot) of a stock. Figures are null until quantity and buy price are filled in, or when no close is stored. */
+export type HoldingKind = "stock" | "etf" | "reit" | "invit";
 export interface PortfolioHolding {
+  /** `kind` is the type shown: the one set by hand (`kind_override`) or else worked out from the symbol and name. */
+  kind: HoldingKind; kind_override: HoldingKind | null;
   id: number; symbol: string; qty: number | null; buy_price: number | null; buy_date: string | null;
   last_price: number | null; last_date: string | null;
   invested: number | null; value: number | null; pnl: number | null; pnl_pct: number | null;
 }
 export interface PortfolioTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; incomplete: number }
 export interface PortfolioDetail { id: number; name: string; holdings: PortfolioHolding[]; totals: PortfolioTotals }
-export type HoldingDraft = Pick<PortfolioHolding, "symbol" | "qty" | "buy_price" | "buy_date">;
+export type HoldingDraft = Pick<PortfolioHolding, "symbol" | "qty" | "buy_price" | "buy_date"> & { kind: HoldingKind | null };
 export type FdFrequency = "monthly" | "quarterly" | "half_yearly" | "yearly";
 export type FdPayout = "cumulative" | FdFrequency;
 /** What the user types in for a fixed deposit. */
@@ -177,6 +180,11 @@ export interface DividendSummary {
   by_symbol: { symbol: string; received: number }[];
 }
 export interface DividendListing { dividends: PortfolioDividend[]; summary: DividendSummary }
+export interface PriceSyncStart { status: "up_to_date" | "started"; as_of?: string; checked?: number; job_id?: string; total?: number; done?: number }
+export interface PriceSyncJob {
+  status: "queued" | "running" | "done" | "error"; total: number; done: number;
+  prices: number; updated_symbols: number; navs: number; no_data: string[]; as_of: string; error?: string;
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -685,6 +693,9 @@ export const api = {
   updateDividend: (portfolioId: number, id: number, body: DividendDraft) =>
     apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   deleteDividend: (portfolioId: number, id: number) => apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "DELETE" }),
+
+  startPriceSync: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/sync`, { method: "POST" }),
+  getPriceSync: (portfolioId: number, jobId: string) => apiFetch<PriceSyncJob>(`/portfolios/${portfolioId}/prices/sync/${jobId}`),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

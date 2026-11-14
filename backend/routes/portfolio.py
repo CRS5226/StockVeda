@@ -1,12 +1,13 @@
 """Portfolio routes: portfolios and their stock holdings, entered by hand or started from a watchlist."""
 
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.core.dividends import buy_date_problem
+from backend.core.instrument_type import effective_kind
 from backend.core.portfolio import holding_metrics, latest_closes, portfolio_totals
 from backend.db.connection import get_db
 
@@ -27,6 +28,14 @@ class HoldingIn(BaseModel):
     qty: Optional[float] = Field(None, gt=0)
     buy_price: Optional[float] = Field(None, gt=0)
     buy_date: Optional[date] = None
+    kind: Optional[Literal["stock", "etf", "reit", "invit"]] = None   # set by hand; empty means worked out from the symbol
+
+
+def _company_names(db, symbols: list[str]) -> dict[str, str]:
+    if not symbols:
+        return {}
+    marks = ",".join("?" for _ in symbols)
+    return dict(db.execute(f"SELECT symbol, company_name FROM nse_symbols WHERE symbol IN ({marks})", symbols).fetchall())
 
 
 def _next_id(db, table: str) -> int:
@@ -44,14 +53,17 @@ def _require_portfolio(db, pid: int) -> tuple:
 def portfolio_detail(db, pid: int) -> dict:
     _, name = _require_portfolio(db, pid)
     lots = db.execute(
-        "SELECT id, symbol, qty, buy_price, buy_date FROM portfolio_holdings WHERE portfolio_id = ? ORDER BY symbol, id", [pid]
+        "SELECT id, symbol, qty, buy_price, buy_date, kind FROM portfolio_holdings WHERE portfolio_id = ? ORDER BY symbol, id", [pid]
     ).fetchall()
-    closes = latest_closes(db, sorted({r[1] for r in lots}))
+    symbols = sorted({r[1] for r in lots})
+    closes = latest_closes(db, symbols)
+    names = _company_names(db, symbols)
     holdings = []
-    for hid, symbol, qty, buy_price, buy_date in lots:
+    for hid, symbol, qty, buy_price, buy_date, kind in lots:
         last, last_date = closes.get(symbol, (None, None))
         holdings.append({
             "id": hid, "symbol": symbol, "qty": qty, "buy_price": buy_price,
+            "kind": effective_kind(kind, symbol, names.get(symbol)), "kind_override": kind,
             "buy_date": str(buy_date) if buy_date else None, "last_price": last, "last_date": last_date,
             **holding_metrics(qty, buy_price, last),
         })
@@ -122,8 +134,8 @@ def add_holding(pid: int, body: HoldingIn):
     db = get_db()
     _require_portfolio(db, pid)
     db.execute(
-        "INSERT INTO portfolio_holdings (id, portfolio_id, symbol, qty, buy_price, buy_date) VALUES (?, ?, ?, ?, ?, ?)",
-        [_next_id(db, "portfolio_holdings"), pid, body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date],
+        "INSERT INTO portfolio_holdings (id, portfolio_id, symbol, qty, buy_price, buy_date, kind) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [_next_id(db, "portfolio_holdings"), pid, body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date, body.kind],
     )
     return portfolio_detail(db, pid)
 
@@ -147,8 +159,8 @@ def update_holding(pid: int, hid: int, body: HoldingIn):
         raise HTTPException(404, "No such holding.")
     _check_dividends_still_after_purchase(db, pid, hid, body)
     db.execute(
-        "UPDATE portfolio_holdings SET symbol = ?, qty = ?, buy_price = ?, buy_date = ? WHERE id = ?",
-        [body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date, hid],
+        "UPDATE portfolio_holdings SET symbol = ?, qty = ?, buy_price = ?, buy_date = ?, kind = ? WHERE id = ?",
+        [body.symbol.strip().upper(), body.qty, body.buy_price, body.buy_date, body.kind, hid],
     )
     return portfolio_detail(db, pid)
 
