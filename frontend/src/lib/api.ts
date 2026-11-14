@@ -109,6 +109,74 @@ export interface ScreenerPreset { name: string; description: string; conditions:
 export interface ScreenerPresetOption { id: string; label: string; count: number; symbols: string[] }
 export interface SavedScreener { id: number; name: string; conditions: ScreenerCondition[]; created_at: string }
 export interface Watchlist { id: number; name: string; symbols: string[]; created_at: string }
+export interface PortfolioSummary { id: number; name: string; holdings: number }
+/** One purchase (lot) of a stock. Figures are null until quantity and buy price are filled in, or when no close is stored. */
+export interface PortfolioHolding {
+  id: number; symbol: string; qty: number | null; buy_price: number | null; buy_date: string | null;
+  last_price: number | null; last_date: string | null;
+  invested: number | null; value: number | null; pnl: number | null; pnl_pct: number | null;
+}
+export interface PortfolioTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; incomplete: number }
+export interface PortfolioDetail { id: number; name: string; holdings: PortfolioHolding[]; totals: PortfolioTotals }
+export type HoldingDraft = Pick<PortfolioHolding, "symbol" | "qty" | "buy_price" | "buy_date">;
+export type FdFrequency = "monthly" | "quarterly" | "half_yearly" | "yearly";
+export type FdPayout = "cumulative" | FdFrequency;
+/** What the user types in for a fixed deposit. */
+export interface FdDraft {
+  name: string; principal: number; annual_rate: number; start_date: string; maturity_date: string;
+  compounding: FdFrequency; payout: FdPayout;
+}
+/** A saved FD with its value worked out by the server for today. */
+export interface PortfolioFd extends FdDraft {
+  id: number; status: "not_started" | "active" | "matured"; days_left: number;
+  interest_earned: number; interest_received: number; current_value: number; maturity_value: number; maturity_interest: number;
+}
+export interface FdTotals { principal: number; current_value: number; interest_earned: number; interest_received: number; maturity_value: number }
+export interface FdListing { fds: PortfolioFd[]; totals: FdTotals }
+export type AssetType = "crypto" | "us_stock" | "mutual_fund" | "bond" | "gold" | "other";
+export type AssetCurrency = "INR" | "USD";
+/** What the user types in for an investment such as crypto or a US stock; the current price is typed in too. */
+export interface AssetDraft {
+  name: string; asset_type: AssetType; currency: AssetCurrency; qty: number; buy_price: number; current_price: number; buy_date: string | null;
+}
+/** Figures are in the asset's own currency; the *_inr ones are null for a USD asset until a rate is entered. */
+export interface PortfolioAsset extends AssetDraft {
+  id: number; invested: number; value: number; pnl: number; pnl_pct: number | null;
+  invested_inr: number | null; value_inr: number | null; pnl_inr: number | null;
+}
+export interface AssetTotals { invested: number; value: number; pnl: number; pnl_pct: number | null; unconverted: number }
+export interface AssetListing { assets: PortfolioAsset[]; usd_inr: number | null; totals: AssetTotals }
+/** One slice of the portfolio total: stocks, fixed deposits or one kind of other investment, all in rupees. */
+export interface TotalPart { key: string; label: string; invested: number; value: number; pnl: number; pnl_pct: number | null; share_pct: number }
+export interface PortfolioTotal {
+  invested: number; value: number; /** profit including the dividends received */ pnl: number; dividends: number; pnl_pct: number | null; parts: TotalPart[];
+  /** Stocks without a quantity and buy price, and dollar assets without a USD to INR rate: not in the total yet. */
+  left_out: { stocks: number; assets: number };
+  /** Annualised return over the items that have a date, and how many items that is. */
+  xirr_pct: number | null;
+  xirr_items: { dated: number; total: number };
+}
+export type MfKind = "sip" | "lumpsum";
+/** What the user types in for a mutual fund: the scheme, a SIP or a lump sum, the amount and when it started. */
+export interface MfDraft { scheme_code: string; kind: MfKind; amount: number; start_date: string; end_date: string | null }
+/** A saved fund with its units and value worked out from the stored NAV history. Figures are null without NAV data. */
+export interface PortfolioMf {
+  id: number; scheme_code: string; scheme_name: string; kind: MfKind; amount: number; start_date: string; end_date: string | null;
+  plan: string | null; option_type: string | null; category: string | null;
+  invested: number | null; units: number | null; current_value: number | null; returns: number | null; returns_pct: number | null;
+  xirr_pct: number | null; installments: number; last_nav: number | null; last_nav_date: string | null; active_sip: boolean;
+}
+export interface MfTotals { invested: number; current_value: number; returns: number; returns_pct: number | null; xirr_pct: number | null }
+export interface MfListing { holdings: PortfolioMf[]; totals: MfTotals }
+/** What the user types in for a dividend: the stock, the payment date, what reached the account, and any TDS taken on top. */
+export interface DividendDraft { symbol: string; pay_date: string; amount: number; tds: number }
+export interface PortfolioDividend extends DividendDraft { id: number; company: string | null }
+export interface DividendSummary {
+  received: number; tds: number; gross: number; this_fy: number; this_fy_label: string;
+  by_fy: { fy: string; received: number; tds: number }[];
+  by_symbol: { symbol: string; received: number }[];
+}
+export interface DividendListing { dividends: PortfolioDividend[]; summary: DividendSummary }
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -567,6 +635,56 @@ export const api = {
 
   deleteWatchlist: (id: number) =>
     apiFetch<{ ok: boolean }>(`/screener/watchlists/${id}`, { method: "DELETE" }),
+
+  getPortfolios: () => apiFetch<PortfolioSummary[]>("/portfolios"),
+  getPortfolio: (id: number) => apiFetch<PortfolioDetail>(`/portfolios/${id}`),
+  createPortfolio: (name: string) =>
+    apiFetch<PortfolioDetail>("/portfolios", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }),
+  createPortfolioFromWatchlist: (watchlistId: number) =>
+    apiFetch<PortfolioDetail>("/portfolios/from-watchlist", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ watchlist_id: watchlistId }),
+    }),
+  renamePortfolio: (id: number, name: string) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }),
+  deletePortfolio: (id: number) => apiFetch<{ ok: boolean }>(`/portfolios/${id}`, { method: "DELETE" }),
+  addHolding: (id: number, body: HoldingDraft) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateHolding: (id: number, holdingId: number, body: HoldingDraft) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings/${holdingId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteHolding: (id: number, holdingId: number) =>
+    apiFetch<PortfolioDetail>(`/portfolios/${id}/holdings/${holdingId}`, { method: "DELETE" }),
+
+  getFds: (portfolioId: number) => apiFetch<FdListing>(`/portfolios/${portfolioId}/fds`),
+  addFd: (portfolioId: number, body: FdDraft) =>
+    apiFetch<FdListing>(`/portfolios/${portfolioId}/fds`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateFd: (portfolioId: number, id: number, body: FdDraft) =>
+    apiFetch<FdListing>(`/portfolios/${portfolioId}/fds/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteFd: (portfolioId: number, id: number) => apiFetch<FdListing>(`/portfolios/${portfolioId}/fds/${id}`, { method: "DELETE" }),
+
+  getAssets: (portfolioId: number) => apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets`),
+  addAsset: (portfolioId: number, body: AssetDraft) =>
+    apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateAsset: (portfolioId: number, id: number, body: AssetDraft) =>
+    apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteAsset: (portfolioId: number, id: number) => apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/${id}`, { method: "DELETE" }),
+  setUsdInr: (portfolioId: number, rate: number | null) =>
+    apiFetch<AssetListing>(`/portfolios/${portfolioId}/assets/usd-inr`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usd_inr: rate }) }),
+
+  getPortfolioTotal: (portfolioId: number) => apiFetch<PortfolioTotal>(`/portfolios/${portfolioId}/total`),
+
+  getMf: (portfolioId: number) => apiFetch<MfListing>(`/portfolios/${portfolioId}/mf`),
+  addMf: (portfolioId: number, body: MfDraft) =>
+    apiFetch<MfListing>(`/portfolios/${portfolioId}/mf`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateMf: (portfolioId: number, id: number, body: MfDraft) =>
+    apiFetch<MfListing>(`/portfolios/${portfolioId}/mf/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteMf: (portfolioId: number, id: number) => apiFetch<MfListing>(`/portfolios/${portfolioId}/mf/${id}`, { method: "DELETE" }),
+
+  getDividends: (portfolioId: number) => apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends`),
+  addDividend: (portfolioId: number, body: DividendDraft) =>
+    apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateDividend: (portfolioId: number, id: number, body: DividendDraft) =>
+    apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteDividend: (portfolioId: number, id: number) => apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "DELETE" }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

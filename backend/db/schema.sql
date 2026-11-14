@@ -395,3 +395,82 @@ CREATE TABLE IF NOT EXISTS chart_drawings (
     updated_at TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- ── Portfolio ──────────────────────────────────────────────────────────────
+-- A portfolio is a named set of holdings. A stock holding is one purchase (lot): quantity, buy price and date
+-- can be empty until the user fills them in (for example right after a watchlist is saved as a portfolio).
+CREATE TABLE IF NOT EXISTS portfolios (
+    id         INTEGER,
+    name       VARCHAR NOT NULL,
+    created_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+    id           INTEGER,
+    portfolio_id INTEGER NOT NULL,
+    symbol       VARCHAR NOT NULL,
+    qty          DOUBLE,
+    buy_price    DOUBLE,
+    buy_date     DATE,
+    created_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+-- A fixed deposit inside a portfolio. Its current value is worked out from these terms on the day it is viewed.
+CREATE TABLE IF NOT EXISTS portfolio_fds (
+    id            INTEGER,
+    portfolio_id  INTEGER NOT NULL,
+    name          VARCHAR NOT NULL,
+    principal     DOUBLE NOT NULL,
+    annual_rate   DOUBLE NOT NULL,      -- percent
+    start_date    DATE NOT NULL,
+    maturity_date DATE NOT NULL,
+    compounding   VARCHAR NOT NULL,     -- monthly | quarterly | half_yearly | yearly
+    payout        VARCHAR NOT NULL,     -- cumulative | monthly | quarterly | half_yearly | yearly
+    created_at    TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+-- Other investments in a portfolio (crypto, US stocks, mutual funds, bonds, gold ...). Prices are typed in by the user.
+CREATE TABLE IF NOT EXISTS portfolio_assets (
+    id            INTEGER,
+    portfolio_id  INTEGER NOT NULL,
+    name          VARCHAR NOT NULL,
+    asset_type    VARCHAR NOT NULL,     -- crypto | us_stock | mutual_fund | bond | gold | other
+    currency      VARCHAR NOT NULL,     -- INR | USD
+    qty           DOUBLE NOT NULL,
+    buy_price     DOUBLE NOT NULL,
+    current_price DOUBLE NOT NULL,
+    buy_date      DATE,
+    created_at    TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+-- the rate the user types in to show USD assets in rupees
+ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS usd_inr DOUBLE;
+
+-- A mutual fund SIP or lump sum in a portfolio. Units and value are worked out from the stored NAV history.
+CREATE TABLE IF NOT EXISTS portfolio_mf (
+    id           INTEGER,
+    portfolio_id INTEGER NOT NULL,
+    scheme_code  VARCHAR NOT NULL,
+    scheme_name  VARCHAR NOT NULL,
+    kind         VARCHAR NOT NULL,      -- sip | lumpsum
+    amount       DOUBLE NOT NULL,       -- per instalment (SIP) or the whole amount (lump sum)
+    start_date   DATE NOT NULL,
+    end_date     DATE,                  -- a SIP stopped on this date
+    created_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);
+
+-- A dividend the user received on a stock of a portfolio, typed in by hand.
+CREATE TABLE IF NOT EXISTS portfolio_dividends (
+    id           INTEGER,
+    portfolio_id INTEGER NOT NULL,
+    symbol       VARCHAR NOT NULL,
+    pay_date     DATE NOT NULL,
+    amount       DOUBLE NOT NULL,       -- what reached the account
+    tds          DOUBLE DEFAULT 0,      -- tax already deducted at source (on top of the amount received)
+    created_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);

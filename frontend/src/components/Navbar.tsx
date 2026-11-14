@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Search, TrendingUp, SlidersHorizontal, FlaskConical, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick } from "lucide-react";
+import { Search, TrendingUp, SlidersHorizontal, FlaskConical, RefreshCw, Trash2, AlertTriangle, PiggyBank, ChartCandlestick, Briefcase } from "lucide-react";
 import { api } from "../lib/api";
 
 interface SearchResult { symbol: string; name: string }
@@ -84,19 +84,20 @@ export default function Navbar() {
   const navLinks = [
     { to: "/screener", label: "Screener", icon: SlidersHorizontal },
     { to: "/charts", label: "Charts", icon: ChartCandlestick },
+    { to: "/portfolio", label: "Portfolio", icon: Briefcase },
     { to: "/backtest", label: "Backtest", icon: FlaskConical },
     { to: "/mutual-funds", label: "Mutual Funds", icon: PiggyBank },
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm px-4 h-14 flex items-center gap-4">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm px-4 h-14 flex items-center gap-3">
       <Link to="/" className="text-blue-600 font-bold text-lg tracking-tight whitespace-nowrap flex items-center gap-1.5">
         <TrendingUp size={18} />
         StockVeda
       </Link>
 
       {/* Search */}
-      <div className="relative flex-1 max-w-sm mx-auto">
+      <div className="relative flex-1 min-w-[140px] max-w-xs mx-auto">
         <div className="relative flex items-center">
           <Search size={14} className="absolute left-2.5 text-slate-400 pointer-events-none" />
           {loading && (
@@ -189,15 +190,15 @@ export default function Navbar() {
       )}
 
       {/* Nav links */}
-      <div className="flex gap-1 text-sm font-medium whitespace-nowrap">
+      <div className="flex gap-0.5 text-xs font-medium whitespace-nowrap">
         {navLinks.map(({ to, label, icon: Icon }) => {
           const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
           return (
             <Link key={to} to={to}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg transition-colors ${
                 active ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
               }`}>
-              <Icon size={14} />
+              <Icon size={13} />
               {label}
             </Link>
           );
