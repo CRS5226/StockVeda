@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Briefcase, Plus, Trash2 } from "lucide-react";
 import AssetsSection from "../components/portfolio/AssetsSection";
+import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
 import MfSection from "../components/portfolio/MfSection";
 import PortfolioTotal from "../components/portfolio/PortfolioTotal";
@@ -79,7 +80,7 @@ export default function Portfolio() {
         <section className="flex-1 min-w-0 flex flex-col gap-4">
           {!p.detail && <div className="py-16 text-center text-sm text-slate-400">Create a portfolio, or save a watchlist as one, to start.</div>}
           {p.detail && totals && (
-            <>
+            <div key={p.detail.id} className="flex flex-col gap-4">
               <div className="flex items-center gap-2">
                 {renaming === null ? (
                   <h2 className="text-lg font-semibold cursor-text" title="Click to rename" onClick={() => setRenaming(p.detail!.name)}>{p.detail.name}</h2>
@@ -110,11 +111,12 @@ export default function Portfolio() {
                 </div>
                 <HoldingsTable holdings={p.detail.holdings} onUpdate={(id, d) => void p.updateHolding(id, d)} onDelete={(id) => void p.deleteHolding(id)} />
               </div>
-              <MfSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
-              <FdSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
-              <AssetsSection key={p.detail.id} portfolioId={p.detail.id} onChanged={changed} />
+              <DividendsSection portfolioId={p.detail.id} symbols={[...new Set(p.detail.holdings.map((h) => h.symbol))]} onChanged={changed} />
+              <MfSection portfolioId={p.detail.id} onChanged={changed} />
+              <FdSection portfolioId={p.detail.id} onChanged={changed} />
+              <AssetsSection portfolioId={p.detail.id} onChanged={changed} />
               <p className="text-xs text-slate-400">Values use the latest daily close stored in the database. Sync data to update them.</p>
-            </>
+            </div>
           )}
         </section>
       </div>

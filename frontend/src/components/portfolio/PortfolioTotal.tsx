@@ -61,6 +61,7 @@ export default function PortfolioTotal({ portfolioId, stocks, refreshKey }: { po
             <div className={`mt-1 text-sm tabular-nums ${darkTone(total.pnl)}`}>
               Total returns {signedRupees(total.pnl)}{total.pnl_pct !== null && ` (${signedPercent(total.pnl_pct)})`}
             </div>
+            {total.dividends > 0 && <div className="text-[11px] text-slate-400">includes {rupees(total.dividends)} of dividends</div>}
           </div>
           <div className="flex justify-between gap-6 text-sm">
             <div><div className="text-xs text-slate-300">Invested value</div><div className="font-semibold tabular-nums">{rupees(total.invested)}</div></div>

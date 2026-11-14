@@ -74,7 +74,7 @@ def test_mutual_funds_join_the_portfolio_total_and_xirr(client):
 
 def test_xirr_counts_only_dated_items():
     year_ago = TODAY - timedelta(days=365)
-    stocks = [{"invested": 1_000, "value": 1_200, "buy_date": str(year_ago)}, {"invested": 500, "value": 600, "buy_date": None}]
+    stocks = [{"symbol": "TCS", "invested": 1_000, "value": 1_200, "buy_date": str(year_ago)}, {"symbol": "ITC", "invested": 500, "value": 600, "buy_date": None}]
     fds = [{"principal": 10_000, "current_value": 10_800, "start_date": str(year_ago)}]
     assets = [{"value_inr": 2_000, "invested_inr": 1_000, "buy_date": None}]
     flows, dated, counted = build_flows(stocks, fds, assets, [], TODAY)

@@ -462,3 +462,15 @@ CREATE TABLE IF NOT EXISTS portfolio_mf (
     created_at   TIMESTAMP DEFAULT now(),
     PRIMARY KEY (id)
 );
+
+-- A dividend the user received on a stock of a portfolio, typed in by hand.
+CREATE TABLE IF NOT EXISTS portfolio_dividends (
+    id           INTEGER,
+    portfolio_id INTEGER NOT NULL,
+    symbol       VARCHAR NOT NULL,
+    pay_date     DATE NOT NULL,
+    amount       DOUBLE NOT NULL,       -- what reached the account
+    tds          DOUBLE DEFAULT 0,      -- tax already deducted at source (on top of the amount received)
+    created_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (id)
+);

@@ -149,7 +149,7 @@ export interface AssetListing { assets: PortfolioAsset[]; usd_inr: number | null
 /** One slice of the portfolio total: stocks, fixed deposits or one kind of other investment, all in rupees. */
 export interface TotalPart { key: string; label: string; invested: number; value: number; pnl: number; pnl_pct: number | null; share_pct: number }
 export interface PortfolioTotal {
-  invested: number; value: number; pnl: number; pnl_pct: number | null; parts: TotalPart[];
+  invested: number; value: number; /** profit including the dividends received */ pnl: number; dividends: number; pnl_pct: number | null; parts: TotalPart[];
   /** Stocks without a quantity and buy price, and dollar assets without a USD to INR rate: not in the total yet. */
   left_out: { stocks: number; assets: number };
   /** Annualised return over the items that have a date, and how many items that is. */
@@ -168,6 +168,15 @@ export interface PortfolioMf {
 }
 export interface MfTotals { invested: number; current_value: number; returns: number; returns_pct: number | null; xirr_pct: number | null }
 export interface MfListing { holdings: PortfolioMf[]; totals: MfTotals }
+/** What the user types in for a dividend: the stock, the payment date, what reached the account, and any TDS taken on top. */
+export interface DividendDraft { symbol: string; pay_date: string; amount: number; tds: number }
+export interface PortfolioDividend extends DividendDraft { id: number }
+export interface DividendSummary {
+  received: number; tds: number; gross: number; this_fy: number; this_fy_label: string;
+  by_fy: { fy: string; received: number; tds: number }[];
+  by_symbol: { symbol: string; received: number }[];
+}
+export interface DividendListing { dividends: PortfolioDividend[]; summary: DividendSummary }
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -669,6 +678,13 @@ export const api = {
   updateMf: (portfolioId: number, id: number, body: MfDraft) =>
     apiFetch<MfListing>(`/portfolios/${portfolioId}/mf/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   deleteMf: (portfolioId: number, id: number) => apiFetch<MfListing>(`/portfolios/${portfolioId}/mf/${id}`, { method: "DELETE" }),
+
+  getDividends: (portfolioId: number) => apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends`),
+  addDividend: (portfolioId: number, body: DividendDraft) =>
+    apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateDividend: (portfolioId: number, id: number, body: DividendDraft) =>
+    apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  deleteDividend: (portfolioId: number, id: number) => apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "DELETE" }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),
