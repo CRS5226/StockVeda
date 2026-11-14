@@ -11,12 +11,12 @@ const COLORS: Record<string, string> = {
 function Donut({ parts }: { parts: Total["parts"] }) {
   let offset = 0;
   return (
-    <svg viewBox="0 0 36 36" className="w-36 h-36 -rotate-90 shrink-0" role="img" aria-label="Allocation by type">
-      <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="5" />
+    <svg viewBox="0 0 40 40" className="w-40 h-40 -rotate-90 shrink-0 overflow-visible" role="img" aria-label="Allocation by type">
+      <circle cx="20" cy="20" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="5" />
       {parts.map((p) => {
         const share = Math.max(p.share_pct, 0);
         const slice = (
-          <circle key={p.key} cx="18" cy="18" r="15.9155" fill="none" stroke={COLORS[p.key] ?? "#94a3b8"} strokeWidth="5"
+          <circle key={p.key} cx="20" cy="20" r="15.9155" fill="none" stroke={COLORS[p.key] ?? "#94a3b8"} strokeWidth="5"
             strokeDasharray={`${share} ${100 - share}`} strokeDashoffset={-offset} />
         );
         offset += share;
