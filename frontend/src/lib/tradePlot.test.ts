@@ -4,9 +4,9 @@ import {
 } from "./tradePlot";
 
 describe("defaultLevels", () => {
-  it("puts a long's stop below and target above, a short's the other way, 1% and 2% from the entry", () => {
-    expect(defaultLevels("long", 800)).toEqual({ stop_loss: 792, target: 816 });
-    expect(defaultLevels("short", 800)).toEqual({ stop_loss: 808, target: 784 });
+  it("puts a long's stop below and target above, a short's the other way, 0.25% and 0.5% from the entry", () => {
+    expect(defaultLevels("long", 800)).toEqual({ stop_loss: 798, target: 804 });
+    expect(defaultLevels("short", 800)).toEqual({ stop_loss: 802, target: 796 });
   });
 });
 

@@ -5,8 +5,8 @@ import type { PlotDraft, PlottedTrade } from "./api";
 export type PlotSide = PlottedTrade["side"];
 
 /** Stop-loss and target, as a percent of the entry, a new box starts with. */
-export const DEFAULT_STOP_PCT = 1;
-export const DEFAULT_TARGET_PCT = 2;
+export const DEFAULT_STOP_PCT = 0.25;
+export const DEFAULT_TARGET_PCT = 0.5;
 /** Bars a new box is drawn across. */
 export const DEFAULT_WIDTH_BARS = 20;
 

@@ -225,8 +225,9 @@ export default function TradePlotOverlay(props: Props) {
             <div className={label} style={{ left: cx, top: targetUp ? b.yTarget - 26 : b.yTarget + 4, background: TEAL }}>{levelText("Target", m.target)}</div>
             <div className={label} style={{ left: cx, top: stopUp ? b.yStop - 26 : b.yStop + 4, background: CORAL }}>{levelText("Stop", m.stop)}</div>
             </>}
-            {selected && <div className="absolute pointer-events-auto -translate-x-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-center leading-tight tabular-nums shadow"
-              style={{ left: cx, top: b.yEntry + (targetUp ? 14 : -14), background: dark ? "#1e222d" : "#fff", color: dark ? "#e2e8f0" : "#0f172a", border: `1.5px solid ${tint}` }}
+            {selected && <div className="absolute pointer-events-auto -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-center leading-tight tabular-nums shadow"
+              // beside the box, so it never covers the Target / Stop labels
+              style={{ left: Math.max(left, Math.min(right + 10, paneWidth - 210)), top: b.yEntry, background: dark ? "#1e222d" : "#fff", color: dark ? "#e2e8f0" : "#0f172a", border: `1.5px solid ${tint}` }}
               onPointerDown={(e) => { e.stopPropagation(); props.onSelect(plot.id); }}>
               <div>
                 <span className={plot.side === "long" ? "text-emerald-500 font-bold" : "text-red-500 font-bold"}>{plot.side === "long" ? "LONG" : "SHORT"}</span>
