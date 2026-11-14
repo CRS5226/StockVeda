@@ -215,6 +215,28 @@ export interface PortfolioFundamentalsRow {
   profit_margin_pct: number | null; dividend_yield_pct: number | null; market_cap: number | null;
   quarter: { period: string; revenue: number | null; ebitda: number | null; pat: number | null; revenue_yoy_pct: number | null; pat_yoy_pct: number | null } | null;
 }
+export type SignalState = "bullish" | "neutral" | "bearish";
+export interface SignalRule { key: string; label: string; family: string; state: SignalState; detail: string; since: string | null; fresh: boolean; counts: boolean }
+export interface SignalFrame {
+  bars: number; adx: number | null; regime: "trending" | "ranging" | "mixed" | null; rules: SignalRule[];
+  votes: { bullish: number; bearish: number; neutral: number; counted: number }; lean: SignalState; as_of: string;
+}
+export interface SignalSizing {
+  trim: { shares: number; value: number; pct: number };
+  cost_out: { shares: number; value: number; possible: boolean };
+  add: { shares: number; value: number; budget: number; headroom: number; limited_by_size: boolean; avg_before: number; avg_after: number; breakeven_before_pct: number | null; breakeven_after_pct: number | null };
+}
+export type SignalTimeframe = "1W" | "1D" | "1H";
+export interface SignalRow {
+  symbol: string; kind: HoldingKind; weight_pct: number; qty: number; avg_price: number; last: number; pnl_pct: number | null;
+  timeframes: Record<SignalTimeframe, SignalFrame | null>; alignment: "bullish" | "bearish" | "mixed" | null;
+  zone: "profit" | "recovery" | "hold"; zone_checks: { text: string; met: boolean }[]; sizing: SignalSizing;
+}
+export interface SignalSettings { profit_gain_pct: number; profit_rsi: number; loss_pct: number; trim_pct: number; add_budget: number }
+export interface SignalsReport {
+  settings: SignalSettings; max_position_pct: number; rows: SignalRow[];
+  summary: { stocks: number; with_signals: number; aligned_bullish: number; aligned_bearish: number; profit_zone: number; recovery_zone: number };
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -736,6 +758,10 @@ export const api = {
   startDataSync: (portfolioId: number) => apiFetch<DataSyncStart>(`/portfolios/${portfolioId}/data/sync`, { method: "POST" }),
   getDataSync: (portfolioId: number, jobId: string) => apiFetch<DataSyncJob>(`/portfolios/${portfolioId}/data/sync/${jobId}`),
   getPortfolioFundamentals: (portfolioId: number) => apiFetch<{ rows: PortfolioFundamentalsRow[] }>(`/portfolios/${portfolioId}/data/fundamentals`),
+
+  getSignals: (portfolioId: number) => apiFetch<SignalsReport>(`/portfolios/${portfolioId}/signals`),
+  putSignalSettings: (portfolioId: number, body: SignalSettings) =>
+    apiFetch<SignalSettings>(`/portfolios/${portfolioId}/signals/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

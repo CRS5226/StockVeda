@@ -4,6 +4,7 @@ import AssetsSection from "../components/portfolio/AssetsSection";
 import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
 import HealthSection from "../components/portfolio/HealthSection";
+import SignalsSection from "../components/portfolio/SignalsSection";
 import MfSection from "../components/portfolio/MfSection";
 import { buyInfo } from "../lib/dividendRules";
 import { countByKind, holdingTotals, KIND_LABELS, KIND_ORDER } from "../lib/holdingKinds";
@@ -141,6 +142,7 @@ export default function Portfolio() {
               {tab === "fixed_deposits" && <FdSection portfolioId={p.detail.id} onChanged={changed} />}
               {tab === "other" && <AssetsSection portfolioId={p.detail.id} onChanged={changed} />}
               {tab === "health" && <HealthSection portfolioId={p.detail.id} refreshKey={version} />}
+              {tab === "signals" && <SignalsSection portfolioId={p.detail.id} refreshKey={version} />}
             </div>
           )}
         </section>

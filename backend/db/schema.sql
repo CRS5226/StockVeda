@@ -509,3 +509,10 @@ CREATE TABLE IF NOT EXISTS stock_ratios_snapshot (
     industry            VARCHAR,
     PRIMARY KEY (symbol, as_of)
 );
+
+-- The thresholds a portfolio's Signals tab uses for its zones (a JSON object; missing values use the defaults).
+CREATE TABLE IF NOT EXISTS portfolio_signal_settings (
+    portfolio_id INTEGER,
+    settings     VARCHAR,
+    PRIMARY KEY (portfolio_id)
+);

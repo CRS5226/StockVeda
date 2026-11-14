@@ -126,6 +126,7 @@ def delete_portfolio(pid: int):
     db.execute("DELETE FROM portfolio_mf WHERE portfolio_id = ?", [pid])
     db.execute("DELETE FROM portfolio_dividends WHERE portfolio_id = ?", [pid])
     db.execute("DELETE FROM portfolio_targets WHERE portfolio_id = ?", [pid])
+    db.execute("DELETE FROM portfolio_signal_settings WHERE portfolio_id = ?", [pid])
     db.execute("DELETE FROM portfolios WHERE id = ?", [pid])
     return {"ok": True}
 
