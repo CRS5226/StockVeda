@@ -180,6 +180,11 @@ export interface DividendSummary {
   by_symbol: { symbol: string; received: number }[];
 }
 export interface DividendListing { dividends: PortfolioDividend[]; summary: DividendSummary }
+export interface PriceSyncStart { status: "up_to_date" | "started"; as_of?: string; checked?: number; job_id?: string; total?: number; done?: number }
+export interface PriceSyncJob {
+  status: "queued" | "running" | "done" | "error"; total: number; done: number;
+  prices: number; updated_symbols: number; navs: number; no_data: string[]; as_of: string; error?: string;
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -688,6 +693,9 @@ export const api = {
   updateDividend: (portfolioId: number, id: number, body: DividendDraft) =>
     apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   deleteDividend: (portfolioId: number, id: number) => apiFetch<DividendListing>(`/portfolios/${portfolioId}/dividends/${id}`, { method: "DELETE" }),
+
+  startPriceSync: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/sync`, { method: "POST" }),
+  getPriceSync: (portfolioId: number, jobId: string) => apiFetch<PriceSyncJob>(`/portfolios/${portfolioId}/prices/sync/${jobId}`),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

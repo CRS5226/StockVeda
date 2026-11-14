@@ -41,6 +41,12 @@ export function usePortfolio() {
     }
   }, [refreshList]);
 
+  /** Load the open portfolio again, for example after new prices were stored. */
+  const reload = useCallback(async () => {
+    if (selectedId === null) return;
+    try { setDetail(await api.getPortfolio(selectedId)); } catch (e) { setError(errorText(e)); }
+  }, [selectedId]);
+
   const create = (name: string) => change(() => api.createPortfolio(name));
   const createFromWatchlist = (watchlistId: number) => change(() => api.createPortfolioFromWatchlist(watchlistId));
   const rename = (name: string) => detail && change(() => api.renamePortfolio(detail.id, name));
@@ -52,5 +58,5 @@ export function usePortfolio() {
     try { await api.deletePortfolio(detail.id); setDetail(null); setSelectedId(null); await refreshList(); } catch (e) { setError(errorText(e)); }
   };
 
-  return { list, selectedId, setSelectedId, detail, loading, error, create, createFromWatchlist, rename, addHolding, updateHolding, deleteHolding, remove };
+  return { reload, list, selectedId, setSelectedId, detail, loading, error, create, createFromWatchlist, rename, addHolding, updateHolding, deleteHolding, remove };
 }

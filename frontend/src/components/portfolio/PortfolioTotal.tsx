@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { api, type PortfolioDetail, type PortfolioTotal as Total } from "../../lib/api";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 import { errorText } from "../../lib/useTradePlots";
+import { usePriceSync } from "../../lib/usePriceSync";
 
 const COLORS: Record<string, string> = {
   stocks: "#3b82f6", fixed_deposits: "#14b8a6", crypto: "#f59e0b", us_stock: "#8b5cf6", mutual_fund: "#ec4899", bond: "#64748b", gold: "#eab308", other: "#94a3b8",
@@ -32,7 +34,8 @@ const darkTone = (n: number | null) => (n === null || n === 0 ? "text-slate-300"
  * Everything in the portfolio added up in rupees: stocks, fixed deposits and the other investments, split by type.
  * `stocks` and `refreshKey` change whenever something in the portfolio does, which reloads the total.
  */
-export default function PortfolioTotal({ portfolioId, stocks, refreshKey }: { portfolioId: number; stocks: PortfolioDetail; refreshKey: number }) {
+export default function PortfolioTotal({ portfolioId, stocks, refreshKey, onPricesUpdated }: { portfolioId: number; stocks: PortfolioDetail; refreshKey: number; onPricesUpdated: () => void }) {
+  const sync = usePriceSync(portfolioId, onPricesUpdated);
   const [total, setTotal] = useState<Total | null>(null);
   const [error, setError] = useState("");
 
@@ -52,7 +55,19 @@ export default function PortfolioTotal({ portfolioId, stocks, refreshKey }: { po
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
-      <h2 className="font-semibold mb-4">Portfolio total</h2>
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <h2 className="font-semibold">Portfolio total</h2>
+        <div className="ml-auto flex items-center gap-3">
+          {sync.message && (
+            <span className={`text-xs ${sync.phase === "error" ? "text-red-600" : sync.phase === "done" ? "text-emerald-600" : "text-slate-500"}`} role="status">{sync.message}</span>
+          )}
+          {sync.phase === "running" && <span className="text-xs text-slate-500 tabular-nums" role="status">Updating {sync.progress.done} of {sync.progress.total}…</span>}
+          <button onClick={() => void sync.sync()} disabled={sync.busy} title="Fetch the latest closing prices and fund NAVs"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+            <RefreshCw size={13} className={sync.busy ? "animate-spin" : ""} /> {sync.busy ? "Syncing…" : "Sync prices"}
+          </button>
+        </div>
+      </div>
       <div className="flex flex-wrap gap-8 items-stretch">
         <div className="min-w-[260px] rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 text-white p-5 flex flex-col gap-4">
           <div>

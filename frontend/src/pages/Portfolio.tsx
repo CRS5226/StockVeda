@@ -91,7 +91,7 @@ export default function Portfolio() {
                   onClick={() => { if (window.confirm(`Delete the portfolio "${p.detail!.name}" and its holdings?`)) void p.remove(); }}><Trash2 size={15} /></button>
               </div>
               <PortfolioTabs value={tab} onChange={openTab} />
-              {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} />}
+              {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} onPricesUpdated={() => { void p.reload(); changed(); }} />}
               {tab === "stocks" && (() => {
                 const all = p.detail.holdings;
                 const counts = countByKind(all);
