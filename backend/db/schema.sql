@@ -487,3 +487,25 @@ CREATE TABLE IF NOT EXISTS portfolio_targets (
     targets          VARCHAR,
     PRIMARY KEY (portfolio_id)
 );
+
+-- A daily snapshot of valuation and quality ratios per stock (from Yahoo), kept so they can be compared over time.
+-- Percent columns are in percent (12.5 means 12.5%).
+CREATE TABLE IF NOT EXISTS stock_ratios_snapshot (
+    symbol              VARCHAR,
+    as_of               DATE,
+    pe                  DOUBLE,
+    forward_pe          DOUBLE,
+    pb                  DOUBLE,
+    roe_pct             DOUBLE,
+    debt_to_equity      DOUBLE,
+    profit_margin_pct   DOUBLE,
+    revenue_growth_pct  DOUBLE,
+    earnings_growth_pct DOUBLE,
+    dividend_yield_pct  DOUBLE,
+    market_cap          DOUBLE,
+    ev_to_ebitda        DOUBLE,
+    beta                DOUBLE,
+    sector              VARCHAR,
+    industry            VARCHAR,
+    PRIMARY KEY (symbol, as_of)
+);

@@ -35,7 +35,7 @@ def _safe_val(df: pd.DataFrame, metric: str, col) -> Optional[float]:
         return None
 
 
-def _parse_financials(ticker: yf.Ticker, symbol: str, period_type: str) -> list[dict]:
+def parse_financials(ticker: yf.Ticker, symbol: str, period_type: str) -> list[dict]:
     """Extract fundamentals rows for one symbol, one period type (Q or A)."""
     if period_type == "Q":
         income = ticker.quarterly_income_stmt
@@ -106,8 +106,8 @@ def run(limit: int = DEFAULT_LIMIT):
         ticker_code = f"{symbol}.NS"
         try:
             t = yf.Ticker(ticker_code)
-            rows_q = _parse_financials(t, symbol, "Q")
-            rows_a = _parse_financials(t, symbol, "A")
+            rows_q = parse_financials(t, symbol, "Q")
+            rows_a = parse_financials(t, symbol, "A")
             all_rows.extend(rows_q + rows_a)
             if (i + 1) % 50 == 0:
                 print(f"[{SOURCE_ID}] {i+1}/{len(symbols)} done...")

@@ -201,6 +201,20 @@ export interface HealthReport {
   allocation: HealthAllocation[]; trend: HealthTrend[];
   summary: { stocks: number; below_sma200: number; with_sma200: number; deep_drawdown: number; types_out_of_band: number };
 }
+export interface DataDataset { key: string; label: string; applies_to: string; total: number; stored: number; stale: number; newest: string | null }
+export interface DataCoverage { datasets: DataDataset[]; up_to_date: boolean }
+export interface DataSyncStart { status: "up_to_date" | "started"; job_id?: string; checked?: number }
+export interface DataSyncStep {
+  key: string; label: string; total: number; done: number; updated: number; rows: number;
+  status: "pending" | "running" | "done" | "skipped"; no_data: string[]; failed: string[];
+}
+export interface DataSyncJob { status: "queued" | "running" | "done" | "error"; current: string | null; error: string | null; steps: DataSyncStep[] }
+export interface PortfolioFundamentalsRow {
+  symbol: string; as_of: string | null; sector: string | null;
+  pe: number | null; forward_pe: number | null; pb: number | null; roe_pct: number | null; debt_to_equity: number | null;
+  profit_margin_pct: number | null; dividend_yield_pct: number | null; market_cap: number | null;
+  quarter: { period: string; revenue: number | null; ebitda: number | null; pat: number | null; revenue_yoy_pct: number | null; pat_yoy_pct: number | null } | null;
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -717,6 +731,11 @@ export const api = {
   putHealthTargets: (portfolioId: number, body: HealthSettings) =>
     apiFetch<HealthSettings>(`/portfolios/${portfolioId}/health/targets`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   startPriceHistory: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/history`, { method: "POST" }),
+
+  getDataCoverage: (portfolioId: number) => apiFetch<DataCoverage>(`/portfolios/${portfolioId}/data/coverage`),
+  startDataSync: (portfolioId: number) => apiFetch<DataSyncStart>(`/portfolios/${portfolioId}/data/sync`, { method: "POST" }),
+  getDataSync: (portfolioId: number, jobId: string) => apiFetch<DataSyncJob>(`/portfolios/${portfolioId}/data/sync/${jobId}`),
+  getPortfolioFundamentals: (portfolioId: number) => apiFetch<{ rows: PortfolioFundamentalsRow[] }>(`/portfolios/${portfolioId}/data/fundamentals`),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),

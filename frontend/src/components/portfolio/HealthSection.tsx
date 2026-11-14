@@ -1,8 +1,11 @@
 import { RefreshCw } from "lucide-react";
 import { api } from "../../lib/api";
 import { pct } from "../../lib/healthLabels";
+import { usePortfolioDataSync } from "../../lib/usePortfolioDataSync";
 import { usePortfolioHealth } from "../../lib/usePortfolioHealth";
 import { usePriceSync } from "../../lib/usePriceSync";
+import DataSyncPanel from "./health/DataSyncPanel";
+import FundamentalsCheck from "./health/FundamentalsCheck";
 import AllocationCheck from "./health/AllocationCheck";
 import ConcentrationCheck from "./health/ConcentrationCheck";
 import HealthTargets from "./health/HealthTargets";
@@ -13,6 +16,7 @@ import StatCards from "./StatCards";
 export default function HealthSection({ portfolioId, refreshKey }: { portfolioId: number; refreshKey: number }) {
   const health = usePortfolioHealth(portfolioId, refreshKey);
   const history = usePriceSync(portfolioId, health.reload, api.startPriceHistory);
+  const data = usePortfolioDataSync(portfolioId);
   const r = health.report;
 
   if (health.error && !r) return <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{health.error}</div>;
@@ -43,10 +47,12 @@ export default function HealthSection({ portfolioId, refreshKey }: { portfolioId
         </div>
       )}
       {health.error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{health.error}</div>}
+      <DataSyncPanel coverage={data.coverage} job={data.job} busy={data.busy} message={data.message} error={data.error} onSync={() => void data.sync()} />
       <HealthTargets key={JSON.stringify(r.settings)} settings={r.settings} onSave={health.saveSettings} />
       <AllocationCheck rows={r.allocation} band={r.settings.band_pp} />
       <ConcentrationCheck data={r.concentration} />
       <TrendCheck trend={r.trend} />
+      <FundamentalsCheck rows={data.rows} />
     </div>
   );
 }
