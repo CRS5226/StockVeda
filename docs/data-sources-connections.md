@@ -47,20 +47,30 @@ Fields: `bm_symbol, bm_date, bm_purpose, bm_desc, sm_name, sm_isin, sm_indusrty,
 
 Licence: free without a key for **non-commercial** use only (their docs list separate commercial terms). Fine for a self-hosted open-source tool, but say so in the README. No rate limit is documented, so fetch per city (about 100), not per company, and cache.
 
-## 6. Ownership and group structure - not resolved
+## 6. Ownership and group structure
 
-- BSE corporate group repository page (`bseindia.com/static/about/corporate_group_repository.aspx`) loads, but it has no download link or table in the page itself; the data probably comes from `api.bseindia.com`. Not yet inspected.
-- CDSL repository page: not fetched.
-- NSE shareholding-pattern XBRL files: listed on the NSE XBRL page; bulk download not confirmed.
-- Wikidata SPARQL answers, but my first query (stock exchange NSE) returned zero rows; the entity id was a guess. Needs checking before trusting coverage.
-- Dataful (SEBI BRSR subsidiaries/associates, 2020-21 onward): licence not checked.
+**Best free source: NSE shareholding XBRL (verified).** `GET /api/corporate-share-holdings-master?index=equities&symbol=RELIANCE` (needs `nse_get`) returns the latest filing, including `date`, `pr_and_prgrp`, `public_val`, and an `xbrl` file URL on `nsearchives.nseindia.in` that downloads without a session. In the RELIANCE file (500 KB) there are 57 `NameOfTheShareholder` entries: promoter individuals (Mukesh D Ambani ...), promoter LLPs and companies (Srichakra Commercials LLP, Tattvam Enterprises LLP ...), and further down the named holders above 1%. Each carries a `contextRef` that links it to its category and to its shares and percentage values (the percentage tag is not mapped yet). This gives "who holds this company", including other companies, for every listed stock. The reverse ("what does this company hold") comes from matching holder names to `nse_symbols.company_name`.
+
+`sync_shareholding_master.py` already downloads these files for the category totals, but it does not keep the holder names. A new table (for example `shareholders(symbol, period, holder_name, category, shares, pct)`) can reuse that download.
+
+Our local `shareholding` table is empty for RELIANCE and TATAMOTORS at the moment, so the sync has not been run on this machine.
+
+**Wikidata (verified, weak).** NSE is `Q638740`. Query for companies listed on it: 200 companies, only 23 have a parent organisation (P749), 39 a headquarters (P159), 36 an owner (P127). Too sparse for the whole market, but usable to add group names (Tata, Hinduja, Aditya Birla, Mahindra) for the largest groups.
+
+**BSE and CDSL group repositories.** The BSE page loads (after a redirect) but has no table or download link in the HTML; the data likely comes from `api.bseindia.com`. Not inspected further. CDSL not fetched.
+
+**Dataful (SEBI BRSR subsidiaries and associates).** Licence not checked.
 
 ## 7. Supplier and customer links
 
 No free structured source found. Only paid platforms (Tracenable, CompanyData). Plan: hand-curated sector chain, plus annual-report text for a few big groups later.
 
+## Findings on what is already stored (2026-11-15, local database)
+
+`shareholding` has no rows for RELIANCE or TATAMOTORS, `bulk_deals` returns an empty list, and the sector-compare chart errors for TATAMOTORS ("Insufficient data"). Run the syncs before judging what #14 and #22 still need.
+
 ## Next checks
 
-1. Look at `api.bseindia.com` calls made by the BSE group repository page.
-2. Check what Wikidata really has (correct NSE id, parent organisation, headquarters) for the Nifty 500.
-3. Count rows in `stock_sector`, `commodity_prices`, `bulk_block_deals`, `shareholding` to see what is already filled.
+1. Map the XBRL percentage tag to each named holder and parse a second company to confirm the layout is the same.
+2. Inspect `api.bseindia.com` for the group repository data.
+3. Decide the table design for holders and group names.
