@@ -1,5 +1,5 @@
 import { api } from "../../lib/api";
-import { decodeEntities, kindLabel, shortDate } from "../../lib/connections";
+import { decodeEntities, kindLabel, sectionElementId, shortDate } from "../../lib/connections";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
 
@@ -13,7 +13,7 @@ export default function EventsSection({ symbol }: { symbol: string }) {
   const s = useSectionData(() => api.getCompanyEvents(symbol), [symbol]);
   const d = s.data;
   return (
-    <SectionCard title="Company events" loading={s.loading} missing={s.missing} error={s.error}
+    <SectionCard id={sectionElementId("events")} title="Company events" loading={s.loading} missing={s.missing} error={s.error}
       subtitle="Material NSE announcements for this company" emptyText="No events stored for this stock yet.">
       {d && (
         <>

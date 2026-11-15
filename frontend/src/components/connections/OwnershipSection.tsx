@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
-import { connectionsPath, edgeWidth, layoutOwnership, shortDate } from "../../lib/connections";
+import { connectionsPath, edgeWidth, layoutOwnership, sectionElementId, shortDate } from "../../lib/connections";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
 import StockLink from "./StockLink";
@@ -14,7 +14,7 @@ export default function OwnershipSection({ symbol }: { symbol: string }) {
   const d = s.data;
   const layout = d ? layoutOwnership(d.nodes, d.edges, symbol, W, H) : null;
   return (
-    <SectionCard title="Who holds it" loading={s.loading} missing={s.missing} error={s.error}
+    <SectionCard id={sectionElementId("owners")} title="Who holds it" loading={s.loading} missing={s.missing} error={s.error}
       subtitle={d?.as_of ? `Holders above 1% in the filing for ${shortDate(d.as_of)}. Listed companies are green.` : undefined}
       emptyText="No shareholding filing stored for this stock yet.">
       {d && layout && (

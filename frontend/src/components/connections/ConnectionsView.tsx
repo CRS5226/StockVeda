@@ -1,4 +1,6 @@
+import { useLocation } from "react-router-dom";
 import { api } from "../../lib/api";
+import { useScrollToHash } from "../../lib/useScrollToHash";
 import { useSectionData } from "../../lib/useSectionData";
 import CorrelatedSection from "./CorrelatedSection";
 import EventsSection from "./EventsSection";
@@ -9,6 +11,7 @@ import OwnershipSection from "./OwnershipSection";
 /** How a stock connects to others: correlated stocks, its place in the chain, owners, location and events. */
 export default function ConnectionsView({ symbol }: { symbol: string }) {
   const profile = useSectionData(() => api.getCompanyProfile(symbol), [symbol]);
+  useScrollToHash(useLocation().hash, symbol);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">

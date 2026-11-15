@@ -1,6 +1,6 @@
 import { api } from "../../lib/api";
 import type { CompanyProfile, WeatherDay } from "../../lib/connectionsTypes";
-import { flagLabel, shortDate } from "../../lib/connections";
+import { flagLabel, sectionElementId, shortDate } from "../../lib/connections";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
 
@@ -44,7 +44,7 @@ export default function LocationWeatherSection({ symbol, profile }: { symbol: st
   const where = [profile?.city, profile?.state].filter(Boolean).join(", ");
   const d = w.data;
   return (
-    <SectionCard title="Headquarters and weather" loading={false} missing={false} error=""
+    <SectionCard id={sectionElementId("location")} title="Headquarters and weather" loading={false} missing={false} error=""
       subtitle={where || "Location not known yet"} emptyText="">
       {profile ? (
         <dl className="grid grid-cols-2 gap-3">

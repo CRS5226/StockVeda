@@ -15,6 +15,7 @@ import CorpActionsTab from "../components/stock/CorpActionsTab";
 import DealsTab, { type StockDeal } from "../components/stock/DealsTab";
 import DeliveryTab from "../components/stock/DeliveryTab";
 import FundamentalsTab from "../components/stock/FundamentalsTab";
+import GlanceStrip from "../components/stock/GlanceStrip";
 import KeyMetricsCard from "../components/stock/KeyMetricsCard";
 import NewsTab from "../components/stock/NewsTab";
 import PriceChartCard from "../components/stock/PriceChartCard";
@@ -181,6 +182,8 @@ export default function StockDetail() {
           shareholding &amp; corporate actions. This may take a few seconds…
         </div>
       )}
+
+      {view === "overview" && <GlanceStrip sym={sym} />}
 
       {/* Connections: full-width sections. Overview: the 50/50 grid. */}
       {view === "connections" ? <ConnectionsView symbol={sym} /> : (

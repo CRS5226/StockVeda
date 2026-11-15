@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
 /** A titled card for one section of the Connections page, with the loading, no-data and error states built in. */
-export default function SectionCard({ title, subtitle, loading, missing, error, emptyText, children }: {
+export default function SectionCard({ id, title, subtitle, loading, missing, error, emptyText, children }: {
+  /** Anchor id, so a link can open the Connections view at this section. */
+  id?: string;
   title: string;
   subtitle?: string;
   loading: boolean;
@@ -12,7 +14,7 @@ export default function SectionCard({ title, subtitle, loading, missing, error, 
   children: ReactNode;
 }) {
   return (
-    <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+    <section id={id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm scroll-mt-20">
       <div className="mb-3">
         <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
         {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
