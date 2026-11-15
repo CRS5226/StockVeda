@@ -169,6 +169,54 @@ CREATE TABLE IF NOT EXISTS shareholding (
     PRIMARY KEY (symbol, period)
 );
 
+-- Named holders from the shareholding-pattern filings (promoters and public holders above 1%).
+-- One filing is replaced as a whole, so there is no primary key.
+CREATE TABLE IF NOT EXISTS shareholders (
+    symbol VARCHAR,
+    period DATE,
+    holder_name VARCHAR,
+    holder_group VARCHAR,
+    category VARCHAR,
+    shares BIGINT,
+    pct DOUBLE
+);
+
+-- Which listed company (if any) a holder name in `shareholders` refers to. Rebuilt after each shareholders sync.
+CREATE TABLE IF NOT EXISTS holder_matches (
+    holder_name VARCHAR PRIMARY KEY,
+    holder_key VARCHAR,
+    symbol VARCHAR
+);
+
+-- Material NSE announcements (orders, ratings, deals ...) and board meetings, filled by sync_company_events.
+-- A date range is replaced as a whole, so there is no primary key.
+CREATE TABLE IF NOT EXISTS company_events (
+    symbol VARCHAR,
+    event_time TIMESTAMP,
+    category VARCHAR,
+    kind VARCHAR,
+    subject VARCHAR,
+    pdf_url VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS board_meetings (
+    symbol VARCHAR,
+    meeting_date DATE,
+    purpose VARCHAR,
+    description VARCHAR
+);
+
+-- Daily weather per headquarters city (Open-Meteo). A forecast day is overwritten by the observed value later.
+CREATE TABLE IF NOT EXISTS city_weather (
+    city VARCHAR,
+    date DATE,
+    precip_mm DOUBLE,
+    temp_max_c DOUBLE,
+    wind_gust_kmh DOUBLE,
+    is_forecast BOOLEAN,
+    PRIMARY KEY (city, date)
+);
+
 CREATE TABLE IF NOT EXISTS corporate_actions (
     symbol VARCHAR,
     ex_date DATE,
@@ -179,15 +227,19 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
     PRIMARY KEY (symbol, ex_date, action_type)
 );
 
-CREATE TABLE IF NOT EXISTS bulk_block_deals (
+-- Bulk and block deals, one row per deal. The sync replaces a whole day at a time,
+-- so there is no primary key (one client can buy and sell the same symbol on a day).
+-- bulk_block_deals was an unused earlier draft of this table.
+DROP TABLE IF EXISTS bulk_block_deals;
+CREATE TABLE IF NOT EXISTS bulk_deals (
     date DATE,
     symbol VARCHAR,
-    deal_type VARCHAR,
+    scrip_name VARCHAR,
     client_name VARCHAR,
-    transaction_type VARCHAR,
+    buy_sell VARCHAR,
     quantity BIGINT,
     price DOUBLE,
-    PRIMARY KEY (date, symbol, deal_type, client_name)
+    deal_type VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS insider_trades (
@@ -247,6 +299,29 @@ CREATE TABLE IF NOT EXISTS market_breadth (
     nifty_pe DOUBLE,
     nifty_pb DOUBLE,
     nifty_div_yield DOUBLE
+);
+
+-- Headquarters, sector and industry per stock (filled by sync_company_profile).
+CREATE TABLE IF NOT EXISTS company_profile (
+    symbol VARCHAR PRIMARY KEY,
+    city VARCHAR,
+    state VARCHAR,
+    pincode VARCHAR,
+    sector VARCHAR,
+    industry VARCHAR,
+    website VARCHAR,
+    employees BIGINT,
+    lat DOUBLE,
+    lon DOUBLE,
+    updated_at TIMESTAMP
+);
+
+-- One geocoder answer per city, so each city is looked up once. lat/lon stay NULL for a city with no match.
+CREATE TABLE IF NOT EXISTS city_coordinates (
+    city VARCHAR PRIMARY KEY,
+    state VARCHAR,
+    lat DOUBLE,
+    lon DOUBLE
 );
 
 CREATE TABLE IF NOT EXISTS nse_symbols (

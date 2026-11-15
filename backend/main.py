@@ -1,7 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
-from backend.routes import stock, screener, macro, backtest, analysis, index_fund, intraday, mutual_fund, trade_plots, drawings, portfolio, portfolio_fd, portfolio_assets, portfolio_mf, portfolio_dividends, portfolio_prices, portfolio_data, portfolio_signals, portfolio_evidence, portfolio_simulation, portfolio_total
+from backend.routes import stock, screener, macro, backtest, analysis, index_fund, intraday, mutual_fund, trade_plots, drawings, portfolio, portfolio_fd, portfolio_assets, portfolio_mf, portfolio_dividends, portfolio_prices, portfolio_data, portfolio_signals, portfolio_evidence, portfolio_simulation, portfolio_total, company_profile, connections, company_events
 
 app = FastAPI(title="StockVeda API", version="0.1.0")
 
@@ -38,6 +38,9 @@ app.include_router(portfolio_signals.router, prefix="/api")
 app.include_router(portfolio_evidence.router, prefix="/api")
 app.include_router(portfolio_simulation.router, prefix="/api")
 app.include_router(portfolio_total.router, prefix="/api")
+app.include_router(company_profile.router, prefix="/api")
+app.include_router(connections.router, prefix="/api")
+app.include_router(company_events.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -64,6 +67,11 @@ _SYNC_MODULES = {
     "fii_dii":           "backend.data_sync.sync_fii_dii",
     "fpi":               "backend.data_sync.sync_fpi",
     "corporate_actions": "backend.data_sync.sync_corporate_actions",
+    "bulk_deals":        "backend.data_sync.sync_bulk_deals",
+    "company_profile":   "backend.data_sync.sync_company_profile",
+    "shareholders":      "backend.data_sync.sync_shareholders",
+    "company_events":    "backend.data_sync.sync_company_events",
+    "weather":           "backend.data_sync.sync_weather",
     "shareholding":      "backend.data_sync.sync_shareholding",
     "fundamentals":      "backend.data_sync.sync_fundamentals",
     "currency":          "backend.data_sync.sync_currency",
