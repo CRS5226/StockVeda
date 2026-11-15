@@ -15,16 +15,16 @@ export default function DeliveryTab({ delivery, syncingTab, syncTabData }: {
         <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
         <div className="text-xs font-medium text-slate-600">Sync started — running in the background</div>
         <div className="text-xs text-slate-400 text-center max-w-sm">
-          Downloading the last ~3 months of NSE bhavcopy (price + delivery, ~130 files).
-          The first sync takes a few minutes. You can keep using the app — the chart
-          will appear here automatically when it's ready, or just refresh shortly.
+          Downloading about a year of NSE bhavcopy (price + delivery, one file per trading day).
+          The whole first sync can take ten minutes or more, but the chart appears here
+          after the first few weeks arrive. You can keep using the app, or just refresh shortly.
         </div>
       </div>
     ) : delivery.length === 0 ? (
       <div className="flex flex-col items-center gap-3 py-8">
         <div className="text-xs text-slate-400 text-center">
           Delivery data comes from NSE bhavcopy — not available via yfinance.
-          The first sync downloads ~3 months of history (a few minutes).
+          The first sync downloads about a year of history (ten minutes or more).
         </div>
         <button onClick={() => syncTabData("bhavcopy", "delivery")} disabled={syncingTab !== null}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-slate-600 transition-all disabled:opacity-50">

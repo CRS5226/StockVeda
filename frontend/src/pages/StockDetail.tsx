@@ -130,8 +130,8 @@ export default function StockDetail() {
         await api.prefetchSymbol(sym);
       } else if (source === "bhavcopy" || source === "delivery") {
         await api.triggerSync(source);
-        // First bhavcopy sync downloads ~3 months of NSE data (~130 files) and runs in the
-        // background — poll for up to 6 min so the chart appears automatically when it lands.
+        // First bhavcopy sync downloads about a year of NSE data and runs in the background. It stores
+        // every 20 days, so the first data lands within minutes — poll for up to 6 min for the chart.
         await pollData(() => api.getDelivery(sym, fromDate("1Y")), 360_000, 5_000);
       }
       // Refresh the relevant store slice so data appears immediately

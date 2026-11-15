@@ -40,10 +40,11 @@ def business_days_between(start: date, end: date) -> list[date]:
 
 def last_synced_date(source_id: str) -> Optional[date]:
     db = get_db()
-    row = db.execute(
+    # fetchall(), not fetchone(): a row left unfetched keeps the result open and blocks the register() in upsert_df.
+    rows = db.execute(
         "SELECT last_date_fetched FROM sync_log WHERE source = ?", [source_id]
-    ).fetchone()
-    return row[0] if row and row[0] else None
+    ).fetchall()
+    return rows[0][0] if rows and rows[0][0] else None
 
 
 def log_sync(source_id: str, status: str, records_added: int, last_date: Optional[date], error: str = None):
@@ -63,3 +64,20 @@ def upsert_df(df: pd.DataFrame, table_name: str) -> int:
     db.execute(f"INSERT OR REPLACE INTO {table_name} SELECT * FROM _upsert_tmp")
     db.unregister("_upsert_tmp")
     return len(df)
+
+
+def insert_missing_df(df: pd.DataFrame, table_name: str) -> int:
+    """Insert only the rows whose primary key is not already in the table, leaving existing rows untouched.
+
+    Returns how many rows were new. Used to backfill history without overwriting data that came from
+    another source (for example yfinance prices already stored for a portfolio stock).
+    """
+    if df.empty:
+        return 0
+    db = get_db()
+    # fetchall() (not fetchone()) so no result is left open on the connection before register() is called.
+    before = db.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()[0][0]
+    db.register("_missing_tmp", df)
+    db.execute(f"INSERT OR IGNORE INTO {table_name} SELECT * FROM _missing_tmp")
+    db.unregister("_missing_tmp")
+    return db.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()[0][0] - before

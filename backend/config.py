@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     db_path: str = "./data/stockveda.duckdb"
     nse_base_url: str = "https://archives.nseindia.com"
     sync_timeout_seconds: int = 30
+    # How many days of NSE price history a first price sync fetches, and how far an existing database is backfilled.
+    # About 63 trading days are needed for a 3-month return, 250 for a year of correlations.
+    bhavcopy_lookback_days: int = 400
     # Extra allowed browser origins for a deployed frontend, comma-separated.
     cors_origins: str = ""
 
