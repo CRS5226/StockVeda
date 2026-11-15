@@ -16,7 +16,7 @@ router = APIRouter(prefix="/portfolios/{pid}/total", tags=["portfolio"])
 
 
 def compute_total(db, pid: int) -> tuple[dict, dict]:
-    """The portfolio total, and the stock detail it was built from (the health check needs both)."""
+    """The portfolio total, and the stock detail it was built from."""
     stocks = portfolio_detail(db, pid)   # 404s for an unknown portfolio
     fds = fd_listing(db, pid)
     assets = asset_listing(db, pid)
