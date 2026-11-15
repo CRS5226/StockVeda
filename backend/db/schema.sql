@@ -188,6 +188,24 @@ CREATE TABLE IF NOT EXISTS holder_matches (
     symbol VARCHAR
 );
 
+-- Material NSE announcements (orders, ratings, deals ...) and board meetings, filled by sync_company_events.
+-- A date range is replaced as a whole, so there is no primary key.
+CREATE TABLE IF NOT EXISTS company_events (
+    symbol VARCHAR,
+    event_time TIMESTAMP,
+    category VARCHAR,
+    kind VARCHAR,
+    subject VARCHAR,
+    pdf_url VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS board_meetings (
+    symbol VARCHAR,
+    meeting_date DATE,
+    purpose VARCHAR,
+    description VARCHAR
+);
+
 CREATE TABLE IF NOT EXISTS corporate_actions (
     symbol VARCHAR,
     ex_date DATE,
