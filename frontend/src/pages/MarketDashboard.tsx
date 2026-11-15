@@ -48,10 +48,11 @@ const INDEX_SHORT: Record<string, string> = {
   "NIFTY BANK":       "Bank Nifty",
   "SENSEX":           "Sensex",
   "NIFTY MIDCAP 100": "Midcap 100",
+  "NIFTY SMALLCAP 250": "Smallcap 250",
 };
 
-const HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100"];
-const INDEX_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#a78bfa"];
+const HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100", "NIFTY SMALLCAP 250"];
+const INDEX_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#a78bfa", "#f43f5e"];
 
 const CANDLE_BARS: Record<string, number> = {
   MS: 3, ES: 3, "3W": 3, "3B": 3,
@@ -552,7 +553,7 @@ export default function MarketDashboard() {
       {/* ── Indian Headline Indices ── */}
       <section>
         <SectionLabel icon={BarChart2}>Indian Markets</SectionLabel>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {headline.map((idx) => <IndexTile key={idx.name} idx={idx} />)}
         </div>
       </section>
