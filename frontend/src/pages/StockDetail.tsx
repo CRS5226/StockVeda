@@ -12,7 +12,7 @@ import type { OutlookData } from "../components/TrendOutlook";
 import ConnectionsView from "../components/connections/ConnectionsView";
 import BacktestTab from "../components/stock/BacktestTab";
 import CorpActionsTab from "../components/stock/CorpActionsTab";
-import DealsTab, { type StockDeal } from "../components/stock/DealsTab";
+import DealsTab from "../components/stock/DealsTab";
 import DeliveryTab from "../components/stock/DeliveryTab";
 import FundamentalsTab from "../components/stock/FundamentalsTab";
 import GlanceStrip from "../components/stock/GlanceStrip";
@@ -57,8 +57,6 @@ export default function StockDetail() {
   const [patternHits, setPatternHits] = useState<PatternHit[]>([]);
   const [outlook, setOutlook] = useState<OutlookData | null>(null);
   const [outlookLoading, setOutlookLoading] = useState(false);
-  const [stockDeals, setStockDeals] = useState<StockDeal[]>([]);
-  const [dealsLoading, setDealsLoading] = useState(false);
   const [betaHistory, setBetaHistory] = useState<{ date: string; beta: number }[] | null>(null);
 
   useEffect(() => { fetchCandles(sym, fromDate(range), true); }, [sym, range]);
@@ -71,13 +69,6 @@ export default function StockDetail() {
     if (tab === "news" && newsItems.length === 0) {
       setNewsLoading(true);
       api.getNews(sym).then(setNewsItems).catch(() => {}).finally(() => setNewsLoading(false));
-    }
-    if (tab === "deals") {
-      setDealsLoading(true);
-      api.getBulkDeals([sym], 90)
-        .then(r => setStockDeals(r.data.map(d => ({ date: d.date, client_name: d.client_name, client_symbol: d.client_symbol, buy_sell: d.buy_sell, quantity: d.quantity, price: d.price, deal_type: d.deal_type }))))
-        .catch(() => setStockDeals([]))
-        .finally(() => setDealsLoading(false));
     }
   }, [tab, sym, fundPeriod]);
 
@@ -213,7 +204,7 @@ export default function StockDetail() {
                     setHoldersView={setHoldersView} syncingTab={syncingTab} syncTabData={syncTabData} />
                 )}
                 {tab === "corp" && <CorpActionsTab corporateActions={corporateActions} insiderTrades={insiderTrades} />}
-                {tab === "deals" && <DealsTab sym={sym} dealsLoading={dealsLoading} stockDeals={stockDeals} navigate={navigate} />}
+                {tab === "deals" && <DealsTab sym={sym} />}
                 {tab === "news" && <NewsTab newsLoading={newsLoading} newsItems={newsItems} />}
                 {tab === "backtest" && (
                   <BacktestTab strategies={strategies} params={params} setParams={setParams} applyStrategy={applyStrategy}
