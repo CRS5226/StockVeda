@@ -253,6 +253,29 @@ CREATE TABLE IF NOT EXISTS market_breadth (
     nifty_div_yield DOUBLE
 );
 
+-- Headquarters, sector and industry per stock (filled by sync_company_profile).
+CREATE TABLE IF NOT EXISTS company_profile (
+    symbol VARCHAR PRIMARY KEY,
+    city VARCHAR,
+    state VARCHAR,
+    pincode VARCHAR,
+    sector VARCHAR,
+    industry VARCHAR,
+    website VARCHAR,
+    employees BIGINT,
+    lat DOUBLE,
+    lon DOUBLE,
+    updated_at TIMESTAMP
+);
+
+-- One geocoder answer per city, so each city is looked up once. lat/lon stay NULL for a city with no match.
+CREATE TABLE IF NOT EXISTS city_coordinates (
+    city VARCHAR PRIMARY KEY,
+    state VARCHAR,
+    lat DOUBLE,
+    lon DOUBLE
+);
+
 CREATE TABLE IF NOT EXISTS nse_symbols (
     symbol VARCHAR PRIMARY KEY,
     company_name VARCHAR,
