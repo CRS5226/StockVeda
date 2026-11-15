@@ -118,6 +118,7 @@ def test_run_stores_holders_marks_empty_and_retries_failures(con, monkeypatch):
     monkeypatch.setattr(sync.httpx, "Client", Client)
     monkeypatch.setattr(sync.time, "sleep", lambda s: None)
     monkeypatch.setattr(sync, "log_sync", lambda *a, **k: logged.append(a))
+    monkeypatch.setattr(sync, "refresh_holder_matches", lambda: 0)
     assert sync.run() == 4
     assert {r[0] for r in con.execute("SELECT symbol FROM shareholders").fetchall()} == {"OK"}
     assert ("shareholders:EMPTYF", "empty", 0, Q3) in logged
