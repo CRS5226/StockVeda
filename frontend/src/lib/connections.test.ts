@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { correlationLabel, edgeWidth, flagLabel, flowColumns, isNotFound, kindLabel, layoutOwnership, shortDate, signedReturn } from "./connections";
+import { connectionsPath, correlationLabel, decodeEntities, edgeWidth, flagLabel, flowColumns, isNotFound, kindLabel, layoutOwnership, shortDate, signedReturn, stockView } from "./connections";
 import type { FlowNode, OwnershipEdge, OwnershipNode } from "./connectionsTypes";
 
 describe("small formatters", () => {
@@ -86,5 +86,29 @@ describe("flowColumns", () => {
   it("returns one column for steps with no edges and nothing for no steps", () => {
     expect(flowColumns(["x", "y"].map(step), []).map((c) => c.length)).toEqual([2]);
     expect(flowColumns([], [])).toEqual([]);
+  });
+});
+
+describe("stock page view", () => {
+  it("opens the connections view only for ?tab=connections", () => {
+    expect(stockView("connections")).toBe("connections");
+    expect(stockView(null)).toBe("overview");
+    expect(stockView("fundamentals")).toBe("overview");
+    expect(stockView("")).toBe("overview");
+  });
+  it("builds the connections path with the symbol encoded", () => {
+    expect(connectionsPath("TCS")).toBe("/stock/TCS?tab=connections");
+    expect(connectionsPath("M&M")).toBe("/stock/M%26M?tab=connections");
+  });
+});
+
+describe("decodeEntities", () => {
+  it("decodes numeric, hex and common named entities", () => {
+    expect(decodeEntities("face value &#8377;10/- each")).toBe("face value ₹10/- each");
+    expect(decodeEntities("&#x20B9;5 &amp; &lt;b&gt; &quot;x&quot;")).toBe('₹5 & <b> "x"');
+  });
+  it("leaves unknown entities, bad code points and plain text alone", () => {
+    expect(decodeEntities("&unknown; &#0; &#99999999;")).toBe("&unknown; &#0; &#99999999;");
+    expect(decodeEntities("no entities here")).toBe("no entities here");
   });
 });

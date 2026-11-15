@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { useStockStore } from "../store/useStockStore";
 import { useBacktestStore } from "../store/useBacktestStore";
 import { api, type StockRatios, type SectorCompareData, type NewsItem, type Holder, type BankFinancial } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
+import { stockView, type StockView } from "../lib/connections";
 import { fromDate, type Range } from "../lib/stockFormat";
 import type { OutlookData } from "../components/TrendOutlook";
+import ConnectionsView from "../components/connections/ConnectionsView";
 import BacktestTab from "../components/stock/BacktestTab";
 import CorpActionsTab from "../components/stock/CorpActionsTab";
 import DealsTab, { type StockDeal } from "../components/stock/DealsTab";
@@ -19,6 +21,7 @@ import SectorCompareCard from "../components/stock/SectorCompareCard";
 import ShareholdingTab from "../components/stock/ShareholdingTab";
 import StockInfoCard from "../components/stock/StockInfoCard";
 import StockTabStrip from "../components/stock/StockTabStrip";
+import StockViewSwitch from "../components/stock/StockViewSwitch";
 import TechnicalAnalysisCard from "../components/stock/TechnicalAnalysisCard";
 import type { FundView, Tab } from "../components/stock/stockTabs";
 
@@ -26,6 +29,9 @@ export default function StockDetail() {
   const { symbol = "" } = useParams<{ symbol: string }>();
   const sym = symbol.toUpperCase();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = stockView(searchParams.get("tab"));
+  const setView = (v: StockView) => setSearchParams(v === "connections" ? { tab: "connections" } : {});
 
   const { candles, fundamentals, delivery, shareholding, corporateActions, insiderTrades, loading,
     fetchCandles, fetchFundamentals, fetchDelivery, fetchShareholding, fetchCorporateActions } = useStockStore();
@@ -163,6 +169,7 @@ export default function StockDetail() {
         <ChevronRight size={12} />
         <span className="text-slate-600 font-medium">{sym}</span>
         {stockInfo?.company_name && <span className="text-slate-400">— {stockInfo.company_name}</span>}
+        <StockViewSwitch view={view} onView={setView} />
       </div>
 
       {/* First-load data fetch banner — shown while yfinance data is being downloaded */}
@@ -174,52 +181,54 @@ export default function StockDetail() {
         </div>
       )}
 
-      {/* 50/50 grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      {/* Connections: full-width sections. Overview: the 50/50 grid. */}
+      {view === "connections" ? <ConnectionsView symbol={sym} /> : (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
 
-        {/* LEFT */}
-        <div className="flex flex-col gap-4">
-          <StockInfoCard sym={sym} stockInfo={stockInfo} ratios={ratios} last={last} change={change} changePct={changePct}
-            up={up} high52={high52} low52={low52} loadingCandles={loading.candles} />
-          <KeyMetricsCard ratios={ratios} latestFund={latestFund} latestShare={latestShare} betaHistory={betaHistory}
-            bankFinancials={bankFinancials} last={last} />
+          {/* LEFT */}
+          <div className="flex flex-col gap-4">
+            <StockInfoCard sym={sym} stockInfo={stockInfo} ratios={ratios} last={last} change={change} changePct={changePct}
+              up={up} high52={high52} low52={low52} loadingCandles={loading.candles} />
+            <KeyMetricsCard ratios={ratios} latestFund={latestFund} latestShare={latestShare} betaHistory={betaHistory}
+              bankFinancials={bankFinancials} last={last} />
 
-          {/* Tabs */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <StockTabStrip tab={tab} onTab={setTab} />
+            {/* Tabs */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <StockTabStrip tab={tab} onTab={setTab} />
 
-            <div className="p-3 min-h-[200px]">
-              {tab === "fundamentals" && (
-                <FundamentalsTab fundamentals={fundamentals} fundPeriod={fundPeriod} fundView={fundView}
-                  loadingFundamentals={loading.fundamentals} onFundView={setFundView}
-                  onFundPeriod={(p) => { setFundPeriod(p); fetchFundamentals(sym, p); }} />
-              )}
-              {tab === "delivery" && <DeliveryTab delivery={delivery} syncingTab={syncingTab} syncTabData={syncTabData} />}
-              {tab === "shareholding" && (
-                <ShareholdingTab shareholding={shareholding} holders={holders} holdersView={holdersView}
-                  setHoldersView={setHoldersView} syncingTab={syncingTab} syncTabData={syncTabData} />
-              )}
-              {tab === "corp" && <CorpActionsTab corporateActions={corporateActions} insiderTrades={insiderTrades} />}
-              {tab === "deals" && <DealsTab sym={sym} dealsLoading={dealsLoading} stockDeals={stockDeals} navigate={navigate} />}
-              {tab === "news" && <NewsTab newsLoading={newsLoading} newsItems={newsItems} />}
-              {tab === "backtest" && (
-                <BacktestTab strategies={strategies} params={params} setParams={setParams} applyStrategy={applyStrategy}
-                  runBacktest={runBacktest} btLoading={btLoading} btError={btError} btResults={btResults} />
-              )}
+              <div className="p-3 min-h-[200px]">
+                {tab === "fundamentals" && (
+                  <FundamentalsTab fundamentals={fundamentals} fundPeriod={fundPeriod} fundView={fundView}
+                    loadingFundamentals={loading.fundamentals} onFundView={setFundView}
+                    onFundPeriod={(p) => { setFundPeriod(p); fetchFundamentals(sym, p); }} />
+                )}
+                {tab === "delivery" && <DeliveryTab delivery={delivery} syncingTab={syncingTab} syncTabData={syncTabData} />}
+                {tab === "shareholding" && (
+                  <ShareholdingTab shareholding={shareholding} holders={holders} holdersView={holdersView}
+                    setHoldersView={setHoldersView} syncingTab={syncingTab} syncTabData={syncTabData} />
+                )}
+                {tab === "corp" && <CorpActionsTab corporateActions={corporateActions} insiderTrades={insiderTrades} />}
+                {tab === "deals" && <DealsTab sym={sym} dealsLoading={dealsLoading} stockDeals={stockDeals} navigate={navigate} />}
+                {tab === "news" && <NewsTab newsLoading={newsLoading} newsItems={newsItems} />}
+                {tab === "backtest" && (
+                  <BacktestTab strategies={strategies} params={params} setParams={setParams} applyStrategy={applyStrategy}
+                    runBacktest={runBacktest} btLoading={btLoading} btError={btError} btResults={btResults} />
+                )}
+              </div>
             </div>
+
           </div>
 
+          {/* RIGHT — price + sector charts (scroll together; no sticky to avoid overlap) */}
+          <div className="flex flex-col">
+            <PriceChartCard range={range} onRange={setRange} candles={candles} loadingCandles={loading.candles} />
+            <SectorCompareCard sym={sym} sectorCompare={sectorCompare} />
+            <TechnicalAnalysisCard sym={sym} candles={candles} patternHits={patternHits} outlook={outlook}
+              outlookLoading={outlookLoading} last={last} />
+          </div>
         </div>
-
-        {/* RIGHT — price + sector charts (scroll together; no sticky to avoid overlap) */}
-        <div className="flex flex-col">
-          <PriceChartCard range={range} onRange={setRange} candles={candles} loadingCandles={loading.candles} />
-          <SectorCompareCard sym={sym} sectorCompare={sectorCompare} />
-          <TechnicalAnalysisCard sym={sym} candles={candles} patternHits={patternHits} outlook={outlook}
-            outlookLoading={outlookLoading} last={last} />
-        </div>
-      </div>
+      )}
     </div>
   );
 }
