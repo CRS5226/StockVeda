@@ -179,15 +179,19 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
     PRIMARY KEY (symbol, ex_date, action_type)
 );
 
-CREATE TABLE IF NOT EXISTS bulk_block_deals (
+-- Bulk and block deals, one row per deal. The sync replaces a whole day at a time,
+-- so there is no primary key (one client can buy and sell the same symbol on a day).
+-- bulk_block_deals was an unused earlier draft of this table.
+DROP TABLE IF EXISTS bulk_block_deals;
+CREATE TABLE IF NOT EXISTS bulk_deals (
     date DATE,
     symbol VARCHAR,
-    deal_type VARCHAR,
+    scrip_name VARCHAR,
     client_name VARCHAR,
-    transaction_type VARCHAR,
+    buy_sell VARCHAR,
     quantity BIGINT,
     price DOUBLE,
-    PRIMARY KEY (date, symbol, deal_type, client_name)
+    deal_type VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS insider_trades (

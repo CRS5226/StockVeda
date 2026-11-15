@@ -64,6 +64,7 @@ _SYNC_MODULES = {
     "fii_dii":           "backend.data_sync.sync_fii_dii",
     "fpi":               "backend.data_sync.sync_fpi",
     "corporate_actions": "backend.data_sync.sync_corporate_actions",
+    "bulk_deals":        "backend.data_sync.sync_bulk_deals",
     "shareholding":      "backend.data_sync.sync_shareholding",
     "fundamentals":      "backend.data_sync.sync_fundamentals",
     "currency":          "backend.data_sync.sync_currency",
