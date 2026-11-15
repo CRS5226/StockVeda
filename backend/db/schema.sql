@@ -181,6 +181,13 @@ CREATE TABLE IF NOT EXISTS shareholders (
     pct DOUBLE
 );
 
+-- Which listed company (if any) a holder name in `shareholders` refers to. Rebuilt after each shareholders sync.
+CREATE TABLE IF NOT EXISTS holder_matches (
+    holder_name VARCHAR PRIMARY KEY,
+    holder_key VARCHAR,
+    symbol VARCHAR
+);
+
 CREATE TABLE IF NOT EXISTS corporate_actions (
     symbol VARCHAR,
     ex_date DATE,

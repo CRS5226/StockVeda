@@ -14,6 +14,7 @@ from datetime import date, datetime
 import httpx
 import pandas as pd
 
+from backend.core.ownership_graph import refresh_holder_matches
 from backend.core.shareholders import SHAREHOLDER_COLUMNS, parse_shareholders
 from backend.data_sync.base import log_sync
 from backend.data_sync.nse_session import nse_get
@@ -119,6 +120,7 @@ def run(limit: int = MAX_PER_RUN) -> int:
                 log_sync(EMPTY_PREFIX + f["symbol"], "empty", 0, f["period"])
             time.sleep(PAUSE_SECONDS)
 
+    refresh_holder_matches()  # new holder names may name listed companies
     status = "partial" if failed else "success"
     log_sync(SOURCE_ID, status, total, date.today(), f"failed: {', '.join(failed[:20])}" if failed else None)
     print(f"[{SOURCE_ID}] stored {total} holder rows, {len(failed)} failed")
