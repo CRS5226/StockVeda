@@ -206,6 +206,17 @@ CREATE TABLE IF NOT EXISTS board_meetings (
     description VARCHAR
 );
 
+-- Daily weather per headquarters city (Open-Meteo). A forecast day is overwritten by the observed value later.
+CREATE TABLE IF NOT EXISTS city_weather (
+    city VARCHAR,
+    date DATE,
+    precip_mm DOUBLE,
+    temp_max_c DOUBLE,
+    wind_gust_kmh DOUBLE,
+    is_forecast BOOLEAN,
+    PRIMARY KEY (city, date)
+);
+
 CREATE TABLE IF NOT EXISTS corporate_actions (
     symbol VARCHAR,
     ex_date DATE,

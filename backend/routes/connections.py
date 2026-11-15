@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from backend.core.correlation import DEFAULT_WINDOW, connections_for
 from backend.core.ownership_graph import ownership_graph
 from backend.core.shareholders import get_shareholders
+from backend.core.weather_context import weather_context
 
 router = APIRouter(tags=["connections"])
 
@@ -30,4 +31,12 @@ def ownership(symbol: str, depth: int = 1):
     result = ownership_graph(symbol, depth=depth)
     if result is None:
         raise HTTPException(404, "No shareholder data for this symbol yet. Run the shareholders sync.")
+    return result
+
+
+@router.get("/stock/{symbol}/weather")
+def weather(symbol: str):
+    result = weather_context(symbol)
+    if result is None:
+        raise HTTPException(404, "No weather for this symbol yet. It needs a company profile with a city, then the weather sync.")
     return result
