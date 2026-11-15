@@ -1,3 +1,7 @@
+import type {
+  CompanyProfile, CorrelatedResponse, EventsResponse, FlowResponse, OwnershipResponse, WeatherResponse,
+} from "./connectionsTypes";
+
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -1038,4 +1042,13 @@ export const api = {
       last_price: number; as_of_date: string; lookback_days_used: number;
     }>(`/v1/monte-carlo/${symbol}?${p}`);
   },
+
+  // Stock Connections page. A 404 from these means "no data for this stock yet".
+  getCompanyProfile: (symbol: string) => apiFetch<CompanyProfile>(`/company-profile/${encodeURIComponent(symbol)}`),
+  getCorrelated: (symbol: string, window = 120) =>
+    apiFetch<CorrelatedResponse>(`/stock/${encodeURIComponent(symbol)}/connections/correlated?window=${window}&top=8`),
+  getFlowChain: (symbol: string) => apiFetch<FlowResponse>(`/stock/${encodeURIComponent(symbol)}/connections/flow?top=4`),
+  getOwnershipGraph: (symbol: string) => apiFetch<OwnershipResponse>(`/stock/${encodeURIComponent(symbol)}/ownership-graph?depth=1`),
+  getWeather: (symbol: string) => apiFetch<WeatherResponse>(`/stock/${encodeURIComponent(symbol)}/weather`),
+  getCompanyEvents: (symbol: string) => apiFetch<EventsResponse>(`/stock/${encodeURIComponent(symbol)}/events?days=365&limit=30`),
 };
