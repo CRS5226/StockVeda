@@ -43,6 +43,12 @@ def test_every_dashboard_sector_has_a_source():
     assert not set(INDICES) & set(NSE_INDICES)  # no index fetched from both
 
 
+def test_every_headline_index_has_a_source():
+    from backend.routes.macro import HEADLINE_INDICES
+    assert "NIFTY SMALLCAP 250" in HEADLINE_INDICES
+    assert set(HEADLINE_INDICES) <= set(INDICES) | set(NSE_INDICES)
+
+
 def test_every_idx_name_map_target_is_synced():
     from backend.core.spot_prices import IDX_NAME_MAP
     sources = set(INDICES) | set(NSE_INDICES)
@@ -114,3 +120,15 @@ def test_bookmark_unchanged_when_first_day_fails(monkeypatch):
     })
     assert bookmark == date(2026, 9, 11)  # previous bookmark kept
     assert status == "partial"
+
+
+def test_indices_without_history_finds_only_new_ones(monkeypatch):
+    import duckdb
+    from backend.data_sync import sync_indices
+    con = duckdb.connect(":memory:")
+    con.execute("CREATE TABLE index_ohlcv (index_name VARCHAR)")
+    for name in INDICES:
+        if name != "NIFTY SMALLCAP 250":
+            con.execute("INSERT INTO index_ohlcv VALUES (?)", [name])
+    monkeypatch.setattr("backend.db.connection.get_db", lambda: con)
+    assert sync_indices._indices_without_history() == {"NIFTY SMALLCAP 250"}

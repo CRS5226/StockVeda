@@ -25,6 +25,7 @@ INDICES = {
     "NIFTY IT":    "^CNXIT",
     "NIFTY PHARMA": "^CNXPHARMA",
     "NIFTY MIDCAP 100": "^NSEMDCP50",
+    "NIFTY SMALLCAP 250": "NIFTYSMLCAP250.NS",
 }
 
 # Yahoo's ^CNXAUTO / ^CNXFMCG / ^CNXMETAL / ^CNXENERGY / ^CNXREALTY return only
@@ -101,6 +102,13 @@ def _run_nse_sectoral():
     print(f"[{NSE_SOURCE_ID}] inserted {count} rows")
 
 
+def _indices_without_history() -> set[str]:
+    """Indices in INDICES with no stored rows yet (newly added ones need a full backfill)."""
+    from backend.db.connection import get_db
+    have = {r[0] for r in get_db().execute("SELECT DISTINCT index_name FROM index_ohlcv").fetchall()}
+    return set(INDICES) - have
+
+
 def run():
     try:
         _run_nse_sectoral()
@@ -109,7 +117,8 @@ def run():
 
     last = last_synced_date(SOURCE_ID) or DEFAULT_START
     today = date.today()
-    if last >= today:
+    new_indices = _indices_without_history()
+    if last >= today and not new_indices:
         print(f"[{SOURCE_ID}] already up to date")
         return
 
@@ -119,9 +128,13 @@ def run():
 
     all_rows, failed = [], []
     for name, ticker in INDICES.items():
+        if last >= today and name not in new_indices:
+            continue  # already current; only backfilling new indices
         try:
             t = yf.Ticker(ticker)
-            hist = t.history(start=start_str, end=end_str)
+            # Brand-new indices backfill from DEFAULT_START, the rest only the gap.
+            index_start = DEFAULT_START.isoformat() if name in new_indices else start_str
+            hist = t.history(start=index_start, end=end_str)
             if hist.empty:
                 print(f"[{SOURCE_ID}] {name}: no data")
                 continue

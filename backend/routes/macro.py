@@ -11,7 +11,7 @@ from backend.db.connection import get_db, df_to_records
 router = APIRouter(prefix="/macro", tags=["macro"])
 logger = logging.getLogger(__name__)
 
-HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100"]
+HEADLINE_INDICES = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP 100", "NIFTY SMALLCAP 250"]
 SECTOR_INDICES   = ["NIFTY IT", "NIFTY BANK", "NIFTY AUTO", "NIFTY FMCG",
                     "NIFTY PHARMA", "NIFTY METAL", "NIFTY ENERGY", "NIFTY REALTY",
                     "NIFTY MIDCAP 100"]
