@@ -71,6 +71,7 @@ _SYNC_MODULES = {
     "company_profile":   "backend.data_sync.sync_company_profile",
     "shareholders":      "backend.data_sync.sync_shareholders",
     "company_events":    "backend.data_sync.sync_company_events",
+    "weather":           "backend.data_sync.sync_weather",
     "shareholding":      "backend.data_sync.sync_shareholding",
     "fundamentals":      "backend.data_sync.sync_fundamentals",
     "currency":          "backend.data_sync.sync_currency",
