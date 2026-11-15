@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
-import { edgeWidth, layoutOwnership, shortDate } from "../../lib/connections";
+import { connectionsPath, edgeWidth, layoutOwnership, shortDate } from "../../lib/connections";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
 import StockLink from "./StockLink";
@@ -25,7 +25,7 @@ export default function OwnershipSection({ symbol }: { symbol: string }) {
               const left = p.side === "left";
               return (
                 <g key={`e-${p.node.id}`}>
-                  <line x1={left ? p.x + BOX_W / 2 : c.x - BOX_W / 2} y1={p.y} x2={left ? c.x - BOX_W / 2 : p.x - BOX_W / 2} y2={c.y}
+                  <line x1={left ? p.x + BOX_W / 2 : c.x + BOX_W / 2} y1={left ? p.y : c.y} x2={left ? c.x - BOX_W / 2 : p.x - BOX_W / 2} y2={left ? c.y : p.y}
                     stroke="#94a3b8" strokeWidth={edgeWidth(p.pct ?? 0)} strokeOpacity={0.6} />
                   <text x={(p.x + c.x) / 2} y={(p.y + c.y) / 2 - 4} textAnchor="middle" fontSize={10} fill="#475569">{p.pct?.toFixed(1)}%</text>
                 </g>
@@ -44,7 +44,7 @@ export default function OwnershipSection({ symbol }: { symbol: string }) {
                 </g>
               );
               return !center && p.node.symbol
-                ? <Link key={p.node.id} to={`/connections/${encodeURIComponent(p.node.symbol)}`}>{box}</Link>
+                ? <Link key={p.node.id} to={connectionsPath(p.node.symbol)}>{box}</Link>
                 : <g key={p.node.id}>{box}</g>;
             })}
             <text x={W * 0.14} y={14} textAnchor="middle" fontSize={10} fill="#94a3b8">HOLDERS</text>

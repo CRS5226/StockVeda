@@ -1,5 +1,5 @@
 import { api } from "../../lib/api";
-import { kindLabel, shortDate } from "../../lib/connections";
+import { decodeEntities, kindLabel, shortDate } from "../../lib/connections";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
 
@@ -35,7 +35,7 @@ export default function EventsSection({ symbol }: { symbol: string }) {
                 <li key={`${e.event_time}-${i}`} className="py-2 flex gap-2 items-start">
                   <span className={`text-[10px] rounded-full px-2 py-0.5 shrink-0 ${KIND_STYLE[e.kind] ?? "bg-slate-100 text-slate-700"}`}>{kindLabel(e.kind)}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs text-slate-700 line-clamp-2">{e.subject || e.category}</div>
+                    <div className="text-xs text-slate-700 line-clamp-2">{decodeEntities(e.subject || e.category)}</div>
                     <div className="text-[10px] text-slate-400">{shortDate(e.event_time)}{e.pdf_url && <> · <a href={e.pdf_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">PDF</a></>}</div>
                   </div>
                 </li>

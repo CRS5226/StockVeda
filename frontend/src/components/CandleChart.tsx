@@ -161,7 +161,12 @@ export default function CandleChart({ candles, loading }: Props) {
     });
     ro.observe(containerRef.current);
 
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+    return () => {
+      ro.disconnect(); chart.remove(); chartRef.current = null;
+      // These series belonged to the chart just removed. Keeping them would make the next chart try to
+      // remove series it does not own (React runs effects twice in development), which throws.
+      overlaySeries.current.clear();
+    };
   }, []);
 
   // ── Update candle + volume data ─────────────────────────────────────────

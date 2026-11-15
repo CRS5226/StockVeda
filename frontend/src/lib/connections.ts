@@ -53,7 +53,7 @@ export function layoutOwnership(
     return shown.map((e, i) => ({
       node: byId.get(idOf(e))!,
       x: side === "left" ? width * 0.14 : width * 0.86,
-      y: shown.length === 1 ? height / 2 : 30 + (i * (height - 60)) / (shown.length - 1),
+      y: shown.length === 1 ? height / 2 : 44 + (i * (height - 88)) / (shown.length - 1),   // headroom for the column labels
       pct: e.pct, side,
     }));
   };
@@ -83,4 +83,25 @@ export function flowColumns(nodes: FlowNode[], edges: { from: string; to: string
   const columns: FlowNode[][] = [];
   for (const n of nodes) (columns[depth.get(n.id) ?? 0] ??= []).push(n);
   return columns.filter(Boolean);
+}
+
+export type StockView = "overview" | "connections";
+
+/** Which view of the stock page the `?tab=` value asks for; anything else is the overview. */
+export const stockView = (tabParam: string | null): StockView => (tabParam === "connections" ? "connections" : "overview");
+
+/** The stock page's Connections view for a symbol. */
+export const connectionsPath = (symbol: string): string => `/stock/${encodeURIComponent(symbol)}?tab=connections`;
+
+const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+/** Turn the HTML entities NSE leaves in announcement text (&#8377;, &amp; ...) into plain characters. */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|([a-zA-Z]+));/g, (whole, dec, hex, name) => {
+    if (dec || hex) {
+      const code = dec ? parseInt(dec, 10) : parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    }
+    return NAMED_ENTITIES[name.toLowerCase()] ?? whole;
+  });
 }
