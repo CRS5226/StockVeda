@@ -13,7 +13,7 @@ interface Props {
 
 /** A histogram with a normal curve over it and labelled vertical markers (for example today's value or a loss level). */
 export default function DistributionChart({ bins, curve, markers = [], format, height = 170 }: Props) {
-  const w = 360, padL = 8, padR = 8, padB = 22;
+  const w = 320, padL = 10, padR = 10, padB = 20;       // drawn close to its on-screen width, so the text is not shrunk
   const padT = markers.length > 1 ? 28 : 16;               // room above the curve for the marker labels
   const lo = bins[0].x0, hi = bins[bins.length - 1].x1;
   const top = Math.max(...bins.map((b) => b.count), ...curve.map((c) => c.y), 1);
@@ -29,10 +29,10 @@ export default function DistributionChart({ bins, curve, markers = [], format, h
       {markers.map((m, i) => (
         <g key={m.label}>
           <line x1={x(m.x)} x2={x(m.x)} y1={padT - 6} y2={base} stroke={m.color} strokeDasharray={m.dashed ? "4 3" : undefined} strokeWidth="1.2" />
-          <text x={x(m.x)} y={9 + (i % 2) * 10} fontSize="8" fill={m.color} textAnchor={x(m.x) > w - 60 ? "end" : x(m.x) < 60 ? "start" : "middle"}>{m.label}</text>
+          <text x={x(m.x)} y={9 + (i % 2) * 10} fontSize="8" fill={m.color} textAnchor={x(m.x) > w - 40 ? "end" : x(m.x) < 40 ? "start" : "middle"}>{m.label}</text>
         </g>
       ))}
-      {ticks.map((t, i) => <text key={i} x={x(t)} y={height - 6} fontSize="9" fill="#64748b" textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}>{format(t)}</text>)}
+      {ticks.map((t, i) => <text key={i} x={x(t)} y={height - 5} fontSize="8" fill="#64748b" textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}>{format(t)}</text>)}
     </svg>
   );
 }
