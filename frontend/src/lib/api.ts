@@ -219,7 +219,7 @@ export interface SignalTrend {
 export interface ConcentrationPosition { symbol: string; kind: HoldingKind; weight_pct: number; value: number; over_limit: boolean; excess_value: number; shares_to_trim: number }
 export interface SignalRow {
   /** `weight_pct` is the share of the stock holdings only; fixed deposits, funds and the like are not counted. */
-  symbol: string; kind: HoldingKind; weight_pct: number; value: number; qty: number; avg_price: number; last: number; pnl_pct: number | null; trend: SignalTrend;
+  symbol: string; kind: HoldingKind; weight_pct: number; value: number; gain: number; sector: string | null; qty: number; avg_price: number; last: number; pnl_pct: number | null; trend: SignalTrend;
   timeframes: Record<SignalTimeframe, SignalFrame | null>; alignment: "bullish" | "bearish" | "mixed" | null;
   zone: "profit" | "recovery" | "hold"; zone_checks: { text: string; met: boolean }[]; sizing: SignalSizing;
 }

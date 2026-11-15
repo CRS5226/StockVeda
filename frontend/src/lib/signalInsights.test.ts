@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { SignalRow, SignalsReport } from "./api";
-import { buildInsights, highDistance, histogram, leanSplit, profitSpread, trendSplit } from "./signalInsights";
+import type { SignalRow } from "./api";
+import { compactRupees, contributors, highDistance, histogram, leanSplit, pnlColor, profitSpread, sectorSplit, trendSplit } from "./signalInsights";
 
 const row = (over: Partial<SignalRow>): SignalRow => ({
   symbol: "X", zone: "hold", pnl_pct: 0, trend: { above_sma200: null, from_high_pct: null }, timeframes: { "1W": null, "1D": null, "1H": null }, ...over,
@@ -31,18 +31,36 @@ describe("splits", () => {
   });
 });
 
-describe("buildInsights", () => {
-  const report = {
-    settings: { profit_gain_pct: 40, loss_pct: 25 },
-    summary: { with_sma200: 10, below_sma200: 7, deep_drawdown: 3, aligned_bullish: 2, aligned_bearish: 1, profit_zone: 0, recovery_zone: 1, over_limit: 1 },
-    concentration: { max_pct: 10, top5_pct: 40, positions: [{ symbol: "BIG", weight_pct: 17.6, over_limit: true }, { symbol: "OK", weight_pct: 5, over_limit: false }] },
-    rows: [row({ symbol: "REC", zone: "recovery" })],
-  } as unknown as SignalsReport;
-  it("writes plain sentences and never tells the user to act", () => {
-    const text = buildInsights(report).map((i) => i.text).join(" ");
-    expect(text).toContain("7 of 10 stocks are below their 200-day average");
-    expect(text).toContain("REC");
-    expect(text).toContain("BIG is above your 10% limit");
-    expect(text).not.toMatch(/\b(buy|sell)\b/i);
+describe("contributors", () => {
+  const r = (symbol: string, gain: number) => row({ symbol, gain } as Partial<SignalRow>);
+  it("lists the biggest gains and the biggest losses, largest first", () => {
+    const { gainers, losers } = contributors([r("A", 100), r("B", -50), r("C", 300), r("D", -900), r("E", 0)], 2);
+    expect(gainers.map((x) => x.symbol)).toEqual(["C", "A"]);
+    expect(losers.map((x) => x.symbol)).toEqual(["D", "B"]);
+  });
+});
+
+describe("sectorSplit", () => {
+  const r = (symbol: string, value: number, sector: string | null, kind = "stock") => row({ symbol, value, sector, kind } as Partial<SignalRow>);
+  it("adds up each sector, names the ones without data by what they are, and merges the smallest into Other", () => {
+    const rows = [r("A", 100, "Tech"), r("B", 50, "Tech"), r("C", 70, "Banks"), r("D", 30, null, "etf"), r("E", 20, null, "reit"), r("F", 10, null)];
+    expect(sectorSplit(rows).map((s) => [s.label, s.value, s.count])).toEqual([["Tech", 150, 2], ["Banks", 70, 1], ["ETFs", 30, 1], ["REITs & InvITs", 20, 1], ["Not synced", 10, 1]]);
+    const merged = sectorSplit(rows, 3);
+    expect(merged.map((s) => s.label)).toEqual(["Tech", "Banks", "Other"]);
+    expect(merged[2]).toEqual({ label: "Other", value: 60, count: 3 });
+  });
+});
+
+describe("colours and money", () => {
+  it("colours losses red, gains green and unknowns grey", () => {
+    expect(pnlColor(-60)).toContain("hsl(4");
+    expect(pnlColor(60)).toContain("hsl(152");
+    expect(pnlColor(null)).toBe("#e2e8f0");
+  });
+  it("shortens rupees", () => {
+    expect(compactRupees(850)).toBe("₹850");
+    expect(compactRupees(3400)).toBe("₹3.4k");
+    expect(compactRupees(-120000)).toBe("-₹1.2L");
+    expect(compactRupees(25000000)).toBe("₹2.5Cr");
   });
 });

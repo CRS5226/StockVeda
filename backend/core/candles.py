@@ -26,3 +26,15 @@ def load_hourly(db, symbols: list[str], days: int = 400) -> dict[str, pd.DataFra
         f"AND datetime >= current_timestamp - INTERVAL {int(days)} DAY ORDER BY symbol, datetime", symbols,
     ).df()
     return {sym: g[COLUMNS].reset_index(drop=True) for sym, g in df.groupby("symbol")}
+
+
+def load_sectors(db, symbols: list[str]) -> dict[str, str]:
+    """The sector of each symbol from its newest ratio snapshot (symbols without one are left out)."""
+    if not symbols:
+        return {}
+    marks = ",".join("?" for _ in symbols)
+    rows = db.execute(
+        f"SELECT symbol, sector FROM stock_ratios_snapshot WHERE sector IS NOT NULL AND symbol IN ({marks}) "
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY as_of DESC) = 1", symbols,
+    ).fetchall()
+    return {sym: sector for sym, sector in rows}

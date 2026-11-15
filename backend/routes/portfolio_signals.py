@@ -10,7 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.core.candles import load_daily, load_hourly
+from backend.core.candles import load_daily, load_hourly, load_sectors
 from backend.core.stock_health import concentration, positions, trend_stats
 from backend.core.signal_rules import alignment, evaluate_rules, to_weekly
 from backend.core.signal_zones import classify_zone, clean_settings, sizing
@@ -73,6 +73,7 @@ def get_signals(pid: int):
     settings = load_settings(db, pid)
     symbols = [r["symbol"] for r in rows]
     daily, hourly = load_daily(db, symbols), load_hourly(db, symbols)
+    sectors = load_sectors(db, symbols)
 
     out = []
     for r in sorted(rows, key=lambda r: -r["value"]):
@@ -87,7 +88,7 @@ def get_signals(pid: int):
         zone, checks = classify_zone(pnl_pct, timeframes["1D"], settings)
         out.append({
             "symbol": sym, "kind": r["kind"], "weight_pct": r["value"] / stock_value * 100 if stock_value else 0.0,
-            "value": r["value"], "qty": r["qty"], "avg_price": r["avg_price"], "last": r["last_price"], "pnl_pct": pnl_pct,
+            "value": r["value"], "gain": r["value"] - r["invested"], "sector": sectors.get(sym), "qty": r["qty"], "avg_price": r["avg_price"], "last": r["last_price"], "pnl_pct": pnl_pct,
             "trend": trend_stats(d["close"]) if d is not None else trend_stats(pd.Series(dtype=float)),
             "timeframes": {k: _slim(v) for k, v in timeframes.items()},
             "alignment": alignment([timeframes[k]["lean"] if timeframes[k] else None for k in ("1W", "1D", "1H")]),

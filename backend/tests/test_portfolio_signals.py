@@ -31,6 +31,7 @@ def client(monkeypatch):
             conn.execute("INSERT INTO stock_ohlcv VALUES (?, ?, ?, ?, ?, ?, 1000)", [d, sym, c, c + 0.2, c - 0.2, c])
     for i in range(120):                                                        # an hourly series for TCS only
         conn.execute("INSERT INTO stock_intraday_ohlcv VALUES (?, 'TCS', '60m', ?, ?, ?, ?, 1000)", [datetime.now() - timedelta(hours=120 - i), 100 + i, 100.2 + i, 99.8 + i, 100 + i])
+    conn.execute("INSERT INTO stock_ratios_snapshot (symbol, as_of, sector) VALUES ('TCS', ?, 'Technology')", [today])
     app = FastAPI()
     for module in MODULES:
         app.include_router(module.router, prefix="/api")
@@ -56,6 +57,7 @@ def test_signals_report(client):
     # weights are shares of the stock holdings (TCS 3000, ITC 1000), not of the whole portfolio
     assert r["stock_value"] == 4000 and tcs["weight_pct"] == pytest.approx(75) and itc["weight_pct"] == pytest.approx(25)
     assert r["concentration"]["over_limit"] == 2 and r["summary"]["over_limit"] == 2
+    assert tcs["gain"] == pytest.approx(1500) and itc["gain"] == pytest.approx(-1000) and tcs["sector"] == "Technology" and itc["sector"] is None
     assert tcs["trend"]["above_sma200"] is True and itc["trend"]["above_sma200"] is False and itc["trend"]["deep_drawdown"] is True
     assert r["summary"]["with_sma200"] == 2 and r["summary"]["below_sma200"] == 1 and r["summary"]["deep_drawdown"] == 1
 
