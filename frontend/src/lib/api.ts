@@ -1,5 +1,5 @@
 import type {
-  CompanyProfile, CorrelatedResponse, EventsResponse, FlowResponse, OwnershipResponse, WeatherResponse,
+  CompanyProfile, CorrelatedResponse, EventsResponse, FlowResponse, OwnershipResponse, ShareholdersResponse, WeatherResponse,
 } from "./connectionsTypes";
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
@@ -1049,6 +1049,7 @@ export const api = {
     apiFetch<CorrelatedResponse>(`/stock/${encodeURIComponent(symbol)}/connections/correlated?window=${window}&top=8`),
   getFlowChain: (symbol: string) => apiFetch<FlowResponse>(`/stock/${encodeURIComponent(symbol)}/connections/flow?top=4`),
   getOwnershipGraph: (symbol: string) => apiFetch<OwnershipResponse>(`/stock/${encodeURIComponent(symbol)}/ownership-graph?depth=1`),
+  getShareholders: (symbol: string) => apiFetch<ShareholdersResponse>(`/stock/${encodeURIComponent(symbol)}/shareholders`),
   getWeather: (symbol: string) => apiFetch<WeatherResponse>(`/stock/${encodeURIComponent(symbol)}/weather`),
   getCompanyEvents: (symbol: string) => apiFetch<EventsResponse>(`/stock/${encodeURIComponent(symbol)}/events?days=365&limit=30`),
 };

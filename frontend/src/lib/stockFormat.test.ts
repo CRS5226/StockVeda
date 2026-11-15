@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fmt, fmtCr, fmtNewsDate, fromDate, newsTime, RANGES, SECTOR_RANGES } from "./stockFormat";
+import { fmt, fmtCr, fmtNewsDate, formatShares, fromDate, newsTime, RANGES, SECTOR_RANGES } from "./stockFormat";
 import { TABS } from "../components/stock/stockTabs";
 
 describe("fmt and fmtCr", () => {
@@ -47,5 +47,15 @@ describe("page constants", () => {
     const ids = TABS.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(["fundamentals", "delivery", "shareholding", "corp", "deals", "news"]);
+  });
+});
+
+describe("formatShares", () => {
+  it("uses crore and lakh for big counts and plain numbers for small ones", () => {
+    expect(formatShares(2595499419)).toBe("259.55 Cr");
+    expect(formatShares(125000)).toBe("1.3 L");
+    expect(formatShares(7220)).toBe("7,220");
+    expect(formatShares(0)).toBe("0");
+    expect(formatShares(null)).toBe("—");
   });
 });

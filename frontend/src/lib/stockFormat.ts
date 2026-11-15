@@ -32,3 +32,11 @@ export function fmtNewsDate(pub: string) {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
+
+/** A share count the Indian way: 2,59,54,99,419 shares become "259.55 Cr", 1,25,000 become "1.3 L". */
+export function formatShares(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1e7) return `${(n / 1e7).toFixed(2)} Cr`;
+  if (n >= 1e5) return `${(n / 1e5).toFixed(1)} L`;
+  return n.toLocaleString("en-IN");
+}
