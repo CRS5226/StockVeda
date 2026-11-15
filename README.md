@@ -14,11 +14,6 @@ Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the
 
 ⭐ **If StockVeda is useful to you, please [star the repo](https://github.com/CRS5226/StockVeda/stargazers).** Stars help more developers and contributors find the project.
 
-<!-- Screenshots: add the images under docs/screenshots/ and uncomment.
-<p align="center">
-  <img src="docs/screenshots/demo.gif" alt="StockVeda demo" width="900">
-</p>
-
 | Market Dashboard | Stock Detail |
 |---|---|
 | ![Market Dashboard](docs/screenshots/market-dashboard.png) | ![Stock Detail](docs/screenshots/stock-detail.png) |
@@ -26,7 +21,6 @@ Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the
 | Backtest | Charts |
 |---|---|
 | ![Backtest](docs/screenshots/backtest.png) | ![Charts](docs/screenshots/charts.png) |
--->
 
 ## Quick start
 
