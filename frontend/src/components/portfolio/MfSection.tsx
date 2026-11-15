@@ -38,7 +38,9 @@ function SchemePicker({ picked, onPick }: { picked: { code: string; name: string
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
           <input className={`${input} pl-8`} placeholder={picked ? picked.name : "Search by name, e.g. Parag Parikh Flexi Cap"} value={q}
-            onChange={(e) => setQ(e.target.value)} onFocus={() => results.length > 0 && setOpen(true)} />
+            onChange={(e) => setQ(e.target.value)} onFocus={() => results.length > 0 && setOpen(true)}
+            onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
+            onBlur={() => setTimeout(() => setOpen(false), 150)} />
         </div>
       </label>
       {picked && <div className="mt-1 text-xs font-medium text-blue-700 truncate">Selected: {picked.name}</div>}
