@@ -3,6 +3,7 @@ import { Briefcase, Plus, Trash2 } from "lucide-react";
 import AssetsSection from "../components/portfolio/AssetsSection";
 import DividendsSection from "../components/portfolio/DividendsSection";
 import FdSection from "../components/portfolio/FdSection";
+import SimulationSection from "../components/portfolio/SimulationSection";
 import SignalsSection from "../components/portfolio/SignalsSection";
 import MfSection from "../components/portfolio/MfSection";
 import { buyInfo } from "../lib/dividendRules";
@@ -92,7 +93,12 @@ export default function Portfolio() {
                   onClick={() => { if (window.confirm(`Delete the portfolio "${p.detail!.name}" and its holdings?`)) void p.remove(); }}><Trash2 size={15} /></button>
               </div>
               <PortfolioTabs value={tab} onChange={openTab} />
-              {tab === "overview" && <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} onPricesUpdated={() => { void p.reload(); changed(); }} />}
+              {tab === "overview" && (
+                <>
+                  <PortfolioTotal portfolioId={p.detail.id} stocks={p.detail} refreshKey={version} onPricesUpdated={() => { void p.reload(); changed(); }} />
+                  <SimulationSection portfolioId={p.detail.id} refreshKey={version} />
+                </>
+              )}
               {tab === "stocks" && (() => {
                 const all = p.detail.holdings;
                 const counts = countByKind(all);

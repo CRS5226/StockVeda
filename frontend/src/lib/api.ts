@@ -244,6 +244,27 @@ export interface RuleEvidenceReport {
   rows: { symbol: string; kind: HoldingKind; weight_pct: number; results: Record<string, RuleResult | null> }[];
   summary: { key: string; tested: number; held_up: number; mixed: number; did_not: number; few_trades: number; median_later_pct: number | null; beat_buy_hold_later: number }[];
 }
+export interface DistBin { x0: number; x1: number; count: number }
+export interface DistCurvePoint { x: number; y: number }
+export interface SimulationResult {
+  months: number; paths: number; start_value: number; sleeve_value: number;
+  bands: { p5: number[]; p25: number[]; p50: number[]; p75: number[]; p95: number[] };
+  samples: number[][];
+  outcome: {
+    bins: DistBin[]; curve: DistCurvePoint[]; mean: number; std: number; p5: number; median: number; p95: number;
+    chance_below_start_pct: number; average_of_worst_5pct: number; skew: number;
+  };
+  returns: {
+    bins: DistBin[]; curve: DistCurvePoint[]; days: number; mean_pct: number; daily_vol_pct: number; annual_vol_pct: number; skew: number; excess_kurtosis: number;
+    best_day_pct: number; worst_day_pct: number; var95_pct: number; var95_normal_pct: number; var99_pct: number; var99_normal_pct: number;
+    days_beyond_3_sigma: number; expected_beyond_3_sigma: number;
+  };
+}
+export interface SimulationReport {
+  result: SimulationResult | null; error: string | null; min_days: number;
+  composition: { stocks: number; funds: number; fixed_deposits: number; held_flat: number };
+  held_flat: { name: string; type: string; value: number }[];
+}
 export interface SyncJob { done: number; total: number; pct: number; status: string; current_symbol: string }
 export interface CandleStat { symbol: string; candles: number; from_date: string | null; to_date: string | null }
 export interface BacktestResult {
@@ -768,6 +789,8 @@ export const api = {
     apiFetch<SignalSettings>(`/portfolios/${portfolioId}/signals/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 
   getRuleEvidence: (portfolioId: number, costPct: number) => apiFetch<RuleEvidenceReport>(`/portfolios/${portfolioId}/evidence?cost_pct=${costPct}`),
+
+  getSimulation: (portfolioId: number, months: number) => apiFetch<SimulationReport>(`/portfolios/${portfolioId}/simulation?months=${months}`),
 
   deleteAllStockData: () =>
     apiFetch<{ ok: boolean; message: string }>("/screener/stock-data", { method: "DELETE" }),
