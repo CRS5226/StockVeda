@@ -105,3 +105,11 @@ export function decodeEntities(text: string): string {
     return NAMED_ENTITIES[name.toLowerCase()] ?? whole;
   });
 }
+
+/** The anchors of the Connections sections, so a link can open the view at the right one. */
+export type SectionId = "correlated" | "chain" | "owners" | "location" | "events";
+export const sectionElementId = (section: SectionId): string => `connections-${section}`;
+
+/** The Connections view of a stock, scrolled to one section. */
+export const connectionsSectionPath = (symbol: string, section: SectionId): string =>
+  `${connectionsPath(symbol)}#${sectionElementId(section)}`;

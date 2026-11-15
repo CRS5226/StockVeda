@@ -1,6 +1,6 @@
 import { api } from "../../lib/api";
 import type { FlowNode, FlowRole } from "../../lib/connectionsTypes";
-import { flowColumns, signedReturn } from "../../lib/connections";
+import { flowColumns, sectionElementId, signedReturn } from "../../lib/connections";
 import { resultColor } from "../../lib/formatMoney";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
@@ -37,7 +37,7 @@ export default function FlowChainSection({ symbol }: { symbol: string }) {
   const s = useSectionData(() => api.getFlowChain(symbol), [symbol]);
   const d = s.data;
   return (
-    <SectionCard title="Where it sits in the chain" loading={s.loading} missing={s.missing} error={s.error}
+    <SectionCard id={sectionElementId("chain")} title="Where it sits in the chain" loading={s.loading} missing={s.missing} error={s.error}
       subtitle="Industries from raw material to end use, with the most traded stocks in each step (1-month return)"
       emptyText="No company profile for this stock yet, so its industry is unknown.">
       {d && d.chains.length === 0 && (

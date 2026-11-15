@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../../lib/api";
 import type { CorrelatedEntry } from "../../lib/connectionsTypes";
-import { correlationLabel, signedReturn } from "../../lib/connections";
+import { correlationLabel, sectionElementId, signedReturn } from "../../lib/connections";
 import { resultColor } from "../../lib/formatMoney";
 import { useSectionData } from "../../lib/useSectionData";
 import SectionCard from "./SectionCard";
@@ -45,7 +45,7 @@ export default function CorrelatedSection({ symbol }: { symbol: string }) {
   const s = useSectionData(() => api.getCorrelated(symbol, days), [symbol, days]);
   const d = s.data;
   return (
-    <SectionCard title="Stocks that move together" loading={s.loading} missing={s.missing} error={s.error}
+    <SectionCard id={sectionElementId("correlated")} title="Stocks that move together" loading={s.loading} missing={s.missing} error={s.error}
       subtitle={d ? `Daily returns over the last ${d.window} trading days, up to ${d.as_of.slice(0, 10)}${d.beta_vs_nifty !== null ? ` · beta vs NIFTY ${d.beta_vs_nifty}` : ""}` : undefined}
       emptyText="No price data for this stock yet.">
       <div className="flex gap-1.5 mb-3">
