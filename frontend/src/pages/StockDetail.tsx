@@ -209,7 +209,7 @@ export default function StockDetail() {
                 )}
                 {tab === "delivery" && <DeliveryTab delivery={delivery} syncingTab={syncingTab} syncTabData={syncTabData} />}
                 {tab === "shareholding" && (
-                  <ShareholdingTab shareholding={shareholding} holders={holders} holdersView={holdersView}
+                  <ShareholdingTab sym={sym} shareholding={shareholding} holders={holders} holdersView={holdersView}
                     setHoldersView={setHoldersView} syncingTab={syncingTab} syncTabData={syncTabData} />
                 )}
                 {tab === "corp" && <CorpActionsTab corporateActions={corporateActions} insiderTrades={insiderTrades} />}

@@ -46,3 +46,10 @@ export interface EventsResponse {
   symbol: string; order_wins_12m: number; history_from: string | null;
   next_meeting: BoardMeeting | null; upcoming_meetings: BoardMeeting[]; events: CompanyEvent[];
 }
+
+export interface ShareholderRow {
+  symbol: string; period: string; holder_name: string;
+  holder_group: "promoter" | "public"; category: string;
+  shares: number | null; pct: number | null;
+}
+export interface ShareholdersResponse { symbol: string; period: string; holders: ShareholderRow[] }

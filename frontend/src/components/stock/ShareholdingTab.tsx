@@ -2,10 +2,12 @@ import { RefreshCw } from "lucide-react";
 import MacroLineChart from "../MacroLineChart";
 import { fmt } from "../../lib/stockFormat";
 import type { Holder, Shareholding } from "../../lib/api";
+import NamedHolders from "./NamedHolders";
 import type { Tab } from "./stockTabs";
 
 /** Shareholding pattern over time and the top institutional holders. */
-export default function ShareholdingTab({ shareholding, holders, holdersView, setHoldersView, syncingTab, syncTabData }: {
+export default function ShareholdingTab({ sym, shareholding, holders, holdersView, setHoldersView, syncingTab, syncTabData }: {
+  sym: string;
   shareholding: Shareholding[];
   holders: Holder[];
   holdersView: "pattern" | "holders";
@@ -68,6 +70,8 @@ export default function ShareholdingTab({ shareholding, holders, holdersView, se
             ]} />
         )
       )}
+
+      {holdersView === "pattern" && <NamedHolders sym={sym} />}
 
       {holdersView === "holders" && (
         holders.length === 0 ? (
