@@ -1,30 +1,34 @@
+import { useNavigate } from "react-router-dom";
+import { api } from "../../lib/api";
+import { DEALS_DAYS, dealsCoverage, formatQty } from "../../lib/deals";
+import { useSectionData } from "../../lib/useSectionData";
 
+/** Bulk and block deals for the stock, with how far back the stored deals go. */
+export default function DealsTab({ sym }: { sym: string }) {
+  const navigate = useNavigate();
+  const s = useSectionData(() => api.getBulkDeals([sym], DEALS_DAYS), [sym]);
+  const deals = s.data?.data ?? [];
+  const coverage = dealsCoverage(s.data?.date_range ?? null, new Date());
 
-export interface StockDeal {
-  date: string; client_name: string; client_symbol: string | null;
-  buy_sell: string; quantity: number; price: number; deal_type: string;
-}
-
-/** Bulk and block deals for the stock. */
-export default function DealsTab({ sym, dealsLoading, stockDeals, navigate }: {
-  sym: string;
-  dealsLoading: boolean;
-  stockDeals: StockDeal[];
-  navigate: (to: string) => void;
-}) {
-  return (
-    dealsLoading ? (
+  if (s.loading) {
+    return (
       <div className="flex justify-center py-8">
         <div className="w-5 h-5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
       </div>
-    ) : stockDeals.length === 0 ? (
-      <div className="text-xs text-slate-400 py-6 text-center">
-        No bulk or block deals found for {sym} in the last 90 days.<br />
-        <span className="text-slate-300">Sync bulk deals from the Graph page to populate this data.</span>
-      </div>
-    ) : (
-      <div className="space-y-2">
-        <p className="text-[10px] text-slate-400">Bulk &amp; block deals in the last 90 days — large institutional trades reported to NSE</p>
+    );
+  }
+  if (s.error || s.missing) {
+    return <div className="text-xs text-red-500 py-6 text-center">Could not load bulk and block deals.</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {deals.length === 0 ? (
+        <div className="text-xs text-slate-400 py-6 text-center">
+          No bulk or block deals found for {sym} in the last {DEALS_DAYS} days.
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] text-slate-400">Bulk &amp; block deals in the last {DEALS_DAYS} days — large institutional trades reported to NSE</p>
         <div className="max-h-[400px] overflow-y-auto rounded-lg border border-slate-100">
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white border-b border-slate-100">
@@ -38,8 +42,7 @@ export default function DealsTab({ sym, dealsLoading, stockDeals, navigate }: {
               </tr>
             </thead>
             <tbody>
-              {stockDeals.map((d, i) => {
-                const fmtQty = (n: number) => n >= 1e7 ? `${(n/1e7).toFixed(2)}Cr` : n >= 1e5 ? `${(n/1e5).toFixed(1)}L` : n.toLocaleString();
+              {deals.map((d, i) => {
                 return (
                   <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
                     <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{d.date}</td>
@@ -63,7 +66,7 @@ export default function DealsTab({ sym, dealsLoading, stockDeals, navigate }: {
                         {d.buy_sell}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right text-slate-600">{fmtQty(d.quantity)}</td>
+                    <td className="py-2 px-3 text-right text-slate-600">{formatQty(d.quantity)}</td>
                     <td className="py-2 px-3 text-right font-medium text-slate-700">₹{d.price.toFixed(2)}</td>
                   </tr>
                 );
@@ -71,7 +74,12 @@ export default function DealsTab({ sym, dealsLoading, stockDeals, navigate }: {
             </tbody>
           </table>
         </div>
-      </div>
-    )
+        </>
+      )}
+      <p className="text-[10px] text-slate-400">
+        {coverage.stored} {coverage.notes.join(" ")}
+        {deals.length === 0 && " Deals are fetched once a day by the Sync button."}
+      </p>
+    </div>
   );
 }
