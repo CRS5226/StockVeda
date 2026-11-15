@@ -65,6 +65,28 @@ Our local `shareholding` table is empty for RELIANCE and TATAMOTORS at the momen
 
 No free structured source found. Only paid platforms (Tracenable, CompanyData). Plan: hand-curated sector chain, plus annual-report text for a few big groups later.
 
+## Bulk and block deals - verified (issue #180)
+
+`GET /api/historicalOR/bulk-block-short-deals?optionType=bulk_deals&from=DD-MM-YYYY&to=DD-MM-YYYY` (`nse_get`). A **range returns only its first day** (01-11-2026..13-11-2026 gave only 02-Nov). One call per day (`from` = `to`) works, and reaches back at least to June 2023 (checked 16-06-2023: 70 bulk rows, 24 block rows). Bulk deals occur every trading day (60-70 rows per day seen); block deals on some days; `short_deals` returned HTTP 500. Fields: `BD_DT_DATE, BD_SYMBOL, BD_SCRIP_NAME, BD_CLIENT_NAME, BD_BUY_SELL, BD_QTY_TRD, BD_TP_WATP, BD_REMARKS`. The 70/60 row counts may be a per-call cap; compare with the daily `bulk.csv` before trusting totals.
+
+So history can be backfilled with a sequential per-day loop plus a `sync_log` bookmark. The current `/bulk-deals/sync` route uses a range, is not scheduled, and writes to `bulk_deals` while `schema.sql` defines `bulk_block_deals`.
+
+## What the app already syncs (sync_status, 2026-11-15)
+
+| Source | Last date | Note |
+|---|---|---|
+| `nse_bhavcopy_equity` | 2026-11-11 | two trading days behind |
+| `nse_index_close_all` / `_sectoral` | 2026-11-15 / 2026-11-09 | sectoral is a week behind |
+| `nse_fii_dii` | 2026-11-09 | |
+| `yf_currency`, `mf_scheme_master`, portfolio fundamentals and hourly (`pfund:`, `pdata:`) | current | portfolio stocks only |
+| `index_fundamentals` | failed | "Could not compute weights for NIFTY 50" |
+
+Declared in `schema.sql` but written by no code: `stock_sector`, `commodity_prices`. Sector and industry exist only in `stock_ratios_snapshot` (portfolio stocks). `shareholding` and `corporate_actions` have sync modules but were not run here.
+
+## More data worth fetching
+
+Company profile (city, sector, industry for all symbols), announcements and board meetings, named shareholders, city weather, commodity prices (fill `commodity_prices`). Issues #180-#188 under #179.
+
 ## Findings on what is already stored (2026-11-15, local database)
 
 `shareholding` has no rows for RELIANCE or TATAMOTORS, `bulk_deals` returns an empty list, and the sector-compare chart errors for TATAMOTORS ("Insufficient data"). Run the syncs before judging what #14 and #22 still need.
