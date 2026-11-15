@@ -169,6 +169,18 @@ CREATE TABLE IF NOT EXISTS shareholding (
     PRIMARY KEY (symbol, period)
 );
 
+-- Named holders from the shareholding-pattern filings (promoters and public holders above 1%).
+-- One filing is replaced as a whole, so there is no primary key.
+CREATE TABLE IF NOT EXISTS shareholders (
+    symbol VARCHAR,
+    period DATE,
+    holder_name VARCHAR,
+    holder_group VARCHAR,
+    category VARCHAR,
+    shares BIGINT,
+    pct DOUBLE
+);
+
 CREATE TABLE IF NOT EXISTS corporate_actions (
     symbol VARCHAR,
     ex_date DATE,

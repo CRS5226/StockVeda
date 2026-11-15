@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 
 from backend.core.correlation import DEFAULT_WINDOW, connections_for
+from backend.core.shareholders import get_shareholders
 
 router = APIRouter(tags=["connections"])
 
@@ -12,4 +13,12 @@ def correlated(symbol: str, window: int = DEFAULT_WINDOW, top: int = 10):
     result = connections_for(symbol, window=window, top_n=min(max(top, 1), 30))
     if result is None:
         raise HTTPException(404, "No price data for this symbol.")
+    return result
+
+
+@router.get("/stock/{symbol}/shareholders")
+def shareholders(symbol: str):
+    result = get_shareholders(symbol)
+    if result is None:
+        raise HTTPException(404, "No shareholder data for this symbol yet. Run the shareholders sync.")
     return result
