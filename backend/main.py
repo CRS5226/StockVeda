@@ -68,6 +68,7 @@ _SYNC_MODULES = {
     "corporate_actions": "backend.data_sync.sync_corporate_actions",
     "bulk_deals":        "backend.data_sync.sync_bulk_deals",
     "company_profile":   "backend.data_sync.sync_company_profile",
+    "shareholders":      "backend.data_sync.sync_shareholders",
     "shareholding":      "backend.data_sync.sync_shareholding",
     "fundamentals":      "backend.data_sync.sync_fundamentals",
     "currency":          "backend.data_sync.sync_currency",
