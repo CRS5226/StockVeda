@@ -991,7 +991,7 @@ export const api = {
     apiFetch<import("./candlePatterns").PatternHit[]>(`/v1/candle-patterns/${symbol}?limit=${limit}`),
 
   syncBulkDeals: (days = 30) =>
-    apiFetch<{ synced: number; from: string; to: string }>(`/stock/bulk-deals/sync?days=${days}`),
+    apiFetch<{ synced: number }>(`/stock/bulk-deals/sync?days=${days}`),
   getBulkDeals: (symbols: string[], days = 30) =>
     apiFetch<{
       data: { date: string; symbol: string; scrip_name: string; client_name: string; client_symbol: string | null; buy_sell: string; quantity: number; price: number; deal_type: string }[];

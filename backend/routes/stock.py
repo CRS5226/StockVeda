@@ -862,68 +862,9 @@ def get_correlation_matrix(symbols: str, days: int = 252):
 
 @router.get("/bulk-deals/sync")
 def sync_bulk_deals(days: int = 30):
-    import requests as _req
-    db = get_db()
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS bulk_deals (
-            date DATE, symbol VARCHAR, scrip_name VARCHAR,
-            client_name VARCHAR, buy_sell VARCHAR, quantity BIGINT, price DOUBLE,
-            deal_type VARCHAR DEFAULT 'bulk'
-        )
-    """)
-    # Add deal_type column if table existed without it
-    try:
-        db.execute("ALTER TABLE bulk_deals ADD COLUMN deal_type VARCHAR DEFAULT 'bulk'")
-    except Exception:
-        pass
-
-    sess = _req.Session()
-    sess.headers.update({
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.nseindia.com/",
-    })
-    sess.get("https://www.nseindia.com/", timeout=15)
-    sess.get("https://www.nseindia.com/market-data/large-deals", timeout=15)
-
-    from_d = (pd.Timestamp.now() - pd.Timedelta(days=days)).date()
-    to_d   = pd.Timestamp.now().date()
-    from_s, to_s = from_d.strftime("%d-%m-%Y"), to_d.strftime("%d-%m-%Y")
-
-    all_records = []
-    for opt_type in ("bulk_deals", "block_deals", "short_deals"):
-        try:
-            resp = sess.get(
-                f"https://www.nseindia.com/api/historicalOR/bulk-block-short-deals"
-                f"?optionType={opt_type}&from={from_s}&to={to_s}",
-                timeout=20
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("data", [])
-        except Exception:
-            continue
-        deal_label = opt_type.replace("_deals", "")
-        for d in raw:
-            try:
-                all_records.append({
-                    "date":        pd.to_datetime(d["BD_DT_DATE"], format="%d-%b-%Y").date(),
-                    "symbol":      d["BD_SYMBOL"].strip().upper(),
-                    "scrip_name":  d.get("BD_SCRIP_NAME", ""),
-                    "client_name": d.get("BD_CLIENT_NAME", ""),
-                    "buy_sell":    d.get("BD_BUY_SELL", ""),
-                    "quantity":    int(d.get("BD_QTY_TRD", 0)),
-                    "price":       float(d.get("BD_TP_WATP", 0)),
-                    "deal_type":   deal_label,
-                })
-            except Exception:
-                continue
-
-    if all_records:
-        df = pd.DataFrame(all_records) # noqa: F841
-        db.execute("DELETE FROM bulk_deals WHERE date >= ? AND date <= ?", [from_d, to_d])
-        db.execute("INSERT INTO bulk_deals SELECT * FROM df")
-    return {"synced": len(all_records), "from": str(from_d), "to": str(to_d)}
+    # Fetches only the days since the last run; `days` sets how far back the first run goes.
+    from backend.data_sync import sync_bulk_deals as sync
+    return {"synced": sync.run(backfill_days=min(max(days, 1), 365))}
 
 
 def _norm(name: str) -> str:
