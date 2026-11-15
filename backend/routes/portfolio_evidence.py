@@ -8,10 +8,10 @@ import statistics
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.core.candles import load_daily
-from backend.core.portfolio_health import positions
+from backend.core.stock_health import positions
 from backend.core.rule_backtest import DEFAULT_COST_PCT, RULES, run_rule
 from backend.db.connection import get_db
-from backend.routes.portfolio_total import compute_total
+from backend.routes.portfolio import portfolio_detail
 
 router = APIRouter(prefix="/portfolios/{pid}/evidence", tags=["portfolio"])
 
@@ -30,8 +30,8 @@ def get_evidence(pid: int, cost_pct: float = Query(DEFAULT_COST_PCT, ge=0, le=5)
     db = get_db()
     if not db.execute("SELECT 1 FROM portfolios WHERE id = ?", [pid]).fetchall():
         raise HTTPException(404, "No such portfolio.")
-    total, stocks = compute_total(db, pid)
-    rows = positions(stocks["holdings"])
+    rows = positions(portfolio_detail(db, pid)["holdings"])
+    stock_value = sum(r["value"] for r in rows)
     candles = load_daily(db, [r["symbol"] for r in rows])
     out, by_rule = [], {key: [] for key, _, _ in RULES}
     for r in sorted(rows, key=lambda r: -r["value"]):
@@ -42,7 +42,7 @@ def get_evidence(pid: int, cost_pct: float = Query(DEFAULT_COST_PCT, ge=0, le=5)
         for key, res in results.items():
             if res is not None:
                 by_rule[key].append(res)
-        out.append({"symbol": r["symbol"], "kind": r["kind"], "weight_pct": r["value"] / total["value"] * 100 if total["value"] else 0.0, "results": results})
+        out.append({"symbol": r["symbol"], "kind": r["kind"], "weight_pct": r["value"] / stock_value * 100 if stock_value else 0.0, "results": results})
     return {
         "cost_pct": cost_pct,
         "rules": [{"key": k, "label": label, "how": how} for k, label, how in RULES],

@@ -10,6 +10,7 @@ DEFAULT_SETTINGS = {
     "profit_gain_pct": 40.0,    # profit-booking zone needs a gain of at least this much on the position ...
     "profit_rsi": 70.0,         # ... and the daily RSI at or above this (or the close above the upper Bollinger band)
     "loss_pct": 25.0,           # recovery zone needs a loss of at least this much ...
+    "max_position_pct": 10.0,   # largest share of the stock holdings one stock should have (the add arithmetic stops here)
     "trim_pct": 25.0,           # share of the position used in the "if you trimmed" arithmetic
     "add_budget": 5000.0,       # rupees used in the "if you added" arithmetic
 }
@@ -23,6 +24,7 @@ def clean_settings(raw: Optional[dict]) -> dict:
         if isinstance(v, (int, float)) and v > 0:
             out[key] = float(v)
     out["trim_pct"] = min(out["trim_pct"], 100.0)
+    out["max_position_pct"] = min(out["max_position_pct"], 100.0)
     return out
 
 
@@ -52,12 +54,12 @@ def classify_zone(pnl_pct: Optional[float], daily: Optional[dict], settings: dic
     return "hold", profit if pnl_pct >= 0 else recovery
 
 
-def sizing(qty: float, avg_price: float, last: float, value: float, total_value: float, max_pct: float, settings: dict) -> dict:
+def sizing(qty: float, avg_price: float, last: float, value: float, stock_value: float, max_pct: float, settings: dict) -> dict:
     """Share arithmetic for the two zones, always worked out so the user can see the numbers before a zone is reached."""
     invested = qty * avg_price
     cost_out = min(math.ceil(invested / last), math.floor(qty)) if last else 0          # shares whose sale returns the money put in
     trim = math.floor(qty * settings["trim_pct"] / 100)
-    headroom = max(total_value * max_pct / 100 - value, 0.0)                             # room before the position passes the size limit
+    headroom = max(stock_value * max_pct / 100 - value, 0.0)                             # room before the position passes the size limit
     budget = min(settings["add_budget"], headroom)
     add = math.floor(budget / last) if last else 0
     new_avg = (invested + add * last) / (qty + add) if qty + add else avg_price

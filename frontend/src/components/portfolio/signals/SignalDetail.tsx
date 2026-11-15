@@ -32,11 +32,32 @@ function Frame({ tf, frame }: { tf: SignalTimeframe; frame: SignalFrame | null }
   );
 }
 
+/** Where the latest daily close stands against its averages and its year, as plain numbers. */
+function PriceFacts({ row }: { row: SignalRow }) {
+  const t = row.trend;
+  const against = (avg: number | null, above: boolean | null) => (avg === null || t.last === null || above === null ? "—" : `${above ? "above" : "below"} by ${Math.abs((t.last / avg - 1) * 100).toFixed(1)}% (${rupees(avg)})`);
+  const facts: [string, string][] = [
+    ["Latest close", t.last === null ? "—" : rupees(t.last)],
+    ["Against the 50-day average", against(t.sma50, t.above_sma50)],
+    ["Against the 200-day average", against(t.sma200, t.above_sma200)],
+    ["From the 52-week high", t.from_high_pct === null ? "—" : signedPct(t.from_high_pct)],
+    ["Over the last year", t.return_1y_pct === null ? "—" : signedPct(t.return_1y_pct)],
+  ];
+  return (
+    <div className="grid gap-2 grid-cols-2 lg:grid-cols-5">
+      {facts.map(([k, v]) => (
+        <div key={k} className="bg-white border border-slate-200 rounded-lg px-3 py-2"><div className="text-[11px] text-slate-500">{k}</div><div className="text-sm font-semibold tabular-nums">{v}</div></div>
+      ))}
+    </div>
+  );
+}
+
 /** Everything behind one row: each rule on each timeframe, the zone conditions, and the share arithmetic. */
 export default function SignalDetail({ row, maxPct }: { row: SignalRow; maxPct: number }) {
   const z = row.sizing;
   return (
     <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-col gap-4">
+      <PriceFacts row={row} />
       <div className="grid gap-3 lg:grid-cols-3">
         {(["1W", "1D", "1H"] as SignalTimeframe[]).map((tf) => <Frame key={tf} tf={tf} frame={row.timeframes[tf]} />)}
       </div>

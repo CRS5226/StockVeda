@@ -16,10 +16,12 @@ export const ZONE_RANK: Record<SignalRow["zone"], number> = { profit: 0, recover
 export const REGIME_LABEL = { trending: "Trending", ranging: "Ranging", mixed: "Mixed" } as const;
 
 /** Rows matching one of the filter chips. */
-export type SignalFilter = "all" | "profit" | "recovery" | "bullish" | "bearish";
+export type SignalFilter = "all" | "profit" | "recovery" | "bullish" | "bearish" | "below200" | "deep";
 
 export function matchesFilter(r: SignalRow, f: SignalFilter): boolean {
   if (f === "all") return true;
   if (f === "profit" || f === "recovery") return r.zone === f;
+  if (f === "below200") return r.trend.above_sma200 === false;
+  if (f === "deep") return r.trend.deep_drawdown;
   return r.alignment === f;
 }

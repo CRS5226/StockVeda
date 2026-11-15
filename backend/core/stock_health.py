@@ -1,16 +1,14 @@
-"""Portfolio health check: concentration, drift from the user's targets, and trend of each stock.
+"""Facts about the stocks of a portfolio: how big each position is among the stocks, and where each price stands.
 
-Everything here is arithmetic on the user's own numbers and targets. It reports what the rules say; it makes no
-forecast and gives no recommendation.
+Everything here is arithmetic on the user's own numbers. It makes no forecast and gives no recommendation.
+Only stocks are looked at; fixed deposits, mutual funds and the like are managed in a different way.
 """
 
 import math
-from typing import Optional
 
 import pandas as pd
 
-DEFAULT_MAX_POSITION_PCT = 10.0     # largest share of the portfolio one stock should have
-DEFAULT_BAND_PP = 5.0               # how far a type may drift from its target before it is flagged
+DEFAULT_MAX_POSITION_PCT = 10.0     # largest share of the stock holdings one stock should have
 DEEP_DRAWDOWN_PCT = 25.0            # a stock this far below its 52-week high is flagged
 
 
@@ -36,7 +34,8 @@ def positions(holdings: list[dict]) -> list[dict]:
 
 
 def concentration(rows: list[dict], total_value: float, max_pct: float) -> dict:
-    """Each stock's share of the whole portfolio, those above the limit, and the shares to sell to be back at it."""
+    """Each stock's share of the stock holdings (`total_value` is their combined value), those above the limit, and the
+    shares to sell to be back at it."""
     ranked = []
     for r in sorted(rows, key=lambda r: -r["value"]):
         weight = r["value"] / total_value * 100 if total_value else 0.0
@@ -47,9 +46,7 @@ def concentration(rows: list[dict], total_value: float, max_pct: float) -> dict:
             "symbol": r["symbol"], "kind": r["kind"], "weight_pct": weight, "value": r["value"], "over_limit": over,
             "excess_value": excess_value, "shares_to_trim": min(shares, math.floor(r["qty"])) if over else 0,
         })
-    # among the stocks themselves: shares of the whole portfolio add up to less than 1 when FDs, funds and the like are held too
-    stock_total = sum(p["weight_pct"] for p in ranked)
-    weights = [p["weight_pct"] / stock_total for p in ranked] if stock_total else []
+    weights = [p["weight_pct"] / 100 for p in ranked]
     return {
         "positions": ranked,
         "top5_pct": sum(p["weight_pct"] for p in ranked[:5]),
@@ -57,29 +54,6 @@ def concentration(rows: list[dict], total_value: float, max_pct: float) -> dict:
         "over_limit": sum(1 for p in ranked if p["over_limit"]),
         "max_pct": max_pct,
     }
-
-
-def allocation_check(parts: list[dict], total_value: float, targets: dict[str, float], band_pp: float) -> list[dict]:
-    """Current share of each type against its target, and the amount that would bring it back to the target.
-
-    A type without a target is shown with its current share only. `move` is positive to add and negative to reduce.
-    """
-    keys = [p["key"] for p in parts] + [k for k in targets if k not in {p["key"] for p in parts}]
-    labels = {p["key"]: p["label"] for p in parts}
-    values = {p["key"]: p["value"] for p in parts}
-    out = []
-    for key in keys:
-        value = values.get(key, 0.0)
-        current = value / total_value * 100 if total_value else 0.0
-        target = targets.get(key)
-        row = {"key": key, "label": labels.get(key, key.replace("_", " ").title()), "value": value, "current_pct": current,
-               "target_pct": target, "diff_pp": None, "status": "no_target", "move": None}
-        if target is not None:
-            diff = current - target
-            row.update(diff_pp=diff, status="within" if abs(diff) <= band_pp else ("over" if diff > 0 else "under"),
-                       move=total_value * target / 100 - value)
-        out.append(row)
-    return out
 
 
 def trend_stats(closes: pd.Series) -> dict:
@@ -99,8 +73,3 @@ def trend_stats(closes: pd.Series) -> dict:
         "return_1y_pct": (last / float(closes.iloc[-253]) - 1) * 100 if n >= 253 else None,
         "deep_drawdown": bool(high and (last / high - 1) * 100 <= -DEEP_DRAWDOWN_PCT),
     }
-
-
-def parse_targets(raw: Optional[dict]) -> dict[str, float]:
-    """Targets typed by the user: only positive numbers are kept."""
-    return {k: float(v) for k, v in (raw or {}).items() if isinstance(v, (int, float)) and v > 0}

@@ -11,17 +11,17 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.core.candles import load_daily, load_hourly
-from backend.core.portfolio_health import positions
+from backend.core.stock_health import concentration, positions, trend_stats
 from backend.core.signal_rules import alignment, evaluate_rules, to_weekly
 from backend.core.signal_zones import classify_zone, clean_settings, sizing
 from backend.db.connection import get_db
-from backend.routes.portfolio_health import load_targets
-from backend.routes.portfolio_total import compute_total
+from backend.routes.portfolio import portfolio_detail
 
 router = APIRouter(prefix="/portfolios/{pid}/signals", tags=["portfolio"])
 
 
 class SettingsIn(BaseModel):
+    max_position_pct: Optional[float] = Field(None, gt=0, le=100)
     profit_gain_pct: Optional[float] = Field(None, gt=0)
     profit_rsi: Optional[float] = Field(None, gt=0, le=100)
     loss_pct: Optional[float] = Field(None, gt=0)
@@ -65,12 +65,12 @@ def _slim(result: Optional[dict]) -> Optional[dict]:
 
 @router.get("")
 def get_signals(pid: int):
+    """Everything the Signals tab shows about the stocks of a portfolio. Weights are shares of the stock holdings only."""
     db = get_db()
     _require_portfolio(db, pid)
-    total, stocks = compute_total(db, pid)
-    settings, limits = load_settings(db, pid), load_targets(db, pid)
-    rows = positions(stocks["holdings"])
-    value = total["value"]
+    rows = positions(portfolio_detail(db, pid)["holdings"])
+    stock_value = sum(r["value"] for r in rows)
+    settings = load_settings(db, pid)
     symbols = [r["symbol"] for r in rows]
     daily, hourly = load_daily(db, symbols), load_hourly(db, symbols)
 
@@ -86,16 +86,20 @@ def get_signals(pid: int):
         pnl_pct = (r["value"] / r["invested"] - 1) * 100 if r["invested"] else None
         zone, checks = classify_zone(pnl_pct, timeframes["1D"], settings)
         out.append({
-            "symbol": sym, "kind": r["kind"], "weight_pct": r["value"] / value * 100 if value else 0.0,
-            "qty": r["qty"], "avg_price": r["avg_price"], "last": r["last_price"], "pnl_pct": pnl_pct,
+            "symbol": sym, "kind": r["kind"], "weight_pct": r["value"] / stock_value * 100 if stock_value else 0.0,
+            "value": r["value"], "qty": r["qty"], "avg_price": r["avg_price"], "last": r["last_price"], "pnl_pct": pnl_pct,
+            "trend": trend_stats(d["close"]) if d is not None else trend_stats(pd.Series(dtype=float)),
             "timeframes": {k: _slim(v) for k, v in timeframes.items()},
             "alignment": alignment([timeframes[k]["lean"] if timeframes[k] else None for k in ("1W", "1D", "1H")]),
             "zone": zone, "zone_checks": checks,
-            "sizing": sizing(r["qty"], r["avg_price"], r["last_price"], r["value"], value, limits["max_position_pct"], settings),
+            "sizing": sizing(r["qty"], r["avg_price"], r["last_price"], r["value"], stock_value, settings["max_position_pct"], settings),
         })
+    conc = concentration(rows, stock_value, settings["max_position_pct"])
+    with_200 = [o for o in out if o["trend"]["above_sma200"] is not None]
     return {
         "settings": settings,
-        "max_position_pct": limits["max_position_pct"],
+        "stock_value": stock_value,
+        "concentration": conc,
         "rows": out,
         "summary": {
             "stocks": len(out),
@@ -104,5 +108,9 @@ def get_signals(pid: int):
             "aligned_bearish": sum(1 for o in out if o["alignment"] == "bearish"),
             "profit_zone": sum(1 for o in out if o["zone"] == "profit"),
             "recovery_zone": sum(1 for o in out if o["zone"] == "recovery"),
+            "with_sma200": len(with_200),
+            "below_sma200": sum(1 for o in with_200 if not o["trend"]["above_sma200"]),
+            "deep_drawdown": sum(1 for o in out if o["trend"]["deep_drawdown"]),
+            "over_limit": conc["over_limit"],
         },
     }

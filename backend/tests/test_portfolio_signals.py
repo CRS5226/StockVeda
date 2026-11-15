@@ -10,10 +10,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.db import connection
-from backend.routes import portfolio, portfolio_assets, portfolio_dividends, portfolio_fd, portfolio_health, portfolio_mf, portfolio_signals, portfolio_total
+from backend.routes import portfolio, portfolio_signals
 
 SCHEMA = (Path(connection.__file__).parent / "schema.sql").read_text()
-MODULES = (portfolio, portfolio_assets, portfolio_dividends, portfolio_fd, portfolio_mf, portfolio_total, portfolio_health, portfolio_signals)
+MODULES = (portfolio, portfolio_signals)
 
 
 @pytest.fixture
@@ -52,18 +52,25 @@ def test_signals_report(client):
     assert [c["met"] for c in itc["zone_checks"]][0] is True                                           # the loss condition is met
     assert tcs["sizing"]["trim"]["shares"] == 2 and tcs["sizing"]["cost_out"]["shares"] == 5            # 25% of 10; ceil(1500 / 300)
     assert r["summary"]["stocks"] == 2 and r["summary"]["aligned_bullish"] == 1 and r["summary"]["aligned_bearish"] == 1
-    assert r["settings"]["profit_gain_pct"] == 40 and r["max_position_pct"] == 10
+    assert r["settings"]["profit_gain_pct"] == 40 and r["settings"]["max_position_pct"] == 10
+    # weights are shares of the stock holdings (TCS 3000, ITC 1000), not of the whole portfolio
+    assert r["stock_value"] == 4000 and tcs["weight_pct"] == pytest.approx(75) and itc["weight_pct"] == pytest.approx(25)
+    assert r["concentration"]["over_limit"] == 2 and r["summary"]["over_limit"] == 2
+    assert tcs["trend"]["above_sma200"] is True and itc["trend"]["above_sma200"] is False and itc["trend"]["deep_drawdown"] is True
+    assert r["summary"]["with_sma200"] == 2 and r["summary"]["below_sma200"] == 1 and r["summary"]["deep_drawdown"] == 1
 
 
 def test_settings_change_the_zones(client):
     client.post("/api/portfolios/1/holdings", json={"symbol": "TCS", "qty": 10, "buy_price": 150})
     default = client.get("/api/portfolios/1/signals/settings").json()
     assert default["trim_pct"] == 25 and default["add_budget"] == 5000
-    saved = client.put("/api/portfolios/1/signals/settings", json={"trim_pct": 50, "profit_gain_pct": 120}).json()
-    assert saved["trim_pct"] == 50 and saved["profit_gain_pct"] == 120 and saved["loss_pct"] == 25
+    saved = client.put("/api/portfolios/1/signals/settings", json={"trim_pct": 50, "profit_gain_pct": 120, "max_position_pct": 80}).json()
+    assert saved["trim_pct"] == 50 and saved["profit_gain_pct"] == 120 and saved["loss_pct"] == 25 and saved["max_position_pct"] == 80
+    assert client.get("/api/portfolios/1/signals").json()["concentration"]["max_pct"] == 80
     row = client.get("/api/portfolios/1/signals").json()["rows"][0]
     assert row["sizing"]["trim"]["shares"] == 5 and row["zone"] == "hold"                                  # a 100% gain is below the 120% bar now
     assert client.put("/api/portfolios/1/signals/settings", json={"trim_pct": 0}).status_code == 422
+    assert client.put("/api/portfolios/1/signals/settings", json={"max_position_pct": 150}).status_code == 422
     assert client.put("/api/portfolios/9/signals/settings", json={}).status_code == 404
     assert client.get("/api/portfolios/9/signals").status_code == 404
     client.delete("/api/portfolios/1")

@@ -13,7 +13,7 @@ from backend.db import connection
 from backend.routes import portfolio, portfolio_assets, portfolio_dividends, portfolio_evidence, portfolio_fd, portfolio_mf, portfolio_total
 
 SCHEMA = (Path(connection.__file__).parent / "schema.sql").read_text()
-MODULES = (portfolio, portfolio_assets, portfolio_dividends, portfolio_fd, portfolio_mf, portfolio_total, portfolio_evidence)
+MODULES = (portfolio, portfolio_evidence)
 
 
 @pytest.fixture

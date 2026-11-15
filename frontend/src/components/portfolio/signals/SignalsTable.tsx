@@ -7,12 +7,13 @@ import { nextSort, sortRows, type SortState } from "../../../lib/sortRows";
 import SortHeader from "../SortHeader";
 import SignalDetail from "./SignalDetail";
 
-type SortKey = "symbol" | "weight_pct" | "pnl_pct" | "zone_rank" | "alignment_rank";
-type Row = SignalRow & { zone_rank: number; alignment_rank: number };
+type SortKey = "symbol" | "weight_pct" | "pnl_pct" | "vs200" | "from_high" | "zone_rank" | "alignment_rank";
+type Row = SignalRow & { zone_rank: number; alignment_rank: number; vs200: number | null; from_high: number | null };
 
 const FILTERS: { key: SignalFilter; label: string }[] = [
   { key: "all", label: "All" }, { key: "profit", label: "Profit-booking zone" }, { key: "recovery", label: "Recovery zone" },
   { key: "bullish", label: "Bullish on all timeframes" }, { key: "bearish", label: "Bearish on all timeframes" },
+  { key: "below200", label: "Below 200-day average" }, { key: "deep", label: "Far from 52-week high" },
 ];
 const ALIGN_RANK = { bullish: 0, mixed: 1, bearish: 2 } as const;
 const TFS: SignalTimeframe[] = ["1W", "1D", "1H"];
@@ -27,7 +28,10 @@ export default function SignalsTable({ rows, maxPct }: { rows: SignalRow[]; maxP
   const [filter, setFilter] = useState<SignalFilter>("all");
   const [sort, setSort] = useState<SortState<SortKey> | null>({ key: "zone_rank", dir: "asc" });
   const [open, setOpen] = useState<string | null>(null);
-  const data: Row[] = useMemo(() => rows.map((r) => ({ ...r, zone_rank: ZONE_RANK[r.zone], alignment_rank: r.alignment ? ALIGN_RANK[r.alignment] : 3 })), [rows]);
+  const data: Row[] = useMemo(() => rows.map((r) => ({
+    ...r, zone_rank: ZONE_RANK[r.zone], alignment_rank: r.alignment ? ALIGN_RANK[r.alignment] : 3,
+    vs200: r.trend.sma200 && r.trend.last !== null ? (r.trend.last / r.trend.sma200 - 1) * 100 : null, from_high: r.trend.from_high_pct,
+  })), [rows]);
   const shown = useMemo(() => {
     const kept = data.filter((r) => matchesFilter(r, filter));
     return sort ? sortRows(kept, sort.key, sort.dir) : kept;
@@ -52,10 +56,10 @@ export default function SignalsTable({ rows, maxPct }: { rows: SignalRow[]; maxP
         </div>
       </div>
       <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
-        <table className="w-full min-w-[880px] text-sm">
+        <table className="w-full min-w-[1040px] text-sm">
           <thead className="sticky top-0 bg-white z-10">
             <tr className="text-xs text-slate-500 text-left">
-              <th className="w-8" />{head("symbol", "Stock")}{head("weight_pct", "Weight", true)}{head("pnl_pct", "Profit", true)}
+              <th className="w-8" />{head("symbol", "Stock")}{head("weight_pct", "Weight", true)}{head("pnl_pct", "Profit", true)}{head("vs200", "vs 200-day", true)}{head("from_high", "From 52w high", true)}
               <th className="px-3 py-2 font-medium">Weekly</th><th className="px-3 py-2 font-medium">Daily</th><th className="px-3 py-2 font-medium">1-hour</th>
               {head("alignment_rank", "Timeframes")}{head("zone_rank", "Zone")}
             </tr>
@@ -71,15 +75,17 @@ export default function SignalsTable({ rows, maxPct }: { rows: SignalRow[]; maxP
                     <td className="px-3 py-2"><span className="font-semibold">{r.symbol}</span>{daily?.regime && <span className="ml-2 text-[10px] text-slate-400">{REGIME_LABEL[daily.regime]}</span>}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{pct(r.weight_pct)}</td>
                     <td className={`px-3 py-2 text-right tabular-nums ${r.pnl_pct === null ? "text-slate-400" : r.pnl_pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>{signedPct(r.pnl_pct, 0)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${r.vs200 === null ? "text-slate-400" : r.vs200 >= 0 ? "text-emerald-600" : "text-red-600"}`}>{signedPct(r.vs200, 0)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${r.trend.deep_drawdown ? "text-red-600 font-semibold" : "text-slate-600"}`}>{signedPct(r.from_high, 0)}</td>
                     {TFS.map((tf) => <td key={tf} className="px-3 py-2"><Lean frame={r.timeframes[tf]} /></td>)}
                     <td className="px-3 py-2 text-xs text-slate-500">{r.alignment === "bullish" ? "All bullish" : r.alignment === "bearish" ? "All bearish" : r.alignment === "mixed" ? "Mixed" : "—"}</td>
                     <td className="px-3 py-2"><span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ZONE_STYLE[r.zone]}`}>{ZONE_LABEL[r.zone]}</span></td>
                   </tr>
-                  {isOpen && <tr><td colSpan={9} className="p-0"><SignalDetail row={r} maxPct={maxPct} /></td></tr>}
+                  {isOpen && <tr><td colSpan={11} className="p-0"><SignalDetail row={r} maxPct={maxPct} /></td></tr>}
                 </Fragment>
               );
             })}
-            {shown.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-sm text-slate-400">No stock matches this filter.</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={11} className="px-3 py-8 text-center text-sm text-slate-400">No stock matches this filter.</td></tr>}
           </tbody>
         </table>
       </div>

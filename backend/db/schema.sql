@@ -478,15 +478,8 @@ CREATE TABLE IF NOT EXISTS portfolio_dividends (
 -- The type a user set by hand for a holding (stock | etf | reit | invit); empty means it is worked out from the symbol and name.
 ALTER TABLE portfolio_holdings ADD COLUMN IF NOT EXISTS kind VARCHAR;
 
--- The limits a portfolio is checked against: the largest share one stock should have, how far a type may drift,
--- and the target share of each type (a JSON object such as {"stocks": 60, "fixed_deposits": 20}).
-CREATE TABLE IF NOT EXISTS portfolio_targets (
-    portfolio_id     INTEGER,
-    max_position_pct DOUBLE,
-    band_pp          DOUBLE,
-    targets          VARCHAR,
-    PRIMARY KEY (portfolio_id)
-);
+-- The Health tab was merged into Signals, and its per-type targets are gone; the size limit now lives in the signal settings.
+DROP TABLE IF EXISTS portfolio_targets;
 
 -- A daily snapshot of valuation and quality ratios per stock (from Yahoo), kept so they can be compared over time.
 -- Percent columns are in percent (12.5 means 12.5%).

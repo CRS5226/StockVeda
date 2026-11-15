@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SignalRow } from "./api";
 import { matchesFilter, ZONE_RANK } from "./signalLabels";
 
-const row = (over: Partial<SignalRow>) => ({ zone: "hold", alignment: null, ...over }) as SignalRow;
+const row = (over: Partial<SignalRow>) => ({ zone: "hold", alignment: null, trend: { above_sma200: null, deep_drawdown: false }, ...over }) as SignalRow;
 
 describe("matchesFilter", () => {
   it("filters by zone and by agreement across timeframes", () => {
@@ -11,6 +11,9 @@ describe("matchesFilter", () => {
     expect(matchesFilter(row({ alignment: "bullish" }), "bullish")).toBe(true);
     expect(matchesFilter(row({ alignment: "mixed" }), "bearish")).toBe(false);
     expect(matchesFilter(row({}), "all")).toBe(true);
+    expect(matchesFilter(row({ trend: { above_sma200: false, deep_drawdown: false } as never }), "below200")).toBe(true);
+    expect(matchesFilter(row({ trend: { above_sma200: null, deep_drawdown: false } as never }), "below200")).toBe(false);
+    expect(matchesFilter(row({ trend: { above_sma200: true, deep_drawdown: true } as never }), "deep")).toBe(true);
   });
   it("ranks the zones that are met ahead of hold", () => {
     expect(ZONE_RANK.profit).toBeLessThan(ZONE_RANK.hold);

@@ -1,9 +1,9 @@
-import type { HealthReport } from "../../../lib/api";
+import type { SignalsReport } from "../../../lib/api";
 import { pct } from "../../../lib/healthLabels";
 import { rupees } from "../../../lib/formatMoney";
 
 /** The biggest stocks by share of the portfolio, and what it would take to bring those above your limit back to it. */
-export default function ConcentrationCheck({ data }: { data: HealthReport["concentration"] }) {
+export default function ConcentrationCheck({ data }: { data: SignalsReport["concentration"] }) {
   const top = data.positions.slice(0, 10);
   const widest = Math.max(data.max_pct, ...top.map((p) => p.weight_pct), 1);
   return (
@@ -23,14 +23,14 @@ export default function ConcentrationCheck({ data }: { data: HealthReport["conce
               <div className={`h-full rounded ${p.over_limit ? "bg-amber-400" : "bg-blue-400"}`} style={{ width: `${(p.weight_pct / widest) * 100}%` }} />
               <div className="absolute top-[-3px] bottom-[-3px] w-px bg-slate-500" style={{ left: `${(data.max_pct / widest) * 100}%` }} title={`Limit ${data.max_pct}%`} />
             </div>
-            <span className="tabular-nums text-right">{pct(p.weight_pct)} <span className="text-xs text-slate-400">of total</span></span>
+            <span className="tabular-nums text-right">{pct(p.weight_pct)} <span className="text-xs text-slate-400">of stocks</span></span>
             <span className="text-xs text-slate-500 tabular-nums">
               {p.over_limit ? `Reduce by ${p.shares_to_trim} ${p.shares_to_trim === 1 ? "share" : "shares"} (about ${rupees(p.excess_value)})` : rupees(p.value)}
             </span>
           </div>
         ))}
       </div>
-      <p className="px-4 pb-3 text-xs text-slate-400">Top 5 stocks hold {pct(data.top5_pct)} of the portfolio. It behaves like {data.effective_holdings.toFixed(0)} equal-sized holdings.</p>
+      <p className="px-4 pb-3 text-xs text-slate-400">Top 5 stocks hold {pct(data.top5_pct)} of your stock holdings. It behaves like {data.effective_holdings.toFixed(0)} equal-sized holdings.</p>
     </div>
   );
 }

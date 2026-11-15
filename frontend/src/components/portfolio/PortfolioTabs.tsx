@@ -1,6 +1,6 @@
-import { Activity, Banknote, Coins, HeartPulse, Landmark, LayoutDashboard, PiggyBank, TrendingUp, type LucideIcon } from "lucide-react";
+import { Activity, Banknote, Coins, Landmark, LayoutDashboard, PiggyBank, TrendingUp, type LucideIcon } from "lucide-react";
 
-export type PortfolioTab = "overview" | "stocks" | "mutual_funds" | "dividends" | "fixed_deposits" | "other" | "health" | "signals";
+export type PortfolioTab = "overview" | "stocks" | "mutual_funds" | "dividends" | "fixed_deposits" | "other" | "signals";
 
 const TABS: { key: PortfolioTab; label: string; icon: LucideIcon }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
@@ -9,7 +9,6 @@ const TABS: { key: PortfolioTab; label: string; icon: LucideIcon }[] = [
   { key: "dividends", label: "Dividends", icon: Coins },
   { key: "fixed_deposits", label: "Fixed Deposits", icon: Landmark },
   { key: "other", label: "Other Investments", icon: Banknote },
-  { key: "health", label: "Health", icon: HeartPulse },
   { key: "signals", label: "Signals", icon: Activity },
 ];
 

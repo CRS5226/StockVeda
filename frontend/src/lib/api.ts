@@ -185,22 +185,6 @@ export interface PriceSyncJob {
   status: "queued" | "running" | "done" | "error"; total: number; done: number;
   prices: number; updated_symbols: number; navs: number; no_data: string[]; as_of: string; error?: string;
 }
-export interface HealthSettings { max_position_pct: number; band_pp: number; targets: Record<string, number> }
-export interface HealthPosition { symbol: string; kind: HoldingKind; weight_pct: number; value: number; over_limit: boolean; excess_value: number; shares_to_trim: number }
-export interface HealthAllocation {
-  key: string; label: string; value: number; current_pct: number; target_pct: number | null; diff_pp: number | null;
-  status: "within" | "over" | "under" | "no_target"; move: number | null;
-}
-export interface HealthTrend {
-  symbol: string; kind: HoldingKind; weight_pct: number; bars: number; last: number | null; sma50: number | null; sma200: number | null;
-  above_sma50: boolean | null; above_sma200: boolean | null; from_high_pct: number | null; return_1y_pct: number | null; deep_drawdown: boolean;
-}
-export interface HealthReport {
-  total_value: number; settings: HealthSettings;
-  concentration: { positions: HealthPosition[]; top5_pct: number; effective_holdings: number; over_limit: number; max_pct: number };
-  allocation: HealthAllocation[]; trend: HealthTrend[];
-  summary: { stocks: number; below_sma200: number; with_sma200: number; deep_drawdown: number; types_out_of_band: number };
-}
 export interface DataDataset { key: string; label: string; applies_to: string; total: number; stored: number; stale: number; newest: string | null }
 export interface DataCoverage { datasets: DataDataset[]; up_to_date: boolean }
 export interface DataSyncStart { status: "up_to_date" | "started"; job_id?: string; checked?: number }
@@ -227,15 +211,26 @@ export interface SignalSizing {
   add: { shares: number; value: number; budget: number; headroom: number; limited_by_size: boolean; avg_before: number; avg_after: number; breakeven_before_pct: number | null; breakeven_after_pct: number | null };
 }
 export type SignalTimeframe = "1W" | "1D" | "1H";
+/** Where the latest daily close stands against its averages and its 52-week high; numbers are null without enough candles. */
+export interface SignalTrend {
+  bars: number; last: number | null; sma50: number | null; sma200: number | null; above_sma50: boolean | null; above_sma200: boolean | null;
+  from_high_pct: number | null; return_1y_pct: number | null; deep_drawdown: boolean;
+}
+export interface ConcentrationPosition { symbol: string; kind: HoldingKind; weight_pct: number; value: number; over_limit: boolean; excess_value: number; shares_to_trim: number }
 export interface SignalRow {
-  symbol: string; kind: HoldingKind; weight_pct: number; qty: number; avg_price: number; last: number; pnl_pct: number | null;
+  /** `weight_pct` is the share of the stock holdings only; fixed deposits, funds and the like are not counted. */
+  symbol: string; kind: HoldingKind; weight_pct: number; value: number; qty: number; avg_price: number; last: number; pnl_pct: number | null; trend: SignalTrend;
   timeframes: Record<SignalTimeframe, SignalFrame | null>; alignment: "bullish" | "bearish" | "mixed" | null;
   zone: "profit" | "recovery" | "hold"; zone_checks: { text: string; met: boolean }[]; sizing: SignalSizing;
 }
-export interface SignalSettings { profit_gain_pct: number; profit_rsi: number; loss_pct: number; trim_pct: number; add_budget: number }
+export interface SignalSettings { max_position_pct: number; profit_gain_pct: number; profit_rsi: number; loss_pct: number; trim_pct: number; add_budget: number }
 export interface SignalsReport {
-  settings: SignalSettings; max_position_pct: number; rows: SignalRow[];
-  summary: { stocks: number; with_signals: number; aligned_bullish: number; aligned_bearish: number; profit_zone: number; recovery_zone: number };
+  settings: SignalSettings; stock_value: number; rows: SignalRow[];
+  concentration: { positions: ConcentrationPosition[]; top5_pct: number; effective_holdings: number; over_limit: number; max_pct: number };
+  summary: {
+    stocks: number; with_signals: number; aligned_bullish: number; aligned_bearish: number; profit_zone: number; recovery_zone: number;
+    with_sma200: number; below_sma200: number; deep_drawdown: number; over_limit: number;
+  };
 }
 export type EvidenceVerdict = "held_up" | "mixed" | "did_not" | "few_trades";
 export interface RuleResult {
@@ -761,9 +756,6 @@ export const api = {
   startPriceSync: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/sync`, { method: "POST" }),
   getPriceSync: (portfolioId: number, jobId: string) => apiFetch<PriceSyncJob>(`/portfolios/${portfolioId}/prices/sync/${jobId}`),
 
-  getHealth: (portfolioId: number) => apiFetch<HealthReport>(`/portfolios/${portfolioId}/health`),
-  putHealthTargets: (portfolioId: number, body: HealthSettings) =>
-    apiFetch<HealthSettings>(`/portfolios/${portfolioId}/health/targets`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   startPriceHistory: (portfolioId: number) => apiFetch<PriceSyncStart>(`/portfolios/${portfolioId}/prices/history`, { method: "POST" }),
 
   getDataCoverage: (portfolioId: number) => apiFetch<DataCoverage>(`/portfolios/${portfolioId}/data/coverage`),

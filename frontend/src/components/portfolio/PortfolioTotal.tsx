@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import DonutChart from "./charts/DonutChart";
 import { api, type PortfolioDetail, type PortfolioTotal as Total } from "../../lib/api";
 import { resultColor, rupees, signedPercent, signedRupees } from "../../lib/formatMoney";
 import { errorText } from "../../lib/useTradePlots";
@@ -8,25 +9,6 @@ import { usePriceSync } from "../../lib/usePriceSync";
 const COLORS: Record<string, string> = {
   stocks: "#3b82f6", fixed_deposits: "#14b8a6", crypto: "#f59e0b", us_stock: "#8b5cf6", mutual_fund: "#ec4899", bond: "#64748b", gold: "#eab308", other: "#94a3b8",
 };
-
-/** Ring chart of each part's share of the current value. */
-function Donut({ parts }: { parts: Total["parts"] }) {
-  let offset = 0;
-  return (
-    <svg viewBox="0 0 40 40" className="w-40 h-40 -rotate-90 shrink-0 overflow-visible" role="img" aria-label="Allocation by type">
-      <circle cx="20" cy="20" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="5" />
-      {parts.map((p) => {
-        const share = Math.max(p.share_pct, 0);
-        const slice = (
-          <circle key={p.key} cx="20" cy="20" r="15.9155" fill="none" stroke={COLORS[p.key] ?? "#94a3b8"} strokeWidth="5"
-            strokeDasharray={`${share} ${100 - share}`} strokeDashoffset={-offset} />
-        );
-        offset += share;
-        return slice;
-      })}
-    </svg>
-  );
-}
 
 const darkTone = (n: number | null) => (n === null || n === 0 ? "text-slate-300" : n > 0 ? "text-emerald-400" : "text-red-400");
 
@@ -91,7 +73,7 @@ export default function PortfolioTotal({ portfolioId, stocks, refreshKey, onPric
         </div>
         {total.parts.length > 0 ? (
           <div className="flex flex-wrap gap-6 items-center flex-1 min-w-[300px]">
-            <Donut parts={total.parts} />
+            <DonutChart size={160} legend={false} slices={total.parts.map((p) => ({ label: p.label, value: Math.max(p.share_pct, 0), color: COLORS[p.key] ?? "#94a3b8" }))} />
             <table className="text-sm flex-1 min-w-[260px]">
               <thead>
                 <tr className="text-xs text-slate-500 text-left">

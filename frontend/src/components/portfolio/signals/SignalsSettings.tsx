@@ -4,6 +4,7 @@ import type { SignalSettings } from "../../../lib/api";
 const input = "w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-blue-400";
 
 const FIELDS: { key: keyof SignalSettings; label: string; hint: string; max?: number }[] = [
+  { key: "max_position_pct", label: "Largest share of one stock (%)", hint: "Of your stock holdings; used to flag big positions and to cap the \"if you added\" numbers", max: 100 },
   { key: "profit_gain_pct", label: "Profit-booking zone: gain at least (%)", hint: "The position is up at least this much" },
   { key: "profit_rsi", label: "…and daily RSI at least", hint: "Or the close is above the upper Bollinger band", max: 100 },
   { key: "loss_pct", label: "Recovery zone: loss at least (%)", hint: "The position is down at least this much, and MACD has turned up with the close above the 20-day EMA" },
@@ -29,9 +30,9 @@ export default function SignalsSettings({ settings, onSave }: { settings: Signal
   return (
     <div className="bg-white border border-slate-200 rounded-xl">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
-        <h3 className="font-semibold">Your zone thresholds</h3>
+        <h3 className="font-semibold">Your settings</h3>
         <span className="text-xs text-slate-500">
-          Profit-booking: gain ≥ {settings.profit_gain_pct}% and RSI ≥ {settings.profit_rsi} · Recovery: loss ≥ {settings.loss_pct}% with the turn
+          Size limit {settings.max_position_pct}% · Profit-booking: gain ≥ {settings.profit_gain_pct}% and RSI ≥ {settings.profit_rsi} · Recovery: loss ≥ {settings.loss_pct}% with the turn
         </span>
         <span className="ml-auto text-xs font-semibold text-blue-600">{open ? "Close" : "Change"}</span>
       </button>
@@ -45,7 +46,7 @@ export default function SignalsSettings({ settings, onSave }: { settings: Signal
             ))}
           </div>
           <div>
-            <button disabled={!valid || saving} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">{saving ? "Saving…" : "Save thresholds"}</button>
+            <button disabled={!valid || saving} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">{saving ? "Saving…" : "Save settings"}</button>
           </div>
         </form>
       )}

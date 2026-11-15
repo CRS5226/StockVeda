@@ -29,5 +29,7 @@ export function usePortfolioSignals(portfolioId: number, refreshKey: number) {
     }
   }, [portfolioId]);
 
-  return { report, error, saveSettings };
+  const reload = useCallback(() => setTick((n) => n + 1), []);
+
+  return { report, error, saveSettings, reload };
 }
