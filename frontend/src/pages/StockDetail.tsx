@@ -6,6 +6,7 @@ import { useBacktestStore } from "../store/useBacktestStore";
 import { api, type StockRatios, type SectorCompareData, type NewsItem, type Holder, type BankFinancial } from "../lib/api";
 import type { PatternHit } from "../lib/candlePatterns";
 import { stockView, type StockView } from "../lib/connections";
+import { rememberStock } from "../lib/recentStocks";
 import { fromDate, type Range } from "../lib/stockFormat";
 import type { OutlookData } from "../components/TrendOutlook";
 import ConnectionsView from "../components/connections/ConnectionsView";
@@ -92,7 +93,7 @@ export default function StockDetail() {
 
   useEffect(() => {
     loadStrategies(); setParams({ symbol: sym });
-    api.getStockInfo(sym).then((info) => setStockInfo(info)).catch(() => {});
+    api.getStockInfo(sym).then((info) => { setStockInfo(info); if (info.company_name) rememberStock(sym); }).catch(() => {});
 
     // Fetch live ratios from yfinance info (non-blocking)
     api.getRatios(sym).then(setRatios).catch(() => {});

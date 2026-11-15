@@ -9,7 +9,8 @@ import MutualFunds from "./pages/MutualFunds";
 import MutualFundDetail from "./pages/MutualFundDetail";
 import Charts from "./pages/Charts";
 import Portfolio from "./pages/Portfolio";
-import Connections from "./pages/Connections";
+import ConnectionsRedirect from "./pages/ConnectionsRedirect";
+import StocksHome from "./pages/StocksHome";
 
 export default function App() {
   // The Charts page is full-screen: no page padding, width cap or footer, just the navbar and the chart.
@@ -21,9 +22,10 @@ export default function App() {
         <Routes>
           <Route path="/" element={<MarketDashboard />} />
           <Route path="/charts/:symbol?" element={<Charts />} />
+          <Route path="/stock" element={<StocksHome />} />
           <Route path="/stock/:symbol" element={<StockDetail />} />
           <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/connections/:symbol?" element={<Connections />} />
+          <Route path="/connections/:symbol?" element={<ConnectionsRedirect />} />
           <Route path="/screener" element={<Screener />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/mutual-funds" element={<MutualFunds />} />
