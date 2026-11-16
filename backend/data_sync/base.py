@@ -59,10 +59,15 @@ def log_sync(source_id: str, status: str, records_added: int, last_date: Optiona
 def upsert_df(df: pd.DataFrame, table_name: str) -> int:
     if df.empty:
         return 0
-    db = get_db()
-    db.register("_upsert_tmp", df)
-    db.execute(f"INSERT OR REPLACE INTO {table_name} SELECT * FROM _upsert_tmp")
-    db.unregister("_upsert_tmp")
+    # Write through a cursor (a separate connection to the same database). DuckDB 2.0 refuses to register a
+    # DataFrame on a connection that still has an unfinished result, which a caller's fetchone() leaves behind.
+    cur = get_db().cursor()
+    try:
+        cur.register("_upsert_tmp", df)
+        cur.execute(f"INSERT OR REPLACE INTO {table_name} SELECT * FROM _upsert_tmp")
+        cur.unregister("_upsert_tmp")
+    finally:
+        cur.close()
     return len(df)
 
 
@@ -74,10 +79,12 @@ def insert_missing_df(df: pd.DataFrame, table_name: str) -> int:
     """
     if df.empty:
         return 0
-    db = get_db()
-    # fetchall() (not fetchone()) so no result is left open on the connection before register() is called.
-    before = db.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()[0][0]
-    db.register("_missing_tmp", df)
-    db.execute(f"INSERT OR IGNORE INTO {table_name} SELECT * FROM _missing_tmp")
-    db.unregister("_missing_tmp")
-    return db.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()[0][0] - before
+    cur = get_db().cursor()      # own connection, for the same reason as in upsert_df
+    try:
+        before = cur.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()[0][0]
+        cur.register("_missing_tmp", df)
+        cur.execute(f"INSERT OR IGNORE INTO {table_name} SELECT * FROM _missing_tmp")
+        cur.unregister("_missing_tmp")
+        return cur.execute(f"SELECT COUNT(*) FROM {table_name}").fetchall()[0][0] - before
+    finally:
+        cur.close()
