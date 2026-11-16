@@ -3,6 +3,7 @@ Screener universe resolution and smart per-symbol incremental OHLCV + indicator 
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, timedelta
 from typing import Optional
@@ -10,6 +11,8 @@ from typing import Optional
 import pandas as pd
 
 from backend.db.connection import get_db
+
+logger = logging.getLogger(__name__)
 
 # ── Nifty constituent lists ────────────────────────────────────────────────
 
@@ -255,24 +258,24 @@ def _compute_indicators(raw: pd.DataFrame) -> pd.Series:
 
 def _fetch_fundamentals(t, sym: str, db) -> None:
     """Fetch quarterly + annual financials from yfinance and upsert into stock_fundamentals."""
-    count = db.execute("SELECT COUNT(*) FROM stock_fundamentals WHERE symbol = ?", [sym]).fetchone()[0]
+    count = db.execute("SELECT COUNT(*) FROM stock_fundamentals WHERE symbol = ?", [sym]).fetchall()[0][0]
     if count > 0:
         return
     try:
-        from backend.data_sync.sync_fundamentals import _parse_financials
+        from backend.data_sync.sync_fundamentals import parse_financials
         from backend.data_sync.base import upsert_df
-        rows = _parse_financials(t, sym, "Q") + _parse_financials(t, sym, "A")
+        rows = parse_financials(t, sym, "Q") + parse_financials(t, sym, "A")
         if rows:
             df = pd.DataFrame(rows).dropna(subset=["revenue", "pat"], how="all")
             if not df.empty:
                 upsert_df(df, "stock_fundamentals")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Fundamentals fetch failed for %s: %s", sym, e)
 
 
 def _fetch_shareholding(t, sym: str, db) -> None:
     """Fetch insider/institutional holding from yfinance major_holders as promoter/FII proxy."""
-    count = db.execute("SELECT COUNT(*) FROM shareholding WHERE symbol = ?", [sym]).fetchone()[0]
+    count = db.execute("SELECT COUNT(*) FROM shareholding WHERE symbol = ?", [sym]).fetchall()[0][0]
     if count > 0:
         return
     try:
@@ -296,8 +299,8 @@ def _fetch_shareholding(t, sym: str, db) -> None:
                     "retail_pct": None, "government_pct": None, "total_shareholders": None,
                 }])
                 upsert_df(df, "shareholding")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Shareholding fetch failed for %s: %s", sym, e)
 
 
 def smart_sync(symbols: list[str], candle_days: int, job_id: str) -> None:

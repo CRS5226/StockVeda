@@ -338,12 +338,12 @@ def prefetch_symbol(symbol: str):
     # --- Fundamentals ---
     fund_count = db.execute(
         "SELECT COUNT(*) FROM stock_fundamentals WHERE symbol = ?", [sym]
-    ).fetchone()[0]
+    ).fetchall()[0][0]
     if fund_count == 0:
         try:
-            from backend.data_sync.sync_fundamentals import _parse_financials
+            from backend.data_sync.sync_fundamentals import parse_financials
             from backend.data_sync.base import upsert_df
-            rows = _parse_financials(t, sym, "Q") + _parse_financials(t, sym, "A")
+            rows = parse_financials(t, sym, "Q") + parse_financials(t, sym, "A")
             if rows:
                 df = pd.DataFrame(rows).dropna(subset=["revenue", "pat"], how="all")
                 if not df.empty:
@@ -357,7 +357,7 @@ def prefetch_symbol(symbol: str):
     # --- Corporate actions (dividends + splits) ---
     ca_count = db.execute(
         "SELECT COUNT(*) FROM corporate_actions WHERE symbol = ?", [sym]
-    ).fetchone()[0]
+    ).fetchall()[0][0]
     if ca_count == 0:
         try:
             from backend.data_sync.base import upsert_df
