@@ -22,6 +22,24 @@ Built with FastAPI + DuckDB on the backend and React + lightweight-charts on the
 |---|---|
 | ![Backtest](docs/screenshots/backtest.png) | ![Charts](docs/screenshots/charts.png) |
 
+**Portfolio** — holdings heat map, trend map and a Monte Carlo simulation of your stocks and funds
+
+| Heat map | Trend map |
+|---|---|
+| ![Portfolio heat map](docs/screenshots/portfolio-heatmap.webp) | ![Portfolio trend map](docs/screenshots/portfolio-trend-map.webp) |
+
+![Portfolio simulation](docs/screenshots/portfolio-simulation.webp)
+
+**Stock connections** — who moves with a stock, and who holds it
+
+| Moves together | Who holds it |
+|---|---|
+| ![Stock connections](docs/screenshots/stock-connections.webp) | ![Who holds it](docs/screenshots/stock-holders.png) |
+
+**Mutual Funds**
+
+![Mutual Funds](docs/screenshots/mutual-funds.webp)
+
 ## Quick start
 
 ```bash
@@ -48,6 +66,15 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 - **Candle pattern detection** — 13 TA-Lib patterns (Morning Star, Engulfing, Hammer, Marubozu, etc.) with 1/2/3-bar labels, filtered to last 10 trading days
 - **Trend Outlook** — indicator confluence score (RSI + MACD + SMA20/50 + Volume + patterns, –8 to +8) with historical pattern win-rate stats from the stock's own data
 - **Computed beta** — rolling beta sparkline calculated from own OHLCV, not third-party
+
+**Stock connections** (`Connections` tab on a stock)
+- Stocks that move together, move the opposite way, and sector peers, by correlation over 60 / 120 / 250 days
+- Who holds it: holders above 1% from the shareholding filing, and the other companies the same big promoter holder appears in
+
+**Portfolio** (`/portfolio`)
+- Stocks, mutual funds, FDs and other assets in one place with value, gain / loss and a heat map
+- Trend map, 200-day trend, daily lean, gap to 52-week high and profit spread across your holdings
+- Monte Carlo simulation (3M to 2Y) resampled from past returns: fan chart and outcome distribution
 
 **Screener**
 - 69+ indicators across price, volume, fundamentals, delivery, and technicals
