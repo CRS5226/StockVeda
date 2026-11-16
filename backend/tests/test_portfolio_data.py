@@ -1,6 +1,6 @@
 """Tests for the portfolio data routes and the sync job. Nothing calls the network."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import duckdb
@@ -15,6 +15,11 @@ from backend.db import connection
 from backend.routes import portfolio, portfolio_data
 
 SCHEMA = (Path(connection.__file__).parent / "schema.sql").read_text()
+
+
+def _latest_bar_time() -> datetime:
+    """A 60-minute bar from the latest trading day that should be stored now, so the test does not depend on the date."""
+    return datetime.combine(expected_close_date(datetime.now().astimezone()), time(10, 15))
 
 
 @pytest.fixture
@@ -78,7 +83,7 @@ def test_sync_fills_the_gaps_and_reports_each_step(client, db, monkeypatch):
         assert interval == "60m"
         if sym == "ITC":
             return pd.DataFrame()                                          # Yahoo has nothing for ITC
-        return pd.DataFrame({"datetime": [datetime(2026, 11, 13, 10, 15)], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
+        return pd.DataFrame({"datetime": [_latest_bar_time()], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
 
     monkeypatch.setattr(sync, "fetch_intraday_symbol", fake_hourly)
     monkeypatch.setattr(sync.yf, "Ticker", FakeTicker)
@@ -107,7 +112,7 @@ def test_a_failing_symbol_does_not_stop_the_others(client, db, monkeypatch):
     def fake_hourly(sym, interval, days):
         if sym == "TCS":
             raise RuntimeError("yahoo down")
-        return pd.DataFrame({"datetime": [datetime(2026, 11, 13, 10, 15)], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
+        return pd.DataFrame({"datetime": [_latest_bar_time()], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
     monkeypatch.setattr(sync, "fetch_intraday_symbol", fake_hourly)
     monkeypatch.setattr(sync.yf, "Ticker", FakeTicker)
     monkeypatch.setattr(sync, "parse_financials", lambda *a: [])
@@ -120,7 +125,7 @@ def test_a_symbol_yahoo_has_no_trading_hours_for_counts_as_no_data_not_a_failure
     def fake_hourly(sym, interval, days):
         if sym == "TCS":
             raise KeyError("tradingPeriods")
-        return pd.DataFrame({"datetime": [datetime(2026, 11, 13, 10, 15)], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
+        return pd.DataFrame({"datetime": [_latest_bar_time()], "symbol": [sym], "interval": ["60m"], "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 5})
     monkeypatch.setattr(sync, "fetch_intraday_symbol", fake_hourly)
     monkeypatch.setattr(sync.yf, "Ticker", FakeTicker)
     monkeypatch.setattr(sync, "parse_financials", lambda *a: [])
