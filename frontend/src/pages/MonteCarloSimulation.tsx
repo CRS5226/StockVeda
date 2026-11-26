@@ -2,16 +2,13 @@ import { useMemo, useState } from "react";
 import { Dices, Play, AlertCircle } from "lucide-react";
 import { api } from "../lib/api";
 import MacroLineChart from "../components/MacroLineChart";
+import { fmt } from "../lib/stockFormat";
 
 type MonteCarloResult = Awaited<ReturnType<typeof api.getMonteCarloAnalysis>>;
 type Series = { label: string; color: string; data: { date: string; value: number }[] };
 
 const EMPTY_SERIES: Series[] = [];
 
-function fmt(n?: number | null, dec = 2) {
-  if (n == null) return "—";
-  return n.toLocaleString("en-IN", { maximumFractionDigits: dec });
-}
 
 // Forward trading-day labels from as_of_date — skips Sat/Sun, no holiday calendar
 // needed for a "what could happen" scenario chart (unlike backtest P&L, which must be exact).
