@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CRS5226/StockVeda/actions/workflows/ci.yml/badge.svg)](https://github.com/CRS5226/StockVeda/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node 18+](https://img.shields.io/badge/node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Good first issues](https://img.shields.io/github/issues/CRS5226/StockVeda/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -145,7 +145,7 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 
 | Layer | Tech |
 |-------|------|
-| Backend | Python 3.11+, FastAPI, DuckDB, pandas, pandas-ta, TA-Lib 0.6.8, scikit-learn, XGBoost, yfinance |
+| Backend | Python 3.12+, FastAPI, DuckDB, pandas, pandas-ta, TA-Lib 0.6.8, scikit-learn, XGBoost, yfinance |
 | Frontend | React 19, Vite, Tailwind CSS v4, lightweight-charts (TradingView), Zustand, React Router v7, lucide-react |
 | Database | DuckDB (single file, zero-config) |
 | Process manager | pm2 |
@@ -155,7 +155,7 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Node.js 18+
 - [uv](https://github.com/astral-sh/uv) — `pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - TA-Lib system library (for candle pattern detection)
