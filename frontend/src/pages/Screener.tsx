@@ -7,13 +7,9 @@ import {
 import { api } from "../lib/api";
 import { useScreenerStore } from "../store/useScreenerStore";
 import ScreenerFilters from "../components/ScreenerFilters";
+import { fmt } from "../lib/stockFormat";
 
 // ── helpers ────────────────────────────────────────────────────────────────
-
-function fmt(n: number | undefined | null, dec = 2) {
-  if (n == null) return "—";
-  return n.toLocaleString("en-IN", { maximumFractionDigits: dec });
-}
 
 function pct(n: number | undefined | null) {
   if (n == null) return "—";
