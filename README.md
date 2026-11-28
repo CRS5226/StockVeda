@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CRS5226/StockVeda/actions/workflows/ci.yml/badge.svg)](https://github.com/CRS5226/StockVeda/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node 18+](https://img.shields.io/badge/node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Good first issues](https://img.shields.io/github/issues/CRS5226/StockVeda/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/CRS5226/StockVeda/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
