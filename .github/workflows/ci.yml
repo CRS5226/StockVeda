@@ -21,14 +21,14 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-          activate-environment: true
+      # The same setup command the README gives contributors, so it can't break unnoticed.
       - name: Install dependencies
-        run: uv pip install -r pyproject.toml pytest ruff ta-lib
+        run: uv sync
       # Errors only (syntax errors, undefined names). Style warnings are tracked in #45.
       - name: Lint
-        run: ruff check backend --select E9,F63,F7,F82
+        run: uv run --with ruff ruff check backend --select E9,F63,F7,F82
       - name: Tests
-        run: python -m pytest backend/tests -q
+        run: uv run --with pytest python -m pytest backend/tests -q
 
   frontend:
     name: Frontend (type check + build)
