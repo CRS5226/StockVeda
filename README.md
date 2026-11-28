@@ -48,7 +48,7 @@ uv sync && uv run uvicorn backend.main:app --port 8007 --reload   # backend
 cd frontend && npm install && npm run dev                           # frontend, in a second terminal
 ```
 
-Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites (including TA-Lib) and [Initial Data Sync](#initial-data-sync) to load data.
+Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites and [Initial Data Sync](#initial-data-sync) to load data.
 
 ---
 
@@ -145,7 +145,7 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 
 | Layer | Tech |
 |-------|------|
-| Backend | Python 3.12+, FastAPI, DuckDB, pandas, pandas-ta, TA-Lib 0.6.8, scikit-learn, XGBoost, yfinance |
+| Backend | Python 3.12+, FastAPI, DuckDB, pandas, pandas-ta, TA-Lib, scikit-learn, XGBoost, yfinance |
 | Frontend | React 19, Vite, Tailwind CSS v4, lightweight-charts (TradingView), Zustand, React Router v7, lucide-react |
 | Database | DuckDB (single file, zero-config) |
 | Process manager | pm2 |
@@ -158,7 +158,6 @@ Open `http://localhost:5173`. See [Local Setup](#local-setup) for prerequisites 
 - Python 3.12+
 - Node.js 18+
 - [uv](https://github.com/astral-sh/uv) — `pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- TA-Lib system library (for candle pattern detection)
 
 ---
 
@@ -172,10 +171,7 @@ cd StockVeda
 ### Backend
 
 ```bash
-uv sync
-
-# TA-Lib wheel (prebuilt, no C compilation needed)
-pip install ta-lib --break-system-packages
+uv sync   # installs everything, including TA-Lib
 
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8007 --reload
 ```
